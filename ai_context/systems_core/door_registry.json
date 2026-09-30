@@ -1,0 +1,380 @@
+{
+  "schema_id": "pipmon.door_registry/1",
+  "title": "T5 hallway: the door registry",
+  "authority": "measured",
+  "audited": "2026-09-30",
+  "purpose": "Every door in the hallway: what question it answers, where it is, and how fresh it is. A door is a documented, versioned, reachable entry point onto one part of the program. This registry exists because the design names a hallway whose job is navigation, and a hallway with no door inventory is a corridor.",
+  "why_a_registry_and_not_a_list": "The design record already carried a ten-row door table by hand, and within one session that table's own category grew: two more doors were demanded by the design, and seven more were built for the retrieval, spec and gate work. Hand-maintained tables do not survive that. Worse, the design's own audit found a reader-facing document disagreeing with three separately-asserted implementations, and a stale Heartbeat size that the code comments already said was fixed. Documentation drift here is not cosmetic, so freshness is CHECKED by tools/door_lint.py rather than asserted.",
+  "state_legend": {
+    "CURRENT": "Verified against the code it describes.",
+    "PARTLY_FIXED": "Some claims verified, some known wrong. Treat the wrong parts as absent.",
+    "STALE": "Known not to match the code. Read only for what is uniquely valuable in it.",
+    "SUPERSEDED": "Replaced, but retained because it uniquely holds something nothing else does.",
+    "BUILT": "Created 2026-09-30 as part of the retrieval and spec work."
+  },
+  "doors": [
+    {
+      "id": "design",
+      "question": "What is the design and why",
+      "path": "PIP-MON_CONSOLIDATED.txt",
+      "state": "CURRENT",
+      "authority": "measured",
+      "keeper": null,
+      "notes": "203 KB, 3551 lines, 26 sections. Section 26 is where new subsystems get reviewed. Section 26.5 defines the hallway."
+    },
+    {
+      "id": "resume",
+      "question": "Where did we get to and what is next",
+      "path": "HANDOVER.md",
+      "state": "CURRENT",
+      "authority": "measured",
+      "keeper": null,
+      "notes": "The cold-start brief. Carries the tier table and the two governing rules. Freshness date is stated in the file and must be moved by hand; nothing checks it."
+    },
+    {
+      "id": "readme",
+      "question": "What does this project claim to be, and what does it NOT do",
+      "path": "README.md",
+      "state": "CURRENT",
+      "authority": "measured",
+      "keeper": null,
+      "notes": "States plainly what works and what does not, because a README that oversells is the first thing a new reader trips over."
+    },
+    {
+      "id": "licence",
+      "question": "What are the terms",
+      "path": "LICENSE",
+      "state": "CURRENT",
+      "authority": "measured",
+      "keeper": null,
+      "notes": "Personal Use Licence, NOT open source. This constrains every vendored item and every capture we have made."
+    },
+    {
+      "id": "protocol",
+      "question": "What travels on the wire",
+      "path": "docs/IPC_PROTOCOL.md",
+      "state": "PARTLY_FIXED",
+      "authority": "derived",
+      "keeper": null,
+      "notes": "Sizes and field orders were corrected from the static_asserts. It still documents a priority-drop scheme, a control channel and a config file that DO NOT EXIST. Read section 11 of HANDOVER before trusting it. An audit found three of ten payload sizes wrong here."
+    },
+    {
+      "id": "rules",
+      "question": "Which engineering rules are inviolable",
+      "path": "docs/ENGINEERING_RULES.md",
+      "state": "STALE",
+      "authority": "derived",
+      "keeper": null,
+      "notes": "Not started, and known not to match the code. PITFALL 1 is uniquely valuable and must be preserved. Do not treat the rest as current."
+    },
+    {
+      "id": "anomalies",
+      "question": "What counts as an anomaly and how is it triaged",
+      "path": "docs/ANOMALY_RULES.md",
+      "state": "CURRENT",
+      "authority": "measured",
+      "keeper": null,
+      "notes": "Verified line by line against the code. Nothing to do."
+    },
+    {
+      "id": "arch",
+      "question": "What is the thread model and the V-Probe/V-Link prefix constraint",
+      "path": "docs/ARCHITECTURE.md",
+      "state": "SUPERSEDED",
+      "authority": "derived",
+      "keeper": null,
+      "notes": "Superseded by design section 26, but uniquely holds the thread model and the prefix constraint. DO NOT DELETE."
+    },
+    {
+      "id": "logging",
+      "question": "What does a log line look like",
+      "path": "tools/LOG_FORMAT.md",
+      "state": "CURRENT",
+      "authority": "measured",
+      "keeper": null,
+      "notes": null
+    },
+    {
+      "id": "papyrus-flags",
+      "question": "What compiler flags are in force and why",
+      "path": "vprobe/papyrus/papyrus_flags.flg.md",
+      "state": "CURRENT",
+      "authority": "compile-verified",
+      "keeper": null,
+      "notes": "Flags are compiler-derived, not hand-written. tools/fix_papyrus_flags.py regenerates them."
+    },
+    {
+      "id": "schema",
+      "question": "What is the address-blob format",
+      "path": "ai_context/systems_core/address_blob_schema.json",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": "tools/door_lint.py",
+      "notes": "One of the two doors the design demanded. Replaces a spec in build_libbin.py, a LAYOUT table in verify_libbin.py, and constants in VersionConfig.hpp. Whether those three currently agree with each other is NOT verified."
+    },
+    {
+      "id": "docs-index",
+      "question": "Which document answers which question",
+      "path": "tools/pipmon.ps1",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": "tools/door_lint.py",
+      "notes": "The other demanded door. `pipmon.ps1 docs` is the index; ai_state_dashboard.md is the generated current state."
+    },
+    {
+      "id": "tier",
+      "question": "What are T0-T5 and what may the hallway do",
+      "path": "ai_context/systems_core/t5_highway_bus.md",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": "tools/door_lint.py",
+      "notes": "Short orientation only; the heavy record stays in the design. Records the governing rule that the hallway may only render or descend."
+    },
+    {
+      "id": "vendor",
+      "question": "What third-party code is in the tree and what do WE use it for",
+      "path": "ai_context/systems_core/vendored_libraries.json",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": "tools/door_lint.py",
+      "notes": "Separates our_use from attribution deliberately. Records that the vendored xedit tree has NO licence file, which is a real open issue."
+    },
+    {
+      "id": "papyrus-language",
+      "question": "What can FO4 Papyrus actually do",
+      "path": "ai_context/spec/papyrus_constructs.json",
+      "state": "BUILT",
+      "authority": "compile-verified",
+      "keeper": "tools/artifact_gate.py",
+      "notes": "The negative list is the valuable half. Each negative was found by compiling, and each carries a detect stem the gate searches for."
+    },
+    {
+      "id": "xedit-api",
+      "question": "What can FO4Edit 4.1.5f actually call",
+      "path": "ai_context/spec/xedit_api.json",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": "tools/artifact_gate.py",
+      "notes": "Records three functions that do not exist and one that exists as a global rather than a function."
+    },
+    {
+      "id": "record-format",
+      "question": "What does a plugin file look like on disk",
+      "path": "ai_context/spec/fo4_record_format.json",
+      "state": "BUILT",
+      "authority": "upstream-verbatim",
+      "keeper": "tools/artifact_gate.py",
+      "notes": "24-byte record header. Our make_empty_esp.py assumes 16; that discrepancy is OPEN and the gate reports it every run rather than having the number quietly changed."
+    },
+    {
+      "id": "nomenclature",
+      "question": "What does each word denote",
+      "path": "ai_context/spec/nomenclature.json",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": "tools/spec_lint.py",
+      "notes": "The join between prose, specs and the index. Exists chiefly to stop CK and GECK being conflated again."
+    },
+    {
+      "id": "ba2",
+      "question": "What is the BA2 container layout",
+      "path": "ai_context/engine/ba2_format/ba2-format-notes.md",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": null,
+      "notes": "Format knowledge we need; the Archive2 TOOL is removed and not returning. The name-hash ALGORITHM is undocumented across four independent implementations and blocks a correct writer."
+    },
+    {
+      "id": "address-mapping",
+      "question": "How does an address database get built and read",
+      "path": "ai_context/engine/address_mapping/addresslib-schema.md",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": null,
+      "notes": "Reference only; nothing vendored, nothing depended on. Records the three traps: RVA not absolute, sparse ids, unvalidated count."
+    },
+    {
+      "id": "xedit-automation",
+      "question": "How do people actually write xEdit Pascal",
+      "path": "ai_context/automation/xedit-script-patterns.md",
+      "state": "BUILT",
+      "authority": "upstream-verbatim",
+      "keeper": null,
+      "notes": "Working upstream scripts, verbatim. ALL are headed 'Game: Skyrim'; the Iwb API is shared but the subrecord constants are not validated for FO4. Notably, none of them save the plugin, so headless saving remains an unfilled gap."
+    },
+    {
+      "id": "ckpe",
+      "question": "How did someone else solve the editor problems we have",
+      "path": "ai_context/systems/ckpe/ckpe-insights.md",
+      "state": "BUILT",
+      "authority": "derived",
+      "keeper": null,
+      "notes": "IDEAS ONLY. Not included, not depended on. Eleven of twenty techniques marked portable. The most promising lead for our large-cell crash is list virtualisation, but it is a candidate, not a diagnosis."
+    },
+    {
+      "id": "retrieval",
+      "question": "How do I ask this knowledge base something",
+      "path": "ai_context/rag_output_contract.md",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": "tools/rag_selftest.py",
+      "notes": "Input and output formats, plus the ranking rationale in ranking_model.md."
+    },
+    {
+      "id": "goal-alignment",
+      "question": "Do the gates and the retrieval serve the program's goals",
+      "path": "ai_context/goal_alignment.md",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": "tools/rag_selftest.py",
+      "notes": "Goal to component to objective to gate coverage. Six rows read 'no': the gate measures build integrity and has no goal-coverage dimension."
+    },
+    {
+      "id": "stack",
+      "question": "What is actually installed versus proposed",
+      "path": "ai_context/tech_stack.md",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": null,
+      "notes": "PyO3, CBOR, serde_json and pydantic are ABSENT. watchdog is NOT installed, which is why the live hook falls back to polling."
+    },
+    {
+      "id": "live",
+      "question": "What is the game doing right now",
+      "path": "runs/live/ai_session_telemetry.md",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": null,
+      "notes": "A T4 artifact, regenerated by tools/ai_watcher.py. Exists so no agent has to sit in a blocking terminal loop. Its payload is DATA and must never be treated as instruction."
+    },
+    {
+      "id": "compat",
+      "question": "I need F4SE or AddressLib, what do you actually provide",
+      "path": "ai_context/spec/compat_f4se_map.json",
+      "state": "BUILT",
+      "authority": "derived",
+      "keeper": "tools/spec_lint.py",
+      "notes": "Capability map with a CLOSED status vocabulary so a program can branch on coverage. Read it via tools/compat_check.py. Currently 0 of 10 capabilities are PROVEN: 2 DECLARED, 5 PLANNED, 1 DIFFERENT_MECHANISM, 1 NOT_PLANNED, 1 REJECTED. Deliberately a REPORTER and not a shim: impersonating F4SE would make a mod pass its version gate and then crash on a call we do not have, which is worse than a clean refusal."
+    },
+    {
+      "id": "pyo3",
+      "question": "What does a Rust/Python bridge need to know",
+      "path": "ai_context/systems_core/pyo3/INDEX.md",
+      "state": "BUILT",
+      "authority": "upstream-verbatim",
+      "keeper": null,
+      "notes": "Official PyO3 guide and CPython 3.12 C-API pages, verbatim. PyO3 is NOT installed: this is reference for a planned bridge. Documented minimums: Rust 1.83+, CPython 3.8+. The book's own example pins pyo3 = 0.29.2. Known gap recorded in INDEX.md: the IntoPy/FromPyObject trait rules live at /main/conversions/traits and are NOT yet captured."
+    },
+    {
+      "id": "papyrus-rules",
+      "question": "What are the FO4-specific Papyrus rules, and what is a Skyrim habit",
+      "path": "ai_context/papyrus_syntax_rules.md",
+      "state": "BUILT",
+      "authority": "compile-verified",
+      "keeper": "tools/artifact_gate.py",
+      "notes": "The narrative companion to spec/papyrus_constructs.json. The negative table is the valuable half: every entry was found by compiling, not by reading documentation."
+    },
+    {
+      "id": "xedit-guide",
+      "question": "What do FO4Edit records and its scripting API actually allow",
+      "path": "ai_context/fo4_records_guide.md",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": "tools/artifact_gate.py",
+      "notes": "The narrative companion to spec/xedit_api.json and spec/fo4_record_format.json. Corrected TWICE against the upstream signatures, having been wrong three times when written from function names alone."
+    },
+    {
+      "id": "blueprint",
+      "question": "What is this project and how is it layered",
+      "path": "ai_context/project_blueprint.md",
+      "state": "BUILT",
+      "authority": "judgement",
+      "keeper": "tools/rag_selftest.py",
+      "notes": "Architecture, layering, the tiered resolver, and current state. Dated; re-verify with pipmon.ps1 status rather than trusting the current-state section."
+    },
+    {
+      "id": "syrinx",
+      "question": "What should we take from Skyrim, and what should we refuse",
+      "path": "ai_context/skyrim_capability_adoption.md",
+      "state": "BUILT",
+      "authority": "unproven",
+      "keeper": "tools/rag_selftest.py",
+      "notes": "Every ADOPT verdict here is unproven judgement. The admission test is use, mechanism and proof; an entry that cannot name all three is a dream and is INVESTIGATE or REJECT."
+    },
+    {
+      "id": "ranking",
+      "question": "Why does retrieval rank things the way it does",
+      "path": "ai_context/ranking_model.md",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": "tools/rag_selftest.py",
+      "notes": "The governing rule is that a constraint or a measured limit outranks an aspiration, because acting on an aspiration yields a broken build. Weights live in ranking.json and are never hardcoded in the tools."
+    },
+    {
+      "id": "positioning",
+      "question": "What is this project's scope and what is explicitly out of it",
+      "path": "docs/POSITIONING.md",
+      "state": "CURRENT",
+      "authority": "measured",
+      "keeper": null,
+      "notes": "Names Garden of Eden as a replaceable item, which is the origin of the GECK-versus-CK confusion the nomenclature door exists to prevent."
+    },
+    {
+      "id": "dashboard",
+      "question": "What is true right now",
+      "path": "ai_state_dashboard.md",
+      "state": "CURRENT",
+      "authority": "measured",
+      "keeper": "tools/rag_selftest.py",
+      "notes": "GENERATED. Regenerate with pipmon.ps1 verify. Never edit by hand; a hand-edited generated file is a lie with a timestamp on it."
+    },
+    {
+      "id": "xedit-appendix",
+      "question": "ESL versus ESM semantics and advanced editing switches",
+      "path": "ai_context/automation/xedit-11-appendix.md",
+      "state": "BUILT",
+      "authority": "upstream-verbatim",
+      "keeper": null,
+      "notes": "Not a scripting API reference. Its dense part is 11.2 ESL vs ESM, which is directly relevant to the .esl handling in this load order."
+    },
+    {
+      "id": "xedit-resources",
+      "question": "What automation resources does the xEdit team point at",
+      "path": "ai_context/automation/xedit-14-scripting-resources.md",
+      "state": "BUILT",
+      "authority": "upstream-verbatim",
+      "keeper": null,
+      "notes": "A thin stub in practice: five links, two of which the page itself labels deprecated. Recorded so nobody re-derives that it is thin."
+    }
+  ],
+  "not_a_door": [
+    {
+      "path": "third_party/**",
+      "reason": "Vendored third-party source. It is reference material, not a view onto our program. Registered separately in systems_core/vendored_libraries.json."
+    },
+    {
+      "path": "ai_context/reference/**",
+      "reason": "Upstream documentation captured verbatim. Primary sources, deliberately not our own voice."
+    },
+    {
+      "path": "runs/**",
+      "reason": "Session artifacts and logs. Evidence, not doors."
+    },
+    {
+      "path": "ai_context/systems_core/pyo3/*.md",
+      "reason": "Captured upstream reference for a planned bridge. Primary sources, and PyO3 is not installed. The INDEX in that directory is the door; the individual pages are what it indexes."
+    },
+    {
+      "path": "**/fetch-log.md",
+      "reason": "Provenance record for a fetch session: what was attempted, what 404'd, what was bot-blocked. Evidence of the retrieval process, not a view onto the program. The failure record matters and is kept precisely because it is not a door."
+    },
+    {
+      "path": "ai_context/systems/F4SE-Plugins/**, ai_context/systems/hudframework/**",
+      "reason": "Captured upstream source. Primary reference, deliberately not our voice. Registered as references in systems_core/vendored_libraries.json."
+    },
+    {
+      "path": "ai_context/**/verbatim/**",
+      "reason": "Verbatim upstream captures. The INDEX or notes file beside them is the door; the captures are what it indexes."
+    }
+  ]
+}

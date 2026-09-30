@@ -1,0 +1,72 @@
+{
+  "schema_id": "pipmon.vendored_registry/1",
+  "title": "Vendored third-party libraries: what we took, from whom, and what we use them for",
+  "authority": "measured",
+  "audited": "2026-09-30",
+  "purpose": "Every library under third_party/ is declared here with its upstream, its licence, and an explicit statement of what it is FOR IN OUR PROGRAM. The declaration exists because 'we use CommonLibF4' and 'F4SE uses CommonLibF4' are different claims, and a later session that cannot tell them apart will either re-vendor something already present or attribute our design to someone else's project.",
+  "declaration_rule": "our_use must say what WE rely on it for. attribution must say whose project it is. These are separate fields on purpose: depending on a layout library is depending on facts about the game, whereas depending on another mod's loader is depending on that mod. Only the first kind is acceptable here.",
+  "libraries": [
+    {
+      "name": "CommonLibF4",
+      "path": "third_party/CommonLibF4",
+      "files": 350,
+      "size_mb": 4.2,
+      "upstream": "libxse/commonlibf4 (Bethesda reverse-engineering community)",
+      "licence": "LICENSE present in third_party/CommonLibF4/LICENSE",
+      "attribution": "Not F4SE. A reverse-engineered engine layout library, maintained independently of any extender.",
+      "our_use": "The authoritative source for engine structure: RE/Bethesda/BSScript.h holds native declarations in method order, and RE/VTABLE_IDs.h is the vtable inventory. These are the most direct lead to Layer A, whose blocker is documented as needing a BSScript class declaration in method order.",
+      "not_our_use": "Not a runtime dependency of the shipped mod. We do not require players to have it, and nothing in the Papyrus surface or the wire depends on it at runtime.",
+      "status": "vendored, in use as reference"
+    },
+    {
+      "name": "zydis",
+      "path": "third_party/zydis",
+      "files": 641,
+      "size_mb": 14.3,
+      "upstream": "zyedidia/zydis (v4.1.1, per the vendored directory name)",
+      "licence": "LICENSE present at third_party/zydis/zydis-4.1.1/LICENSE, plus zycore LICENSE",
+      "attribution": "Standalone disassembler library. No mod relationship.",
+      "our_use": "Tier 3 of the resolver: signature scanning and instruction decoding for the in-process runtime (vprobe). Also what lets build_vtables.bat confirm a vtable target's RTTI class name against the real executable.",
+      "not_our_use": "Not used by the Papyrus layer, the wire, or any editor-side tool.",
+      "status": "vendored, compiled by stage 1"
+    },
+    {
+      "name": "xedit",
+      "path": "third_party/xedit",
+      "files": 256,
+      "size_mb": 273.9,
+      "upstream": "TES5Edit/Fallout4Edit, build 4.1.5f x64 (7C57FA01)",
+      "licence": "NO LICENCE FILE PRESENT IN THE VENDORED TREE. This is a real gap and is recorded rather than glossed: the binaries and the Pascal scripting framework are third-party work whose licence terms we have not captured.",
+      "attribution": "TES5Edit / ElminsterAU / Sharlikran and contributors. The community record editor, not an extender.",
+      "our_use": "The automation host. Headless xEdit parses and (once proven) writes our records without the Creation Kit, which matters because the CK crashes. Its Pascal scripting API is defined in ai_context/spec/xedit_api.json and enforced by tools/artifact_gate.py.",
+      "not_our_use": "Not shipped with the mod, not required at runtime, and not reimplemented. We call it; we do not fork it.",
+      "status": "vendored binaries; licence terms unrecorded",
+      "open_issue": "273.9 MB is by far the largest vendored item and the only one without a licence file. Worth deciding deliberately whether it belongs in the tree at all, given the tools also exist at %LOCALAPPDATA%/Temp/opencode/xedit/x."
+    }
+  ],
+  "referenced_but_not_vendored": [
+    {
+      "name": "AddressLib reference implementation",
+      "our_use": "Reference for the address-blob format only. Captured as verbatim source at ai_context/engine/address_mapping/verbatim/ and specified at ai_context/systems_core/address_blob_schema.json.",
+      "note": "libxse/addresslib does not exist as a public repository (404; the libxse org has no such repo). The reference was obtained from a different public repository. Nothing is vendored and nothing is depended on."
+    },
+    {
+      "name": "xEditScripts / mxpf",
+      "our_use": "Reference for xEdit Pascal automation patterns, captured verbatim under ai_context/automation/.",
+      "note": "Every script in that collection is headed 'Game: Skyrim'. The Iwb*/IInterface API is shared with FO4Edit, but signatures and subrecord constants are Skyrim-specific and were NOT re-validated for FO4. None of it is compiled by our gate as our code."
+    },
+    {
+      "name": "CKPE (Perchik71/Creation-Kit-Platform-Extended)",
+      "our_use": "Ideas only, captured at ai_context/systems/ckpe/. We are building an in-house replacement for the editor problems it addresses.",
+      "note": "NOT included, NOT depended on, NOT a target API. Worth noting that CKPE itself declares SupportsAddressLibrary() true, which is independent corroboration that the address-mapping pattern is load-bearing."
+    },
+    {
+      "name": "F4SE",
+      "our_use": "None. We replace it.",
+      "note": "No F4SE loader is deployed. Any DLLs under Data/F4SE are inert. Material in ai_context/systems/ exists to study extender structure and scope, not to depend on."
+    }
+  ],
+  "tools_already_on_disk_not_vendored": [
+    {"name": "BSArch / BSArch64 / BSArchPro / BSArchPro64", "note": "BA2-capable tools ship with xEdit and are present both in third_party/xedit and %LOCALAPPDATA%/Temp/opencode/xedit/x. No tooling gap for BA2 remains; the FORMAT gap is what ai_context/engine/ba2_format/ addresses."}
+  ]
+}

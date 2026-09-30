@@ -1,0 +1,18 @@
+{
+  "written_utc": "2026-09-30T21:47:23Z",
+  "note": "Known violations, acknowledged rather than fixed. Regenerate with --write-baseline only after a deliberate review. Each entry is file::rule::construct.",
+  "findings": [
+    "overseer_event_bridge/Scripts/Source/OverseerBridge.psc::papyrus construct not in FO4::CustomEvent",
+    "overseer_event_bridge/Scripts/Source/OverseerBridge.psc::papyrus construct not in FO4::OnAddToMenu / OnMenuClick / OnMenuClose in a non-Native script",
+    "pip_mon_testlab/Scripts/Source/PipMon_LeakTest.psc::papyrus construct not in FO4::CustomEvent",
+    "pip_mon_testlab/Scripts/Source/PipMon_LeakTest.psc::papyrus construct not in FO4::OnAddToMenu / OnMenuClick / OnMenuClose in a non-Native script",
+    "pip_mon_testlab/Scripts/Source/PipMon_LoopTest.psc::papyrus construct not in FO4::CustomEvent",
+    "pip_mon_testlab/Scripts/Source/PipMon_LoopTest.psc::papyrus construct not in FO4::OnAddToMenu / OnMenuClick / OnMenuClose in a non-Native script",
+    "pip_mon_testlab/Scripts/Source/PipMon_LoopTest.psc::papyrus construct not in FO4::SendEvent",
+    "pip_mon_testlab/Scripts/Source/PipMon_TerminalTest.psc::papyrus construct not in FO4::CustomEvent",
+    "pip_mon_testlab/Scripts/Source/PipMon_TerminalTest.psc::papyrus construct not in FO4::OnAddToMenu / OnMenuClick / OnMenuClose in a non-Native script",
+    "testfacility/xedit/gen_facility.pas::xEdit API call does not exist in 4.1.5f::AddNewElement",
+    "testfacility/xedit/gen_facility.pas::xEdit API call does not exist in 4.1.5f::GetActivePlugin",
+    "tools/make_empty_esp.py::structural constant contradicts the record format spec::record header size"
+  ]
+}

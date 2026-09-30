@@ -1,0 +1,172 @@
+# =============================================================
+#  ck_session.ps1 -- apply a curated load order for a Creation
+#  Engine session, and put the previous one back afterwards.
+#
+#  WHY THIS EXISTS
+#    The load order in plugins.txt is the single most valuable and most
+#    fragile file in this workspace, and THREE programs want to write it:
+#
+#      - the user, by hand, which is how the current 61 entries got curated;
+#      - the Creation Kit, on every session close;
+#      - Vortex, which REGENERATES the list from its own mod state.
+#
+#    That last one is now measured rather than suspected: 36 of the 61 enabled
+#    plugins have no Vortex staging entry at all, so Vortex does not know they
+#    exist. Any Vortex deploy that rewrites plugins.txt therefore strips them
+#    out of the load order -- which is exactly what happened to our own plugin
+#    earlier today. Unmanaged files survive on disk but vanish from the order.
+#
+#    So this tool takes ownership of the swap in both directions:
+#      prepare  snapshot what is live, then write the curated profile
+#      restore  put the snapshot back
+#      inspect  diff the live order against a profile, and report editor state
+#
+#  IT DOES NOT TOUCH THE EDITOR
+#    No signals, no writes into Data\, nothing while a Creation Kit process is
+#    up beyond plugins.txt itself, which the editor reads at startup. Loading
+#    the data files remains a human action: the CK has no scriptable interface
+#    here, and driving it by keystroke fights the user for the keyboard.
+# =============================================================
+[CmdletBinding()]
+param(
+    [Parameter(Position = 0)][ValidateSet('prepare', 'restore', 'inspect')]
+    [string]$Action = 'inspect',
+
+    [string]$Profile = 'core',
+    [string]$GameDir = 'C:\Program Files (x86)\Steam\steamapps\common\Fallout 4'
+)
+
+$ErrorActionPreference = 'Stop'
+$Repo = Split-Path -Parent $PSScriptRoot
+$Profiles = Join-Path $Repo 'tasks\session-profiles.json'
+$PluginTxt = Join-Path $env:LOCALAPPDATA 'Fallout4\plugins.txt'
+$SessionRoot = Join-Path $Repo 'runs\ck-session'
+$Latest = Join-Path $SessionRoot 'runtime-latest.txt'
+
+if (-not (Test-Path $SessionRoot)) { New-Item -ItemType Directory -Path $SessionRoot -Force | Out-Null }
+
+function Get-Profile($name) {
+    $doc = Get-Content $Profiles -Raw | ConvertFrom-Json
+    $p = $doc.profiles.$name
+    if (-not $p) { throw "no such profile '$name' in $Profiles" }
+    return $p
+}
+
+function Get-Live {
+    if (-not (Test-Path $PluginTxt)) { return @() }
+    return @(Get-Content -LiteralPath $PluginTxt | Where-Object { $_.Trim() -ne '' })
+}
+
+function Get-Enabled($lines) {
+    return @($lines | Where-Object { $_.StartsWith('*') } | ForEach-Object { $_.Substring(1) })
+}
+
+switch ($Action) {
+
+    'prepare' {
+        $p = Get-Profile $Profile
+        $live = Get-Live
+        $liveEnabled = Get-Enabled $live
+
+        $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+        $dir = Join-Path $SessionRoot $stamp
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        Copy-Item -LiteralPath $PluginTxt -Destination (Join-Path $dir 'plugins.txt') -Force
+        Copy-Item -LiteralPath $PluginTxt -Destination $Latest -Force
+        [ordered]@{
+            takenUtc = (Get-Date).ToUniversalTime().ToString('o')
+            enabled  = $liveEnabled.Count
+            lines    = $live.Count
+            note     = 'the load order that was live before this session; restore puts it back'
+        } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $dir 'manifest.json') -Encoding utf8
+
+        # Build the new order from the profile, preserving its order. The entry
+        # marked alwaysLast goes last: in this file the last entry is the active
+        # file, which is the whole reason the order is curated rather than
+        # appended to.
+        $head = @(); $tail = @()
+        foreach ($e in @($p.entries)) {
+            $line = if ($e.alwaysLast) { $e.name } else { "*$($e.name)" }
+            if ($e.alwaysLast) { $tail += "*$($e.name)" } else { $head += $line }
+        }
+        $want = @($head + $tail)
+
+        # Every profile entry must exist in Data\ before the order is written.
+        # The first version of this guard tested existence and then exempted
+        # every .esp/.esm/.esl from the test, which is to say it tested nothing:
+        # a profile naming three masters that were not installed produced a
+        # clean report and a Creation Kit that could not start. The exemption
+        # was a typo-shaped mistake with a real consequence, so the check now
+        # has no escape hatch.
+        $missing = @()
+        foreach ($e in @($p.entries)) {
+            $n = $e.name
+            if (-not (Test-Path (Join-Path $GameDir "Data\$n"))) {
+                $missing += $n
+            }
+        }
+
+        Set-Content -LiteralPath $PluginTxt -Value $want -Encoding ascii
+
+        $after = Get-Live
+        $added = @($want | ForEach-Object { $_.Substring(1) } | Where-Object { $liveEnabled -notcontains $_ })
+        $dropped = @($liveEnabled | Where-Object { $want -notcontains "*$_" })
+
+        Write-Output "prepared profile '$($p.label)'"
+        Write-Output ("  snapshot : {0}" -f $dir)
+        Write-Output ("  enabled  : {0} -> {1}" -f $liveEnabled.Count, $after.Count)
+        Write-Output ("  last line: {0}" -f $after[-1])
+        Write-Output ("  added    : {0}" -f $added.Count)
+        Write-Output ("  dropped  : {0}" -f $dropped.Count)
+        if ($dropped.Count -gt 0) {
+            Write-Output '  dropped from this session (restore puts them back):'
+            foreach ($d in $dropped) { Write-Output "    - $d" }
+        }
+        if ($missing.Count -gt 0) {
+            Write-Output '  NOT ON DISK (the CK will report a missing master):'
+            foreach ($m in $missing) { Write-Output "    ! $m" }
+        }
+        exit 0
+    }
+
+    'restore' {
+        if (-not (Test-Path $Latest)) {
+            Write-Output 'no snapshot to restore'
+            exit 2
+        }
+        Copy-Item -LiteralPath $Latest -Destination $PluginTxt -Force
+        $after = Get-Live
+        Write-Output ("restored the pre-session load order: {0} enabled, last line '{1}'" -f (Get-Enabled $after).Count, $after[-1])
+        exit 0
+    }
+
+    'inspect' {
+        $p = Get-Profile $Profile
+        $live = Get-Live
+        $enabled = Get-Enabled $live
+        $want = @($p.entries | ForEach-Object { $_.name })
+
+        Write-Output "live load order: $($enabled.Count) enabled"
+        Write-Output "profile '$($p.label)': $($want.Count) entries"
+        Write-Output ''
+        Write-Output 'in the profile but not live:'
+        foreach ($n in $want) { if ($enabled -notcontains $n) { Write-Output "  - $n" } }
+        Write-Output ''
+        Write-Output 'live but not in the profile:'
+        foreach ($n in $enabled) { if ($want -notcontains $n) { Write-Output "  + $n" } }
+
+        $ck = Get-Process CreationKit -ErrorAction SilentlyContinue
+        Write-Output ''
+        Write-Output ("Creation Kit : {0}" -f $(if ($ck) { "RUNNING pid $($ck.Id)" } else { 'closed' }))
+        $dump = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'CrashDumps') -Filter 'CreationKit*' -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($dump) {
+            Write-Output ("last CK crash : {0} ({1} min ago, {2} MB)" -f $dump.Name, [math]::Round(((Get-Date) - $dump.LastWriteTime).TotalMinutes), [math]::Round($dump.Length / 1MB))
+        }
+        $w = Join-Path $GameDir 'EditorWarnings.txt'
+        if (Test-Path $w) {
+            Write-Output ("warnings file: {0} lines, written {1}" -f @(Get-Content $w).Count, (Get-Item $w).LastWriteTime)
+        }
+        exit 0
+    }
+}

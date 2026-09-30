@@ -1,0 +1,137 @@
+{
+  "spec_id": "compat.f4se_and_addresslib",
+  "kind": "compat_mapping",
+  "title": "F4SE and AddressLib capability map: what mods ask for, and what we actually provide",
+  "authority": "derived",
+  "prose": "Mods declare F4SE, and sometimes AddressLib, as a hard dependency. They check a version, they gate their Papyrus behind it, and installation tools treat it as required. This file answers the only question that matters to a modder reading it: does PIP-MON cover what this thing needs. The honest headline is that coverage is currently THIN. One capability is proven, several are declared but unproven, several are planned with a named mechanism, and some are declined outright. Presenting F4SE as broadly covered would be the single easiest way to make this project untrustworthy, so the map is weighted toward admitting gaps. status is a closed vocabulary so a program can branch on it rather than reading prose. Note that AddressLib is a DIFFERENT_MECHANISM rather than a gap: we resolve addresses from our own database at build time, which is not a drop-in for a runtime library a mod can query, and pretending otherwise would produce a mod that loads and then fails.",
+  "provenance": [
+    {
+      "source": "common F4SE plugin surface",
+      "note": "The functions below are the widely-used F4SE/F4SEScript and libaddresslib entry points that mods call or gate on. Not an exhaustive enumeration of either product."
+    },
+    {
+      "source": "vprobe/papyrus/PipMon.psc",
+      "note": "Our declared surface. Where a row says DECLARED, the function exists here and its handler is unproven."
+    },
+    {
+      "source": "ai_context/skyrim_capability_adoption.md",
+      "note": "Where PLANNED rows come from. Each has a named mechanism there."
+    }
+  ],
+  "entries": [
+    {
+      "name": "F4SE version gate (F4SE.esp / F4SEScript GetVersion)",
+      "source_product": "F4SE",
+      "signature": "Int Function F4SE.GetVersion()",
+      "our_equivalent": "PipMon.GetVersion()",
+      "status": "DECLARED",
+      "mod_uses": "Almost every F4SE mod calls this once at load and refuses to run if it is 0.",
+      "notes": "The single most load-bearing row in this file. It compiles and deploys, but no handler is proven, because Layer A does not exist. A mod gating on it would see 0 and refuse cleanly, which is the correct behaviour rather than a crash.",
+      "spec": "ai_context/spec/program_components.json",
+      "provenance": [
+        "vprobe/papyrus/PipMon.psc declares GetVersion; no handler proven, so DECLARED not COVERED"
+      ]
+    },
+    {
+      "name": "F4SE plugin handle and plugin introspection",
+      "source_product": "F4SE",
+      "our_equivalent": "PipMon.GetVersion/GetCapabilities/GetRuntimeStatus as the ABI and capability query",
+      "status": "DECLARED",
+      "mod_uses": "GetPluginHandle, IsPluginEnabled, GetPluginName; used to gate interop between mods.",
+      "notes": "We expose an ABI version and a capability bitfield rather than a handle-based plugin registry. A different shape, so a mod expecting handles needs adapting rather than just enabling.",
+      "provenance": [
+        "vprobe/papyrus/PipMon.psc GetCapabilities/GetRuntimeStatus; no handle registry exists in this project"
+      ]
+    },
+    {
+      "name": "Event registration and custom event injection",
+      "source_product": "F4SE",
+      "our_equivalent": "PipMon.RegisterForEvents(Int aiMask) / UnregisterFromEvents(Int aiToken)",
+      "status": "PLANNED",
+      "mod_uses": "RegisterForEvent, UnregisterFromEvent, QueueEvent; the standard way one mod notifies another.",
+      "notes": "Push half is declared; delivery depends on Layer A. The no-Layer-A fallback, a native-side queue drained by a script tick, is the reachable version and should be built first. Mechanism is named in skyrim_capability_adoption.md, item 1.",
+      "provenance": [
+        "vprobe/papyrus/PipMon.psc RegisterForEvents/UnregisterFromEvents",
+        "ai_context/skyrim_capability_adoption.md item 1 for the mechanism"
+      ]
+    },
+    {
+      "name": "GetFormFromID and runtime spawn",
+      "source_product": "F4SE",
+      "our_equivalent": "PipMon.SpawnFromFormID(Int aiFormID)  [PROPOSED, not implemented]",
+      "status": "PLANNED",
+      "mod_uses": "GetFormFromID, GetActorFromFormID, and spawn-by-ID for spawning content that has no authored reference.",
+      "notes": "Removes the CK-assignment tax entirely: the facility roster is 15 named properties only because this does not exist. Negative case matters more than the positive: a FormID from an unloaded mod must return none rather than spawning the wrong object.",
+      "provenance": [
+        "ai_context/skyrim_capability_adoption.md item 2; no implementation exists"
+      ]
+    },
+    {
+      "name": "Utility flag block (SetUtilityFlag / GetUtilityFlag)",
+      "source_product": "F4SE",
+      "our_equivalent": "PipMon.GetCapabilities() as a capability mask",
+      "status": "PLANNED",
+      "mod_uses": "Feature gating; a mod checks a flag before calling an optional F4SE function.",
+      "notes": "We already have a capability bitfield. The mapping is close enough that most gating would work after renaming, though the flag values are ours and would not match F4SE's numerically.",
+      "provenance": [
+        "vprobe/papyrus/PipMon.psc GetCapabilities returns a bitfield"
+      ]
+    },
+    {
+      "name": "Utility / display helpers (MenuDisplay, MessageBox, DumpAliasObject)",
+      "source_product": "F4SE",
+      "our_equivalent": "PipMon.Log / LogError onto the wire, rendered by the T4 dashboard and CLI",
+      "status": "PLANNED",
+      "mod_uses": "On-screen debug output and diagnostic dumps.",
+      "notes": "Deliberately a different destination. A wire log is queryable after a crash and readable with no game UI, which a toast is not. Mods that specifically want on-screen text would not get it.",
+      "provenance": [
+        "ai_context/skyrim_capability_adoption.md item 3; wire logging is proposed, not implemented"
+      ]
+    },
+    {
+      "name": "AddressLib runtime resolution",
+      "source_product": "F4SE (libaddresslib)",
+      "our_equivalent": "vprobe.addresses.bin, resolved at build time; probes report which tier resolved them",
+      "status": "DIFFERENT_MECHANISM",
+      "mod_uses": "A mod or addon resolves a game function address at runtime and calls it through a proxy or hook.",
+      "notes": "This is the row most likely to be misread. We resolve into a build-time blob for OUR OWN registered probes; we do not expose a runtime address database a third-party mod can query. A mod built against libaddresslib will NOT work unmodified and will not fail politely either. Format is specified at ai_context/systems_core/address_blob_schema.json.",
+      "provenance": [
+        "ai_context/systems_core/address_blob_schema.json describes our build-time blob",
+        "verified: no runtime address database is exposed to third-party code"
+      ]
+    },
+    {
+      "name": "Script extender object patching (patched Form properties, hooks)",
+      "source_product": "F4SE",
+      "our_equivalent": "none",
+      "status": "NOT_PLANNED",
+      "mod_uses": "Hooking script property access, overriding native script behaviour at runtime.",
+      "notes": "Declined. It requires intercepting ScriptObject property access across the whole VM, which is a much larger surface than the single native-call slot Layer A needs, and it multiplies the ways a mod can corrupt game state invisibly. A mod relying on this has no path with us and should be told so plainly rather than half-enabled.",
+      "provenance": [
+        "no entry in vprobe/papyrus/PipMon.psc and no plan in skyrim_capability_adoption.md"
+      ]
+    },
+    {
+      "name": "Extending vanilla script types (extending Form, Actor, System:)",
+      "source_product": "F4SE",
+      "our_equivalent": "none, by design",
+      "status": "REJECTED",
+      "mod_uses": "Registering new functions onto vanilla classes so any script can call them unqualified.",
+      "notes": "Refused on architectural grounds. We register only into our own class, and that is the entire reason PIP-MON coexists with every other extender instead of competing with them. Surrendering it for convenience would cost the project's central advantage. This is the one row where a decision to reverse is available, and it should be made deliberately and written down, not drifted into.",
+      "provenance": [
+        "vprobe/papyrus/PipMon.psc header states we register into our OWN class and never extend a vanilla type"
+      ]
+    },
+    {
+      "name": "CKPE / editor stability",
+      "source_product": "CKPE (Perchik71)",
+      "our_equivalent": "nothing yet; in-house replacement wanted",
+      "status": "PLANNED",
+      "mod_uses": "Not a mod dependency: an authoring-time tool.",
+      "notes": "Out of scope for runtime compatibility and listed only so the door is not lost. Eleven of twenty CKPE techniques assessed as portable; the most promising lead for our large-cell crash is Cell View list virtualisation, which is a candidate and not a diagnosis. See ai_context/systems/ckpe/ckpe-insights.md.",
+      "provenance": [
+        "ai_context/systems/ckpe/ckpe-insights.md; nothing included or depended on"
+      ]
+    }
+  ]
+}

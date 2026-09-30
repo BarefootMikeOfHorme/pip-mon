@@ -1,0 +1,201 @@
+{
+  "schema": "pipmon.capabilities/1",
+  "note": "Capabilities are the things an agent or a human can DO. A task group does not 'finish' a thing -- it moves capabilities from BLOCKED to AVAILABLE, and the newly available set is how you know the task worked. Validation therefore has three independent legs: (1) did it compile or save, (2) do our own checks agree, (3) can we now exercise something that previously errored. Leg 3 is the one that catches a green build that produced nothing.",
+  "groups": [
+    { "id": "scripts", "label": "Papyrus scripts, natives, properties" },
+    { "id": "env", "label": "Cells, fixtures, lighting, worldspace edits" },
+    { "id": "runtime", "label": "The in-game probe and its telemetry" },
+    { "id": "editor", "label": "Creation Kit and xEdit as tools" },
+    { "id": "player", "label": "Things done to the player" },
+    { "id": "npc", "label": "NPCs, companions, spawns, packages" },
+    { "id": "items", "label": "Items, kits, bench parts, vendors" },
+    { "id": "workshop", "label": "Workshop, settlements, blueprints" },
+    { "id": "geometry", "label": "Meshes, textures, rendering, LOD, navmesh" }
+  ],
+  "capabilities": [
+    {
+      "id": "editor.ck.present",
+      "group": "editor",
+      "label": "Creation Kit is installed and build-matched to the game",
+      "requires": [],
+      "exercise": "tools\\pipmon.ps1 editor preflight",
+      "evidence": "creationKit == game version, buildsMatch true"
+    },
+    {
+      "id": "editor.ck.render",
+      "group": "editor",
+      "label": "The CK render window is usable (no crash on viewport)",
+      "requires": ["editor.ck.present", "editor.ckpe"],
+      "exercise": "open the render viewport on a SMALL interior cell",
+      "evidence": "log.txt gains fresh Umbra/tome lines, and no new CreationKit crash dump appears"
+    },
+    {
+      "id": "editor.ckpe",
+      "group": "editor",
+      "label": "Editor render stability (CKPE, or the in-house replacement)",
+      "requires": [],
+      "exercise": "install CKPE via Vortex, or ship an in-house equivalent",
+      "evidence": "three render sessions with zero new CreationKit dumps"
+    },
+    {
+      "id": "editor.xedit.headless",
+      "group": "editor",
+      "label": "xEdit runs headlessly for plugin inventory",
+      "requires": ["editor.xedit.firstrun"],
+      "exercise": "tools\\pipmon.ps1 validate",
+      "evidence": "runs/watch/xedit-latest.json status == PASS with a records_detail array"
+    },
+    {
+      "id": "editor.xedit.firstrun",
+      "group": "editor",
+      "label": "xEdit's first-run notice has been dismissed once",
+      "requires": [],
+      "exercise": "launch xFOEdit64.exe once and click through the notice",
+      "evidence": "a headless run completes instead of timing out"
+    },
+    {
+      "id": "runtime.inject",
+      "group": "runtime",
+      "label": "vprobe loads into a live game with no F4SE present",
+      "requires": [],
+      "exercise": "tools\\testenv.ps1 run",
+      "evidence": "runs/<ts>/run.json reachedReady=true and the trace shows 'Runtime ready: 18/18 probes resolved'"
+    },
+    {
+      "id": "runtime.layerA",
+      "group": "runtime",
+      "label": "A vtable slot is hooked so the VM can resolve our natives",
+      "requires": ["runtime.inject"],
+      "exercise": "(not built -- needs a BSScript declaration in method order)",
+      "evidence": "s0Version != 0 in the save's script properties"
+    },
+    {
+      "id": "script.compile",
+      "group": "scripts",
+      "label": "Compile a .psc to a verified .pex",
+      "requires": [],
+      "exercise": "tools\\pipmon.ps1 build",
+      "evidence": "PipMon.pex and PipMonTestFacility.pex exist with PEX magic DE C0 57 FA"
+    },
+    {
+      "id": "env.plugin.writable",
+      "group": "env",
+      "label": "Our plugin is a valid, active file in the load order",
+      "requires": [],
+      "exercise": "tools\\pipmon.ps1 link status",
+      "evidence": "PipMonTestFacility.esp is enabled AND last"
+    },
+    {
+      "id": "env.cell",
+      "group": "env",
+      "label": "An interior cell of our own exists and can be entered",
+      "requires": ["env.plugin.writable"],
+      "exercise": "CK: World > Worldspaces > DefaultWorld > create a new CELL, EditorID PipMonFacilityCell",
+      "evidence": "xEdit inventory shows a CELL named PipMonFacilityCell; render shows it lit"
+    },
+    {
+      "id": "env.fixtures",
+      "group": "env",
+      "label": "Workbench, power armour station and terminal are placed in that cell",
+      "requires": ["env.cell"],
+      "exercise": "drag three vanilla objects into the cell viewport",
+      "evidence": "render shows three objects; xEdit shows REFR entries in the cell"
+    },
+    {
+      "id": "env.render.verify",
+      "group": "geometry",
+      "label": "Confirm the cell renders as authored (not just that bytes grew)",
+      "requires": ["env.fixtures", "editor.ck.render"],
+      "exercise": "open the CK render window on the cell; do NOT run navmesh or batch compute",
+      "evidence": "log.txt Umbra lines newer than the save, zero new crash dumps"
+    },
+    {
+      "id": "script.attach",
+      "group": "scripts",
+      "label": "A compiled script can be attached to a placed object",
+      "requires": ["env.fixtures", "script.compile"],
+      "exercise": "CK: Scripts > Import the .pex, then object > Properties > Script",
+      "evidence": "xEdit inventory shows a VMAD script entry on the terminal REFR"
+    },
+    {
+      "id": "script.properties.fill",
+      "group": "scripts",
+      "label": "Script properties can be filled by dragging objects, with no hardcoded IDs",
+      "requires": ["script.attach"],
+      "exercise": "CK: terminal properties, drag refs into TerminalRef/WorkbenchRef/PowerArmorStationRef/SpawnHub",
+      "evidence": "xEdit inventory shows property values referencing the placed REFRs"
+    },
+    {
+      "id": "runtime.coc.live",
+      "group": "env",
+      "label": "Enter the authored cell in the playable build and see it",
+      "requires": ["env.render.verify", "runtime.inject"],
+      "exercise": "in-game console: coc PipMonFacilityCell",
+      "evidence": "Papyrus.0.log activity on cell load; the player sees the fixtures"
+    },
+    {
+      "id": "script.natives.reachable",
+      "group": "scripts",
+      "label": "A compiled script actually calls our natives and gets an answer (S0)",
+      "requires": ["script.properties.fill", "runtime.coc.live", "runtime.layerA"],
+      "exercise": "the script's one-shot timer fires RunNativeProbe ~2s after the cell loads",
+      "evidence": "s0Passed true / s0Version != 0 in the save, plus a session-log entry"
+    },
+    {
+      "id": "player.kit.setup",
+      "group": "player",
+      "label": "Give the test character its kit (weapon, armour frame, armour, test item, bench parts)",
+      "requires": ["script.properties.fill"],
+      "exercise": "call SetupTestCharacter() from the surface or the terminal",
+      "evidence": "the bitfield comes back non-zero: 1 weapon, 2 frame, 4 armour, 8 item, 16 parts, 32 already-set"
+    },
+    {
+      "id": "player.powerarmour.enter",
+      "group": "player",
+      "label": "Enter power armour at the station",
+      "requires": ["env.fixtures", "player.kit.setup"],
+      "exercise": "call EnterPowerArmor()",
+      "evidence": "returns false if no frame is carried -- that refusal IS the correct behaviour"
+    },
+    {
+      "id": "npc.roster.place",
+      "group": "npc",
+      "label": "Place a roster of NPCs/robots/synths and hand them to the game's own AI",
+      "requires": ["script.properties.fill"],
+      "exercise": "call PopulateRoster() once 15 ActorBase properties are assigned",
+      "evidence": "returns 15; each actor has EvaluatePackage(true) + EnableAI(true), so they move because the game moves them"
+    },
+    {
+      "id": "npc.roster.clear",
+      "group": "npc",
+      "label": "Remove ONLY the actors the script placed",
+      "requires": ["npc.roster.place"],
+      "exercise": "call ClearRoster()",
+      "evidence": "returns 0 after the call and the placed* properties are none again; player-placed actors untouched"
+    },
+    {
+      "id": "items.vendor.stock",
+      "group": "items",
+      "label": "An NPC vendor carrying stock, for merchant-path testing",
+      "requires": ["npc.roster.place"],
+      "exercise": "CK-side: vendor script + container on MerchantRef, or FCOM's caravan merchants",
+      "evidence": "the merchant opens a barter menu with non-empty stock"
+    },
+    {
+      "id": "workshop.settlement.mode",
+      "group": "workshop",
+      "label": "Workshop/settlement mode in the bunker",
+      "requires": ["env.fixtures"],
+      "exercise": "wire the settlement trigger + LocType keywords; or hold it out entirely",
+      "evidence": "the workbench accepts a build; NOTE SimSettlements 2 is deliberately excluded so this conflict is resolved by omission"
+    },
+    {
+      "id": "geometry.navmesh",
+      "group": "geometry",
+      "label": "Navmesh for a cell",
+      "requires": ["env.fixtures", "editor.ckpe"],
+      "exercise": "generate navmesh IN THIS CELL ONLY",
+      "evidence": "a navmesh record for that cell; an interior cell does not need the 120-cell wilderness pass"
+    }
+  ]
+}

@@ -1,0 +1,587 @@
+---
+source_url: https://raw.githubusercontent.com/matiaszanolli/ByroRedux/main/docs/engine/archives.md
+retrieved_utc: 2026-09-30T21:53:23Z
+content_kind: upstream-verbatim
+trust: "Verbatim third-party project documentation, unmodified. The single richest source of explicit BA2 byte offsets in this capture. Trust caveat: it is one project's own engine notes, not an independent specification; where it disagrees with another captured source, that disagreement is recorded in ba2-format-notes.md."
+---
+
+# Archives — BSA and BA2
+
+The `byroredux-bsa` crate exposes two readers covering every Bethesda
+archive format from Oblivion through Starfield:
+
+- [`BsaArchive`](../../crates/bsa/src/archive/mod.rs) — BSA versions
+  103, 104, and 105 (Oblivion → Skyrim SE)
+- [`Ba2Archive`](../../crates/bsa/src/ba2.rs) — BA2 (BTDX) versions
+  1, 2, 3, 7, and 8 (Fallout 4, Fallout 76, Starfield), with both `GNRL`
+  (general files) and `DX10` (texture) variants
+
+Both expose a unified case-insensitive, slash-agnostic API:
+
+```rust
+let archive = BsaArchive::open("Fallout - Meshes.bsa")?;
+let bytes = archive.extract("meshes/clutter/food/beerbottle01.nif")?;
+```
+
+```rust
+let archive = Ba2Archive::open("Fallout4 - Meshes.ba2")?;
+let bytes = archive.extract("meshes/interiors/desk01.nif")?;
+```
+
+Source: [`crates/bsa/src/`](../../crates/bsa/src/)
+
+## At a glance
+
+| Game | Format | Compression | Reader |
+|---|---|---|---|
+| Oblivion | BSA v103 | zlib | `BsaArchive` |
+| Fallout 3 | BSA v104 | zlib | `BsaArchive` |
+| Fallout New Vegas | BSA v104 | zlib | `BsaArchive` |
+| Skyrim LE | BSA v104 | zlib | `BsaArchive` |
+| Skyrim SE | BSA v105 | LZ4 frame | `BsaArchive` |
+| Fallout 4 (original) | BA2 BTDX v1 GNRL / v7 DX10 | zlib | `Ba2Archive` |
+| Fallout 4 (Next Gen) | BA2 BTDX v8 GNRL / v7 DX10 | zlib | `Ba2Archive` |
+| Fallout 76 | BA2 BTDX v1 GNRL | zlib | `Ba2Archive` |
+| Starfield | BA2 BTDX v2 GNRL / v3 DX10 | zlib + LZ4 block | `Ba2Archive` |
+
+The integration test that walks all of these against real game data is
+in [`crates/nif/tests/parse_real_nifs.rs`](../../crates/nif/tests/parse_real_nifs.rs)
+and exercises the unified `MeshArchive` enum from
+[`crates/nif/tests/common/mod.rs`](../../crates/nif/tests/common/mod.rs).
+
+## BSA reader
+
+[`crates/bsa/src/archive/mod.rs`](../../crates/bsa/src/archive/mod.rs)
+
+BSA files are organised as:
+
+```
+Header (36 bytes)
+├── magic "BSA\0"
+├── version u32 (103/104/105)
+├── archive flags u32
+├── folder count
+├── file count
+├── total folder name length
+├── total file name length
+└── file flags
+
+Folder records (16 bytes each, or 24 for v105)
+├── name hash u64
+├── file count u32
+└── offset to file record block (u32 v103/104, u64 v105 + padding)
+
+For each folder:
+├── folder name (u8 length + null-terminated string)
+└── per-file records (16 bytes each)
+    ├── name hash u64
+    ├── size u32 (with toggle bit at 0x40000000)
+    └── offset u32
+
+File name table (null-terminated strings, in folder order)
+```
+
+`BsaArchive::open()` reads the header, walks the folder records, and
+populates a `HashMap<String, FileEntry>` keyed by `folder\file` (lowercase,
+backslash-separated). Extraction seeks to the entry's offset, optionally
+skips an embedded file-name prefix (when archive flag `0x100` is set on
+v104+), and decompresses if the entry's compression toggle bit XORs with
+the archive's `compressed_by_default` flag.
+
+### Compression by version
+
+- **v103/v104**: zlib (`flate2::read::ZlibDecoder`)
+- **v105**: LZ4 frame format (`lz4_flex::frame::FrameDecoder`)
+
+The compressed payload is always prefixed with a u32 of the original
+uncompressed size, so the decompressor knows how big to size its output
+buffer.
+
+### Embedded file names (v104+ flag 0x100)
+
+When archive flag `0x100` is set, every file's data starts with a bstring
+(`u8 length + name`) prefix. The reader skips it during `extract()` and
+subtracts those bytes from the entry size before reading the rest. The
+flag is **off** for the standard BSA layout used by Bethesda's official
+archives, but some mods set it.
+
+## BA2 reader
+
+[`crates/bsa/src/ba2.rs`](../../crates/bsa/src/ba2.rs)
+
+BA2 (BTDX) is the post-BSA format introduced with Fallout 4. There are two
+record layouts:
+
+- **`GNRL`** — general files (meshes, sounds, animations). One 36-byte
+  record per file with a u64 offset and optional zlib compression.
+- **`DX10`** — texture archive. One 24-byte base record per DDS plus per-mip
+  chunk records. The DDS header is **not** stored — the reader has to
+  reconstruct it from the record fields (`dxgi_format`, dimensions,
+  mip count) before returning the bytes.
+
+### Header
+
+```
+0x00  4 bytes  magic "BTDX"
+0x04  4 bytes  version u32
+0x08  4 bytes  type tag "GNRL" or "DX10"
+0x0C  4 bytes  file count
+0x10  8 bytes  name table offset (absolute, u64)
+```
+
+For Starfield the header extends beyond the base 24 bytes:
+
+- **v2** (Starfield GNRL): +8 bytes (2×u32 unknown, likely compressed
+  name-table metadata). Compression is always zlib.
+- **v3** (Starfield DX10): +12 bytes (2×u32 unknown + u32 `compression_method`).
+  Method 0 = zlib, 3 = LZ4 block. All chunks in a v3 LZ4 archive use LZ4
+  block compression (archive-level, not per-chunk).
+
+```rust
+if version == 2 || version == 3 {
+    reader.read_exact(&mut [0u8; 8])?;  // 2×u32 unknown
+}
+if version == 3 {
+    reader.read_exact(&mut method_buf)?; // u32 compression method
+    // 0 = zlib, 3 = LZ4 block
+}
+```
+
+The version numbering is **non-monotonic** across games:
+- v1 = original FO4, FO76 (24-byte header, zlib)
+- v2 = Starfield meshes (32-byte header = base + 8, zlib)
+- v3 = Starfield textures (36-byte header = base + 12, zlib or LZ4 block)
+- v7 = FO4 Next Gen textures (back to 24-byte header, zlib)
+- v8 = FO4 Next Gen Update (24-byte header, zlib) — not mesh-only despite
+  the name: `Fallout4 - TexturesPatch.ba2` is a real vanilla v8 DX10
+  texture archive (#2596)
+
+This bit me during M26: gating the 8-byte extension on `version >= 2`
+broke FO4 v8. The check is now `version == 2 || version == 3` exactly.
+The v3 compression method was discovered in session 7 — the original
+"different chunk layout" diagnosis was wrong; the real issue was a
+missing 4-byte field shifting the reader past the header, plus zlib
+being used for LZ4-compressed chunks.
+
+### GNRL records (36 bytes)
+
+```
+0x00  u32  name hash
+0x04  4    extension ("nif\0", "wav\0", ...)
+0x08  u32  directory hash
+0x0C  u32  flags
+0x10  u64  offset (absolute, into the same file)
+0x18  u32  packed size  (0 = uncompressed, otherwise zlib stream size)
+0x1C  u32  unpacked size
+0x20  u32  padding (0xBAADF00D)
+```
+
+`extract()` seeks to `offset` and either reads `unpacked_size` bytes
+directly (when `packed_size == 0`) or reads `packed_size` bytes and
+decompresses to `unpacked_size` using the archive's compression codec
+(zlib for v1/v2/v7/v8, LZ4 block for v3 with `compression_method == 3`).
+
+### Name table
+
+After every file record comes a flat name table at `name_table_offset`:
+one entry per file, in record order, formatted as `(u16 length, length
+bytes UTF-8)`. The reader normalizes each name to lowercase with
+backslash separators on the way in (matching the BSA convention) so the
+public lookup API is uniform across both formats.
+
+Names in FO76 use forward slashes, names in FO4 use backslashes; both end
+up backslash-keyed after normalization.
+
+### DX10 records (24 bytes base + 24 bytes per chunk)
+
+DDS textures live in a separate archive variant. Each entry is a fixed
+header followed by `num_chunks` mip-chain records:
+
+```
+Base (24 bytes):
+0x00  u32  name hash
+0x04  4    extension ("dds\0")
+0x08  u32  directory hash
+0x0C  u8   unknown (always 0)
+0x0D  u8   num chunks
+0x0E  u16  chunk header length (always 24)
+0x10  u16  height
+0x12  u16  width
+0x14  u8   num mips
+0x15  u8   DXGI format
+0x16  u16  flags (bit 0 = cubemap)
+
+Per chunk (24 bytes):
+0x00  u64  offset
+0x08  u32  packed size
+0x0C  u32  unpacked size
+0x10  u16  start mip
+0x12  u16  end mip
+0x14  u32  padding (0xBAADF00D)
+```
+
+When the user calls `extract(...)` on a DX10 entry, the reader assembles
+the chunks (decompressing each via the archive's codec — zlib or LZ4
+block — if `packed_size > 0`) and **reconstructs a 148-byte DDS+DX10
+header in front of them**, since the DDS file format isn't actually stored
+in the archive — only the pixel data
+plus the metadata needed to recreate the header.
+
+#### DDS header reconstruction
+
+[`build_dds_header()`](../../crates/bsa/src/ba2.rs) writes:
+
+```
+DDS magic ("DDS ")
+DDS_HEADER (124 bytes)
+├── flags        = CAPS | HEIGHT | WIDTH | PIXELFORMAT
+│                  | { LINEARSIZE for block-compressed formats
+│                    | PITCH       for uncompressed DXGI formats per #594 }
+│                  ( | MIPMAPCOUNT if num_mips > 1 )
+├── height, width
+├── pitchOrLinearSize  — per-format:
+│     BC1/2/3/4/5/6H/7:           DDSD_LINEARSIZE = block_bytes × block_count
+│     R8G8B8A8_(SRGB)/B8G8R8A8:   DDSD_PITCH      = 4 × width (post-#594)
+│     R16_UNORM:                  DDSD_PITCH      = 2 × width
+│     R8_UNORM:                   DDSD_PITCH      = 1 × width
+│     unknown formats:            DDSD_LINEARSIZE = total payload length
+├── depth = 0
+├── mip count = max(1, num_mips)
+├── 11 reserved u32 = 0
+├── pixel format
+│   ├── size = 32
+│   ├── flags = DDPF_FOURCC
+│   ├── fourCC = "DX10"   (always — we use the extended path)
+│   └── (5 reserved u32 = 0)
+├── caps1 = TEXTURE
+│          ( | MIPMAP | COMPLEX if num_mips > 1 )
+│          ( | COMPLEX          if cubemap )
+├── caps2 = CUBEMAP | CUBEMAP_ALLFACES if cubemap
+└── (3 more reserved u32 = 0)
+DX10 extension (20 bytes)
+├── DXGI format
+├── resource dimension = TEXTURE2D
+├── misc flag = TEXTURECUBE if cubemap (bit 0 of base header flags; verified
+│              against vanilla Textures1.ba2 cubemap entries — the 0x0800
+│              bit is "tile mode", NOT cubemap; see #595 for the prior
+│              stale-comment trap)
+├── array size = 6 for cubemaps, 1 otherwise (post-#593; pinned by
+│                `build_dds_header_cubemap_array_size_is_six`)
+└── miscFlags2 = 0
+```
+
+The `linear_size_for()` helper computes a reasonable
+`dwPitchOrLinearSize` for block-compressed formats from the BC block size
+table; uncompressed RGBA / single-channel formats use a per-row pitch
+instead (`DDSD_PITCH`, #594 — pinned by
+`pitch_rgba8_unorm_matches_row_size_with_pitch_flag`); unknown formats
+fall back to the total pixel-data length so a downstream loader still
+gets a sized buffer.
+
+The reconstructed bytes are valid for downstream readers like our DDS
+parser in [`crates/renderer/src/vulkan/dds.rs`](../../crates/renderer/src/vulkan/dds.rs)
+or third-party tools like `dds-tools`. Our parser is not lenient about the
+DX10 extension: it requires `arraySize` 1 (or 1 or 6 with the
+`TEXTURECUBE` misc flag), a `TEXTURE2D` resource dimension, and every
+dimension at most `MAX_TEXTURE_DIMENSION` (8192) — a reconstructed header for
+a larger archived texture is well-formed but still rejected there.
+
+## Unified `MeshArchive` enum
+
+For tests and tooling that need to walk both BSA and BA2 without branching
+on format, [`crates/nif/tests/common/mod.rs`](../../crates/nif/tests/common/mod.rs)
+defines a thin wrapper:
+
+```rust
+pub enum MeshArchive {
+    Bsa(BsaArchive),
+    Ba2(Ba2Archive),
+}
+
+impl MeshArchive {
+    pub fn file_count(&self) -> usize { ... }
+    pub fn list_files(&self) -> Vec<String> { ... }
+    pub fn extract(&self, path: &str) -> io::Result<Vec<u8>> { ... }
+}
+```
+
+The `Game` enum next to it tracks each supported game's archive kind, env
+var override (`BYROREDUX_FNV_DATA`, etc.), default Steam path, and primary
+mesh archive filename. `open_mesh_archive(Game)` picks the right reader
+and skips cleanly when the data isn't available.
+
+## Tools
+
+### `nif_stats` example
+
+[`crates/nif/examples/nif_stats.rs`](../../crates/nif/examples/nif_stats.rs)
+accepts either a single NIF, a directory, or any BSA / BA2 archive and
+walks every `.nif` (or `.dds` for DX10 archives) inside it, reporting
+parse stats with a block histogram and grouped failure messages.
+
+```bash
+cargo run -p byroredux-nif --example nif_stats --release -- \
+    "/path/to/Fallout4 - Meshes.ba2"
+```
+
+Output:
+
+```
+opened /path/to/Fallout4 - Meshes.ba2 (BA2 v8 General, 42426 files)
+  → 34995 .nif entries
+  progress: 500/34995
+  ...
+
+─── Parse stats ──────────────────────────────────────────────
+  total:     34995
+  ok:        34995  (100.00%)
+  failures:      0
+
+─── Block type histogram (top 20) ────────────────────────────
+   xxxxx  NiNode
+   ...
+```
+
+### `ba2_debug` example
+
+[`crates/bsa/examples/ba2_debug.rs`](../../crates/bsa/examples/ba2_debug.rs)
+opens a BA2 (or BSA — accepts either by file extension), pulls out the
+first three NIFs (or DDSs for DX10 archives), prints a header preview,
+and writes the first one to `/tmp/ba2_probe.nif` for offline inspection.
+Useful when bringing up new BA2 versions or debugging extraction
+mismatches.
+
+```bash
+cargo run -p byroredux-bsa --example ba2_debug --release -- \
+    "/path/to/SeventySix - Meshes.ba2"
+```
+
+### `oblivion_extract` example
+
+[`crates/bsa/examples/oblivion_extract.rs`](../../crates/bsa/examples/oblivion_extract.rs)
+pulls one specific file out of an Oblivion BSA and writes it to disk —
+used during the M26+ Oblivion follow-up to investigate parser failures
+on real Oblivion NetImmerse-era content.
+
+## Session 11 robustness fixes
+
+- **Persistent file handles** (#360) — both readers now hold the archive
+  file handle open for the lifetime of the archive object instead of
+  re-opening on every `extract()`. Exterior 3×3 grid loads hit the same
+  archive dozens of times per cell; the re-open cost was dominating
+  extraction time. Handles were originally shared behind a `Mutex<File>`;
+  extraction now uses positional reads (`crates/bsa/src/read_at.rs`), so
+  concurrent extracts from one archive share the handle without a lock.
+- **Arithmetic underflow guard** (#352) — a malformed BSA could trigger
+  `u32` underflow when computing remaining bytes after the embedded-name
+  prefix skip. Guarded with a checked subtraction that returns an
+  `InvalidData` error instead of wrapping.
+- **Auto-detection from magic** (session 10, `asset_provider.rs`) — the
+  cell loader no longer hard-codes BSA vs BA2 per game; the loader peeks
+  the 4-byte magic (`BSA\0` vs `BTDX`) and picks the reader. FO4
+  installations with a mix of `.ba2` and `.bsa` (modded content) now
+  work without changes to the loader.
+- **Chunk-size budget bump to 1 GB** (session 18, commit `4a2b820`) —
+  the per-chunk extraction guard was 256 MB; Fallout 76's vanilla
+  mesh archive ships a single chunk that exceeds it, so the limit
+  was raised to 1 GB. The guard still catches malformed `u32` size
+  fields without aborting the process.
+
+## Resolved gaps (session 7)
+
+All three previously-deferred Starfield BA2 gaps are now resolved:
+
+- **Starfield v3 DX10 textures** — the v3 header has a 12-byte extension
+  (not 8 like v2) containing a `compression_method: u32` field. The DX10
+  base record and chunk record layouts are identical to FO4 v1/v7. The
+  original "different chunk layout" diagnosis was wrong — the real issue
+  was the missing compression method field shifting the reader position
+  by 4 bytes.
+- **Starfield LZ4 compression** — v3 archives use LZ4 block compression
+  (`compression_method == 3`). The reader now dispatches through a unified
+  `decompress_chunk()` that selects zlib or `lz4_flex::block::decompress`
+  based on the archive-level compression method.
+- **BA2 v3 header differences** — confirmed: v3 adds exactly 4 bytes
+  beyond v2's 8-byte extension (the compression method field). No other
+  structural differences.
+
+Verified against the 30 Starfield texture archives shipped
+post-Shattered-Space (~128K+ DX10 textures; was 22 as of Session 7,
+re-checked 2026-05-21 per #1185) and 53 vanilla Fallout 4 BA2 archives
+(v1/v7/v8 GNRL + DX10), zero extraction failures.
+
+## FO4 `.csg` precombined-geometry reader
+
+[`crates/bsa/src/csg.rs`](../../crates/bsa/src/csg.rs) — added M49 (`b93ad7a9`).
+
+Fallout 4 ships a second archive format alongside BA2: `<Plugin> - Geometry.csg`
+files that store the vertex / triangle data for *precombined* mesh objects.
+Precombines are statically merged renderable clusters stored in `_oc.nif` files;
+each cluster carries `BSPackedCombinedSharedGeomDataExtra` blocks holding only a
+`(filename_hash, data_offset)` pointer into the companion `.csg` blob, not inline
+geometry. Without this reader every precombine spawned a zero-vertex entity.
+
+### Container layout
+
+```
+0x00  4 bytes  magic "bcsg"
+0x04  4 bytes  num_objects
+0x08  4 bytes  num_chunks
+0x0C  ChunkEntry[num_chunks]   { u32 compressed_size, u32 file_offset }
+…    ObjectEntry[num_objects]  (20 bytes each — CK construction-kit index)
+…    zlib chunks               each inflates to 65 536 B (last may be partial)
+```
+
+The uncompressed **PSG space** is the concatenation of all inflated chunks.
+A `data_offset` from a NIF block indexes straight into this flat space;
+`CsgArchive::read_psg(data_offset, len)` decompresses (and caches) only the
+chunks it touches.
+
+### Mesh decoding
+
+Per-object geometry is decoded from PSG space as a `BSPackedGeomObject` TLV:
+
+- Positions: u16 half-floats decoded to f32, Z-up → Y-up converted.
+- Normals: packed byte normals expanded to `[f32; 3]`.
+- UVs: half-float u, v.
+- Indices: u16 triangle list.
+- LOD tiers: each object carries 3 levels; cell-loader selects tier 0 only
+  (nearest LOD), fixing the earlier bug that spawned all three (`a30c088a`).
+- Texturing: resolved from the owning REFR's `BSPackedCombinedDataEntry`
+  shape-slot index into the cell's texture-set list (`2900de70`).
+
+Full byte-layout spec with validation notes at
+[`docs/engine/fo4-csg-format.md`](fo4-csg-format.md).
+
+## Tests
+
+- **11 unit tests** between BSA and BA2 — `normalize_path`, header rejection
+  of non-archive files, DDS header reconstruction layout invariants
+  (148 bytes, "DDS " magic, "DX10" FourCC, dxgi_format at offset 128),
+  `linear_size_for` block size math, `decompress_chunk` zlib/LZ4 roundtrip
+  + corrupt-data rejection
+- **7 ignored integration tests** in BSA covering FNV mesh open / list /
+  contains / extract / decompress, FNV texture BSA decompression
+- **Indirectly covered** by every per-game NIF parse-rate sweep in
+  `parse_real_nifs.rs` — those are the real correctness oracles
+
+See [Testing](testing.md) for the full test inventory and
+[Game Compatibility](game-compatibility.md) for per-game extraction +
+parse rate numbers.
+
+## Exterior streaming overlap
+
+The cell-stream coordinator collects a cell's unique uncached NIFs (and, on
+FO4, its precombine `_oc.nif`s — see below) and hands each to a dedicated
+Rayon pool task that extracts and then parses/imports it. Archive selection,
+canonical-key deduplication, missing-file results and per-NIF panic recovery
+use the same paths as synchronous extraction. The archive readers take no lock
+(positional reads), so tasks inflate in parallel, and on Unix read in parallel
+too; on Windows the synchronous file handle serialises the read syscalls
+themselves (#4999, `crates/bsa/src/read_at.rs`). The scope joins
+before publishing the cell payload; world mutation stays on the main thread.
+Cells with fewer than eight fresh NIFs remain serial.
+
+Queued/running parse tasks hold at most **64 MiB of decoded NIF buffer capacity**
+and at most **twice the private pool's worker count, capped at 32 tasks**. An
+input larger than 64 MiB is admitted alone. The coordinator admits each task
+against the size the archive index declares for it
+(`TextureProvider::mesh_declared_size`, backed by `BsaArchive::declared_size` /
+`Ba2Archive::declared_size`) before the task extracts, so nothing is allocated
+ahead of admission. The declared size equals the extracted length for all
+105 189 files in the FO4 Meshes/Textures1, Oblivion, FNV and Skyrim SE mesh
+archives (`declared_size_matches_extract_*`). This is an input budget, not a
+process memory cap: archive packed buffers/decompression scratch, parser
+allocations, Starfield external mesh resolution and accumulated parsed cell
+results are outside it.
+
+With `RUST_LOG=byroredux::streaming=debug`, each nonempty cell reports pipeline
+wall time, summed task extraction time (read + inflate), summed parse-task
+elapsed time, permit wait time, peak task input bytes/tasks and the largest
+input. Task times overlap and parse time may include external-mesh archive
+waits; neither sum is a wall-time phase breakdown. Permit wait includes mutex
+acquisition. These changes target exterior cell readiness and streaming stalls;
+they do not establish an improvement to MedTek's stationary GPU rendering time.
+GPU upload waits remain separate work.
+
+Moving extraction into the tasks took the FO4 grid-cross capture's worker
+pipeline from 489 / 445 ms to 286 / 281 ms of summed wall time over 18 cells
+(two runs each). Extraction had been ~80% of that wall time, serial on the
+coordinator. The worker runs ahead of the main-thread apply, so this shortens
+only the wait for a crossing's first payload, not apply time or readiness.
+
+## FO4 precombines on the worker
+
+A Commonwealth cell carries 38–79 precombine `_oc.nif` hashes. The main-thread
+`PrecombinedSpawnJob` used to read, parse and CSG-decode each one inside its
+Spawn step, then BGSM-merge and spawn it. Summed over the nine streamed cells
+of the grid-cross capture below, that prepare work was **915 ms of a 2 377 ms
+apply**, and the spawns' inline texture reads another 355 ms.
+
+The worker now adds each cell's uncached `_oc.nif` paths
+(`precombined::precombine_oc_nif_paths`, the job's own owner resolution) to
+its pipeline, ahead of the REFR models. A precombine task tries
+`precombined::decode_precombine_csg` against `Geometry.csg` handles the worker
+opens once per plugin (`CsgHandleCache`). If that yields nothing, it falls back
+to the ordinary import, which is the same decision the job makes. The drain
+(`finish_partial_import`) re-interns the symbols and runs the job's
+blend-preserving `merge_precombine_materials`. It then caches
+`geometry_only_cached(meshes, dedup)` under the path, which is already a
+canonical key (`oc_nif_paths_are_already_canonical_cache_keys`). The job
+finds that entry and only spawns. Because the entries pass through
+`FinishImports`, their textures are prefetched as well (see "Texture
+prefetch" below).
+
+Same capture, two runs each. Per-cell precombine hashes, entities, misses and
+absorbed-REFR skips are identical to the main-thread path on all 18 cell
+loads:
+
+| | texture prefetch only | + worker precombines |
+|---|---|---|
+| main-thread precombine prepare (9 streamed cells) | 915 ms | 0 ms |
+| precombine spawns' inline texture reads | 355 ms | 18 / 2 ms |
+| apply total | 2 492 / 2 497 ms | 1 319 / 1 335 ms |
+| apply slices / worst slice | 116–120 / 75 ms | 70 / 50 ms |
+| full-detail ready per crossing | 8.2 / 8.0 s | 6.9 / 7.3 s |
+| worker per payload (avg) | ≈15 ms | 21 / 15 ms |
+
+Readiness falls less than apply. Every streaming phase now peaks at 68 ms or
+less, yet whole-frame p95 stays near 800 ms. The frames that still gate
+readiness are outside the streaming CPU phases measured here.
+
+## Texture prefetch
+
+A texture the registry has not loaded is read and inflated on the main thread
+when a spawn resolves it. On FO4 Commonwealth `(0,0)` radius 1 grid-cross that
+was **41% of streaming apply time** (≈1.47 s of ≈3.56 s, 591 DDS, two runs).
+
+After each `FinishImports` step merges a streamed NIF's external materials,
+the apply driver collects that model's texture slot paths
+(`CachedNifImport::texture_prefetch_paths`), drops any already resident in
+the registry (`TextureRegistry::has_any_view_of_path`), and queues the rest on
+the stream pool (`asset_provider::prefetch_textures`). The resolve miss path
+takes the staged bytes instead of reading the archive
+(`asset_provider/texture_prefetch.rs`):
+
+- The store caches `TextureProvider::extract` results under a key folded
+  like the archives fold theirs (lowercase, `\`), so it cannot change what a
+  resolve returns. A wrong prediction costs pool work; a missed one falls
+  back to the inline read.
+- A resolve never waits behind the pool's queue: a still-queued key is
+  withdrawn and read inline. Only a read already running is waited for.
+- Staged bytes are capped at 256 MiB. The store is cleared when the cell's
+  apply completes, is cancelled, or is dropped.
+- REFR-overlay paths (XATO / XTXR / MSWP) are not predicted. FO4
+  precombines are, now that the worker pre-parses them (see "FO4
+  precombines on the worker" above).
+
+Same capture, two runs each (`apply_tex_*` / `tex_prefetch_*` on the
+`streaming:` bench line):
+
+| | before | with prefetch |
+|---|---|---|
+| main-thread texture extract | 1 493 / 1 446 ms | 569 / 500 ms |
+| apply total | 3 606 / 3 518 ms | 2 492 / 2 497 ms |
+| full-detail ready per crossing | 10.4 / 10.7 s | 8.2 / 8.0 s |
+| resolves served by prefetch | 0 / 591 | 211 / 591 |
+| queued, never taken | — | 251 (peak staged 111 MiB) |

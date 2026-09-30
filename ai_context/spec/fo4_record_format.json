@@ -1,0 +1,90 @@
+{
+  "spec_id": "fo4.record_format",
+  "kind": "record_format",
+  "title": "Fallout 4 plugin file format: TES4 header, GRUP groups, records and subrecords",
+  "authority": "upstream-verbatim",
+  "provenance": [
+    {
+      "source": "fopdoc, maintained by the TES5Edit team",
+      "url": "https://tes5edit.github.io/fopdoc/Fallout4/Records.html",
+      "retrieved_utc": "2026-09-30",
+      "note": "Index page. The fourteen per-record subrecord pages are linked but were not individually captured."
+    },
+    {
+      "source": "local measurement",
+      "note": "Data\\PipMonTestFacility.esp is 66 bytes and xEdit reports 'Header processed. Expecting 0 records', CRC32 E1DD5E4D."
+    }
+  ],
+  "prose": "A plugin is a TES4 header followed by a sequence of GRUP groups, each holding records; each record is a fixed header followed by subrecords. Sizes here are from the upstream format documentation and are stated as integers so offsets can be computed. THE 24-BYTE RECORD HEADER IS THE NUMBER TO CHECK: our own tools/make_empty_esp.py was written against an assumed 16-byte prologue, which disagrees with the documented 24. That assumption is unverified and is recorded as an open discrepancy rather than quietly corrected, because correcting it by editing the tool would be exactly the kind of unmeasured change this project refuses. A 66-byte header-only plugin is therefore consistent with 24 bytes of TES4 header plus flags and version fields, and must be re-derived from the spec before any generator writes a file.",
+  "open_discrepancies": [
+    {
+      "id": "prologue-size",
+      "detail": "make_empty_esp.py assumes a 16-byte TES4 prologue. Documented record header is 24 bytes. Not yet reconciled.",
+      "affects": ["tools/make_empty_esp.py"],
+      "status": "open"
+    }
+  ],
+  "entries": [
+    {
+      "name": "TES4 header record",
+      "bytes": 24,
+      "fields": [
+        {"name": "type", "type": "char[4]", "bytes": 4, "value": "TES4"},
+        {"name": "dataSize", "type": "uint32", "bytes": 4, "note": "size of the record body that follows the header"},
+        {"name": "flags", "type": "uint32", "bytes": 4, "values": {"0x00000001": "master file (ESM)", "0x00000200": "light master (ESL)"}},
+        {"name": "id", "type": "formid", "bytes": 4},
+        {"name": "revision", "type": "uint32", "bytes": 4},
+        {"name": "version", "type": "uint16", "bytes": 2},
+        {"name": "unknown", "type": "uint16", "bytes": 2}
+      ],
+      "provenance": ["fopdoc Records.html"],
+      "verified_against": "partially: the 66-byte header-only plugin is consistent with this layout, which is not the same as confirming it"
+    },
+    {
+      "name": "GRUP group header",
+      "bytes": 12,
+      "fields": [
+        {"name": "type", "type": "char[4]", "bytes": 4, "value": "GRUP"},
+        {"name": "groupSize", "type": "uint32", "bytes": 4},
+        {"name": "label", "type": "char[4]", "bytes": 4, "note": "for cell groups this is derived from the grid cell"},
+        {"name": "groupType", "type": "uint32", "bytes": 4}
+      ],
+      "provenance": ["fopdoc Records.html", "derived from the group label convention used by wbGridCellToGroupLabel"]
+    },
+    {
+      "name": "record header",
+      "bytes": 24,
+      "fields": [
+        {"name": "type", "type": "char[4]", "bytes": 4, "note": "record signature, e.g. CELL"},
+        {"name": "dataSize", "type": "uint32", "bytes": 4},
+        {"name": "flags", "type": "uint32", "bytes": 4},
+        {"name": "id", "type": "formid", "bytes": 4, "note": "load-order byte, local index byte, then two group bytes"},
+        {"name": "revision", "type": "uint32", "bytes": 4},
+        {"name": "version", "type": "uint16", "bytes": 2},
+        {"name": "unknown", "type": "uint16", "bytes": 2}
+      ],
+      "provenance": ["fopdoc Records.html"],
+      "notes": "This is the 24-byte figure that conflicts with our 16-byte assumption."
+    },
+    {
+      "name": "subrecord header",
+      "bytes": 6,
+      "fields": [
+        {"name": "type", "type": "char[4]", "bytes": 4},
+        {"name": "dataSize", "type": "uint16", "bytes": 2},
+        {"name": "data", "type": "uint8[dataSize]", "bytes": "dataSize"}
+      ],
+      "provenance": ["fopdoc Records.html"]
+    },
+    {
+      "name": "compressed record body",
+      "bytes": null,
+      "fields": [
+        {"name": "decompSize", "type": "uint32", "bytes": 4},
+        {"name": "compData", "type": "uint8[dataSize-4]", "bytes": "dataSize-4", "note": "zlib"}
+      ],
+      "provenance": ["fopdoc Records.html"],
+      "notes": "A generator writing a cell must decide compressed or uncompressed deliberately. The compression flag lives in the record header flags field."
+    }
+  ]
+}

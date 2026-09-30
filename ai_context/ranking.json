@@ -1,0 +1,312 @@
+{
+  "version": 1,
+  "principle": "Content that encodes a constraint or a measured limit outranks content that describes an aspiration. Acting on an aspiration produces a broken build; acting on a constraint produces a correct one. Every weight below exists to serve that, and every weight must be justifiable as 'this is what the Creation Kit or the game engine forces on us'.",
+  "counter_principle": "This ranking must never rank a dream above a measurement. The project's rule is that SKIP is never PASS and an unproven claim is not a fact, so aspiration is weighted below judgement and judgement below anything executed.",
+  "authority": {
+    "_comment": "Assigned per file by tools/rag_index.py from an explicit `authority:` frontmatter key, else from keyword classification of the file's first 60 lines. First match wins, highest tier first.",
+    "compile-verified": 2.6,
+    "measured": 2.4,
+    "upstream-verbatim": 2.1,
+    "derived": 1.6,
+    "judgement": 1.0,
+    "unproven": 0.7,
+    "aspiration": 0.35
+  },
+  "authority_keywords": {
+    "_comment": "Tier -> phrases that promote a file to that tier, matched case-insensitively against its first 60 lines. Key order IS precedence, lowest tier first, so aspiration is demoted before judgement is demoted. An explicit `authority: <tier>` line beats all of this.",
+    "aspiration": [
+      "aspirat",
+      "dream",
+      "idea path",
+      "speculative",
+      "hypothetical",
+      "wish"
+    ],
+    "judgement": [
+      "not measured fact",
+      "engineering judgement",
+      "unjudged",
+      "unproven",
+      "adopt is unproven",
+      "not yet proven"
+    ],
+    "unproven": [
+      "unproven",
+      "untested",
+      "not verified",
+      "assumes",
+      "presumed absent",
+      "gated on"
+    ],
+    "compile-verified": [
+      "compile-verified",
+      "compile verified",
+      "verified by the compiler",
+      "real fo4 papyrus compiler",
+      "was compile"
+    ],
+    "measured": [
+      "verified by execution",
+      "cross-checked against execution",
+      "test battery",
+      "measured on this machine",
+      "measured limits",
+      "measured, not documented",
+      "proved",
+      "proven by execution"
+    ],
+    "upstream-verbatim": [
+      "quoted verbatim",
+      "upstream primary source",
+      "verbatim"
+    ],
+    "derived": [
+      "derived_from",
+      "compiled from"
+    ]
+  },
+  "kind_weights": {
+    "archive": 0.9,
+    "code": 1.0,
+    "doc": 1.0,
+    "log": 0.9,
+    "run": 1.0,
+    "state": 1.0,
+    "text": 0.8,
+    "tool": 1.0
+  },
+  "curated_boost": 1.35,
+  "_curated_boost_why": "ai_context/ holds the corrected layer over raw upstream docs. Upstream names are authoritative and still misleading: AddNewFileName reads like a registration call and is really plugin-file creation. That produced one wrong recipe before signatures were read.",
+  "objectives": {
+    "_comment": "The programs live objectives, audited against the actual component list on 2026-09-30. control-plane and monitoring were MISSING from the first draft, and their absence made overseer_cli effectively invisible to retrieval. Remove a key when an objective closes rather than leaving it to rot.",
+    "control-plane": 1.35,
+    "monitoring": 1.3,
+    "replacement": 1.25,
+    "layer-a": 1.3,
+    "s0": 1.3,
+    "papyrus-correctness": 1.25,
+    "xedit-automation": 1.25,
+    "ck-constraints": 1.2,
+    "load-order": 1.15,
+    "facility": 1.15,
+    "creation-sync": 1.15,
+    "syrinx-adoption": 1.0,
+    "retrieval": 1.0
+  },
+  "objective_markers": {
+    "_comment": "Deliberately generous. A false positive costs a small multiplier; a MISSING objective makes a whole component unretrievable, which is the failure that actually happened to overseer_cli. retrieval markers double as the query-side test for a meta question, so it must also cover audit and alignment vocabulary. The retrieval weight is 1.0, so widening it costs nothing on chunk scoring.",
+    "control-plane": [
+      "control plane",
+      "cli",
+      "terminal",
+      "dashboard",
+      "overseer_cli",
+      "detector",
+      "envgate",
+      "gate",
+      "task group",
+      "capability",
+      "provider model",
+      "surface",
+      "entrypoint",
+      "watchdog"
+    ],
+    "monitoring": [
+      "anomaly",
+      "detector",
+      "detect",
+      "triage",
+      "adjudication",
+      "monitoring",
+      "telemetry",
+      "watchdog",
+      "verdict",
+      "instrument"
+    ],
+    "replacement": [
+      "f4se",
+      "addresslib",
+      "buffout",
+      "po3",
+      "mcm",
+      "canary",
+      "ckpe",
+      "replaces",
+      "replacement",
+      "extender",
+      "in-house"
+    ],
+    "layer-a": [
+      "layer a",
+      "bssscript",
+      "vtable",
+      "slot",
+      "hooked",
+      "dispatch"
+    ],
+    "s0": [
+      "s0",
+      "getversion",
+      "runnativeprobe",
+      "reaches our natives",
+      "unproven"
+    ],
+    "papyrus-correctness": [
+      "does not exist",
+      "not a function",
+      "compile-verified",
+      "oninit",
+      "ontimer",
+      "starttimer",
+      "property",
+      "native script"
+    ],
+    "xedit-automation": [
+      "addelement",
+      "addnewfilename",
+      "wbpositiontogridcell",
+      "getnewformid",
+      "groupbysignature",
+      "twbvector",
+      "iwbfile",
+      "iwbcontainer",
+      "quickexit",
+      "headless"
+    ],
+    "ck-constraints": [
+      "creation kit",
+      "creationkit.exe",
+      "ckpe",
+      "render window",
+      "crash",
+      "dump",
+      "file -> data",
+      "cannot be scripted"
+    ],
+    "load-order": [
+      "plugins.txt",
+      "load order",
+      "master",
+      "fallout4.ccc",
+      "creation club",
+      "vortex",
+      "unmanaged",
+      "deadly",
+      "skip"
+    ],
+    "facility": [
+      "facility",
+      "pipmontestfacility",
+      "cell",
+      "fixture",
+      "roster",
+      "spawn",
+      "bunker",
+      "paradise"
+    ],
+    "creation-sync": [
+      "creation sync",
+      "tandem",
+      "both hosts",
+      "authoring host",
+      "runtime host",
+      "deploy",
+      "papyrus.pex"
+    ],
+    "syrinx-adoption": [
+      "adopt",
+      "investigate",
+      "reject",
+      "skyrim",
+      "skse",
+      "idea path"
+    ],
+    "retrieval": [
+      "bm25",
+      "idf",
+      "chunk",
+      "query",
+      "vocabulary",
+      "ranking",
+      "stopword",
+      "authority",
+      "weight",
+      "alignment",
+      "audit",
+      "objective",
+      "gate coverage",
+      "gates green",
+      "do the gates",
+      "line up"
+    ]
+  },
+  "constraint_evidence": {
+    "_comment": "Bonus for chunks that state a limit, a prohibition or a negative result. This is the project's most expensive knowledge: each negative below was found by compiling against the real compiler or by losing a three-minute xEdit run, not by reading documentation.",
+    "bonus": 1.3,
+    "markers": [
+      "does not exist",
+      "do not exist",
+      "not exist",
+      "not a function",
+      "unknown type",
+      "undeclared identifier",
+      "rejected",
+      "must not",
+      "never ",
+      "cannot ",
+      "forbidden",
+      "unproven",
+      "not measured",
+      "no documented",
+      "no such",
+      "absence",
+      "absent from",
+      "false negative",
+      "silently",
+      "breaks silently",
+      "do not use",
+      "wrong call",
+      "throws an error"
+    ]
+  },
+  "staleness": {
+    "_comment": "Penalty for content whose own text declares a dated current-state claim. Retrieval cannot fix a stale file, but it can stop promoting one.",
+    "penalty": 0.85,
+    "markers": [
+      "re-verify",
+      "dated",
+      "as of 2026",
+      "current state, 2026",
+      "must be re-verified"
+    ]
+  },
+  "meta_scope": {
+    "rule": "a file whose frontmatter says scope: meta documents the tooling, not the domain. It keeps its authority tier but forfeits every objective multiplier, because discussing an objective is not advancing it. Without this, ranking_model.md outranks the docs that actually explain S0 by quoting them. It also forfeits an off-domain penalty unless the QUERY itself is about retrieval, so a meta file wins tool questions and loses domain ones.",
+    "off_domain_penalty": 0.6
+  },
+  "auto_meta": {
+    "rule": "Filenames matching these suffixes are automatically scope:meta. Every document that describes the system rather than the domain will otherwise outrank the domain files it merely quotes. This bug happened four times: vocabulary.json, ranking.json, ranking_model.md and goal_alignment.md each became the top hit for a domain question. Tagging by hand did not survive, so it is now a rule.",
+    "patterns": [
+      "_model.md",
+      "_contract.md",
+      "_alignment.md",
+      "_audit.md",
+      "SKILL.md"
+    ]
+  },
+  "max_total_multiplier": {
+    "value": 8.0,
+    "why": "A ceiling against unbounded stacking only. It was briefly set to 3.0, which flattened the authority ordering the tiers exist to express and broke queries the weighting had been getting right. The real cause of one file becoming a universal answer was substring expansion matching script inside BSScript, and that was fixed at the source. Normal stacking peaks around 6x, so 8.0 leaves the signal intact and still catches a runaway."
+  },
+  "primary_source": {
+    "boost": 1.5,
+    "paths": [
+      "ai_context/spec/",
+      "ai_context/reference/",
+      "ai_context/engine/",
+      "ai_context/automation/",
+      "ai_context/systems/"
+    ],
+    "why": "Our curated guides scored higher than the verbatim upstream documents they were derived from, so a request for an exact specification returned our summary instead of the specification. The tiers express how reliable a claim is; this expresses which file IS the claim. Derived summaries must not outrank the primary source for a lookup."
+  }
+}

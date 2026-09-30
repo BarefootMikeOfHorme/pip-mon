@@ -1,0 +1,310 @@
+{
+  "spec_id": "xedit.fo4edit_4_1_5f.api",
+  "kind": "api_function",
+  "title": "FO4Edit 4.1.5f x64 (7C57FA01) scripting API: what exists, what does not",
+  "authority": "measured",
+  "provenance": [
+    {
+      "source": "Tome of xEdit, section 13 Scripting Functions",
+      "url": "https://tes5edit.github.io/docs/13-Scripting-Functions.html",
+      "retrieved_utc": "2026-09-30"
+    },
+    {
+      "source": "local execution",
+      "note": "A full core load reached Finalize at 2m15s and aborted with: [EJvInterpreterError] Error in unit 'UserScript' on line 82 : Undeclared Identifier 'GetPluginName'"
+    }
+  ],
+  "prose": "Two functions this project assumed DO NOT EXIST and one it assumed was a function is a global. The absent ones are the expensive part: AddNewFileName reads like a registration call and actually creates a new plugin in the game folder and appends to the plugin list, so using it to 'activate' an existing plugin would have written to Data and mutated plugins.txt. AddElement is not a create call at all, it attaches an already-constructed element and THROWS if that element already has a container; the idempotent create is Add(container, signature, silent). GetPluginName is undeclared, confirmed both by the documented function list and by a real run. ProgramPath does exist, as a read-only global rather than a function. exists is a boolean precisely so a program can branch on it.",
+  "entries": [
+    {
+      "name": "Initialize",
+      "exists": true,
+      "signature": "function Initialize: Integer",
+      "container": "UserScript",
+      "returns": "integer",
+      "provenance": [
+        "docs 13.17",
+        "verified by execution"
+      ],
+      "behaviour": "Called before the load."
+    },
+    {
+      "name": "Process",
+      "exists": true,
+      "signature": "function Process(e: IInterface): Integer",
+      "container": "UserScript",
+      "returns": "integer",
+      "provenance": [
+        "docs 13.17",
+        "verified by execution"
+      ],
+      "behaviour": "Called once per record."
+    },
+    {
+      "name": "Finalize",
+      "exists": true,
+      "signature": "function Finalize: Integer",
+      "container": "UserScript",
+      "returns": "integer",
+      "provenance": [
+        "docs 13.17"
+      ],
+      "behaviour": "Called after the load. This is where the GetPluginName abort occurred."
+    },
+    {
+      "name": "Signature",
+      "exists": true,
+      "signature": "Signature(e: IInterface): string",
+      "container": "global",
+      "provenance": [
+        "verified by execution"
+      ]
+    },
+    {
+      "name": "GetElementEditValues",
+      "exists": true,
+      "signature": "GetElementEditValues(aeContainer: IwbContainer; asPath: string): string",
+      "container": "IwbContainer",
+      "provenance": [
+        "docs 13.8",
+        "verified by execution"
+      ]
+    },
+    {
+      "name": "SetElementEditValues",
+      "exists": true,
+      "signature": "SetElementEditValues(aeContainer: IwbContainer; asPath: string; asValue: string)",
+      "container": "IwbContainer",
+      "provenance": [
+        "docs 13.8"
+      ],
+      "supersedes": "GetElementEditValues round-trips for simple fields"
+    },
+    {
+      "name": "FixedFormID",
+      "exists": true,
+      "signature": "FixedFormID(e: IwbMainRecord): cardinal",
+      "container": "IwbMainRecord",
+      "provenance": [
+        "docs 13.10",
+        "verified by execution"
+      ]
+    },
+    {
+      "name": "IntToHex",
+      "exists": true,
+      "signature": "IntToHex(value: integer; digits: integer): string",
+      "container": "global",
+      "provenance": [
+        "verified by execution"
+      ]
+    },
+    {
+      "name": "AddMessage",
+      "exists": true,
+      "signature": "AddMessage(asMessage: string)",
+      "container": "global",
+      "provenance": [
+        "docs 13.6",
+        "docs 13.20"
+      ],
+      "behaviour": "Writes to the xEdit console, which is why stdout must be captured."
+    },
+    {
+      "name": "Add",
+      "exists": true,
+      "signature": "Add(aeContainer: IwbContainer; asNameOrSignature: string; abSilent: boolean): IwbElement",
+      "container": "IwbContainer",
+      "provenance": [
+        "docs 13.8"
+      ],
+      "behaviour": "Creates the child if absent, otherwise marks the existing child modified. This is the idempotent create.",
+      "returns": "IwbElement"
+    },
+    {
+      "name": "AddElement",
+      "exists": true,
+      "signature": "AddElement(aeContainer: IwbContainer; aeElement: IwbElement)",
+      "container": "IwbContainer",
+      "provenance": [
+        "docs 13.8"
+      ],
+      "behaviour": "Attaches an existing element. THROWS if that element already has a container. Not a create call."
+    },
+    {
+      "name": "AddNewFileName",
+      "exists": true,
+      "signature": "AddNewFileName(aeFile: IwbFile; asFileName: string; abESLFlag: boolean)",
+      "container": "IwbFile",
+      "provenance": [
+        "docs 13.9"
+      ],
+      "behaviour": "CREATES A NEW EMPTY PLUGIN in the game Data folder and appends it to the plugins list. Does not register an existing plugin. Using it that way writes to the game folder and mutates plugins.txt.",
+      "detect": [
+        "AddNewFileName"
+      ],
+      "caution": true,
+      "severity": "warning",
+      "caution_note": "Creates a new empty plugin in the game Data folder and appends to the plugins list. A warning, not an error: the call is legitimate when a patch really is being created, which is what the upstream xEditScripts do. It is a mistake only when used to 'register' an existing plugin."
+    },
+    {
+      "name": "AddNewFile",
+      "exists": true,
+      "signature": "AddNewFile(aeFile: IwbFile; abESLFlag: boolean)",
+      "container": "IwbFile",
+      "provenance": [
+        "docs 13.9"
+      ],
+      "behaviour": "Same side effect as AddNewFileName: creates a new empty plugin.",
+      "detect": [
+        "AddNewFile"
+      ],
+      "caution": true,
+      "severity": "warning",
+      "caution_note": "Creates a new empty plugin in the game Data folder and appends to the plugins list. A warning, not an error: the call is legitimate when a patch really is being created, which is what the upstream xEditScripts do. It is a mistake only when used to 'register' an existing plugin."
+    },
+    {
+      "name": "GetNewFormID",
+      "exists": true,
+      "signature": "GetNewFormID(aeFile: IwbFile): cardinal",
+      "container": "IwbFile",
+      "provenance": [
+        "docs 13.9"
+      ],
+      "behaviour": "Returns a new FormID, the same way Add(..., ..., True) does."
+    },
+    {
+      "name": "GroupBySignature",
+      "exists": true,
+      "signature": "GroupBySignature(aeFile: IwbFile; asSignature: string): IwbGroupRecord",
+      "container": "IwbFile",
+      "provenance": [
+        "docs 13.9"
+      ],
+      "behaviour": "Returns the top-level group with that signature if present. Signature only, not label."
+    },
+    {
+      "name": "FileByLoadOrder",
+      "exists": true,
+      "signature": "FileByLoadOrder(aeLoadOrder: integer): IwbFile",
+      "container": "global",
+      "provenance": [
+        "docs 13.6"
+      ],
+      "behaviour": "How to reach a plugin that is already loaded, as opposed to creating one."
+    },
+    {
+      "name": "FileByIndex",
+      "exists": true,
+      "signature": "FileByIndex(aeIndex: integer): IwbFile",
+      "container": "global",
+      "provenance": [
+        "docs 13.6"
+      ]
+    },
+    {
+      "name": "GetFileName",
+      "exists": true,
+      "signature": "GetFileName(aeFile: IwbFile): string",
+      "container": "IwbFile",
+      "provenance": [
+        "docs 13.9"
+      ]
+    },
+    {
+      "name": "FileWriteToStream",
+      "exists": true,
+      "signature": "FileWriteToStream(aeFile: IwbFile; akOutStream: TStream)",
+      "container": "IwbFile",
+      "provenance": [
+        "docs 13.9"
+      ],
+      "behaviour": "Used by the shipped SaveAs.pas. The closest documented thing to a save operation."
+    },
+    {
+      "name": "wbPositionToGridCell",
+      "exists": true,
+      "signature": "wbPositionToGridCell(akPosition: TwbVector): TwbGridCell",
+      "container": "global",
+      "provenance": [
+        "docs 13.13"
+      ],
+      "behaviour": "Converts a world position to grid coordinates by dividing by 4096, the lateral length and width of a cell.",
+      "returns": "TwbGridCell"
+    },
+    {
+      "name": "wbGridCellToGroupLabel",
+      "exists": true,
+      "signature": "wbGridCellToGroupLabel(akGridCell: TwbGridCell): string",
+      "container": "global",
+      "provenance": [
+        "docs 13.13"
+      ]
+    },
+    {
+      "name": "TwbVector",
+      "exists": true,
+      "signature": "type TwbVector",
+      "container": "type",
+      "provenance": [
+        "referenced as a parameter type in docs 13.13"
+      ],
+      "behaviour": "Referenced by wbPositionToGridCell, but NO DOCUMENTED CONSTRUCTOR was found. Calling wbPositionToGridCell may therefore be unreachable from script until one is identified."
+    },
+    {
+      "name": "ProgramPath",
+      "exists": true,
+      "signature": "ProgramPath (read-only global, not a function)",
+      "container": "global",
+      "provenance": [
+        "docs 13.4"
+      ],
+      "behaviour": "The earlier belief that this was unproven was wrong; it exists. It is a global, so it is used without parentheses."
+    },
+    {
+      "name": "GetPluginName",
+      "exists": false,
+      "signature": "GetPluginName()",
+      "container": "none",
+      "provenance": [
+        "absent from docs 13",
+        "runtime: EJvInterpreterError Undeclared Identifier 'GetPluginName'"
+      ],
+      "behaviour": "DOES NOT EXIST. Aborts the script at the first reference, after two minutes of loading, producing no output at all.",
+      "detect": [
+        "GetPluginName"
+      ],
+      "severity": "error"
+    },
+    {
+      "name": "AddNewElement",
+      "exists": false,
+      "signature": "AddNewElement(...)",
+      "container": "none",
+      "provenance": [
+        "absent from every documented class"
+      ],
+      "behaviour": "DOES NOT EXIST. The real calls are AddElement, Add and InsertElement.",
+      "supersedes": null,
+      "detect": [
+        "AddNewElement"
+      ],
+      "severity": "error"
+    },
+    {
+      "name": "GetActivePlugin",
+      "exists": false,
+      "signature": "GetActivePlugin()",
+      "container": "none",
+      "provenance": [
+        "absent from every documented class"
+      ],
+      "behaviour": "DOES NOT EXIST. Not in any documented class.",
+      "detect": [
+        "GetActivePlugin"
+      ],
+      "severity": "error"
+    }
+  ],
+  "detection_note": "exists false means the name does not exist and any use is an error. Entries with caution true exist but have a side effect that is easy to intend wrongly, so the gate warns rather than fails. The distinction matters: a gate that fails on legitimate use teaches people to bypass it."
+}

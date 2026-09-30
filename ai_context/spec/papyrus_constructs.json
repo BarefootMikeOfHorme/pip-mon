@@ -1,0 +1,293 @@
+{
+  "spec_id": "fo4.papyrus_constructs",
+  "kind": "language_construct",
+  "title": "Papyrus constructs: what Fallout 4 has, and what is a Skyrim habit",
+  "authority": "compile-verified",
+  "provenance": [
+    {
+      "source": "local compilation",
+      "note": "FO4 Papyrus compiler 2.8.0.4, on this machine, repeated compile cycles. Every negative below was found by compiling, not by reading documentation."
+    },
+    {
+      "source": "vprobe/papyrus/PipMonTestFacility.psc",
+      "note": "707 lines of compile-verified FO4 Papyrus"
+    },
+    {
+      "source": "CK base script",
+      "note": "the base script the CK installs is the authority for signatures, read rather than recalled"
+    }
+  ],
+  "prose": "Every negative here is a genuine Skyrim feature, which is exactly why it is tempting. They were each found by compiling against the real FO4 compiler. The practical consequence is structural, not cosmetic: with no array length intrinsic, an editor-filled array is writable in the CK and unreadable at runtime, which is why the facility roster is fifteen named properties. With no CreateObjectAtForm, every reference must exist before it can be placed, which is why every reference is a CK-assigned property. Note exists_in_fo4 is a boolean so a program can branch on it rather than pattern-matching prose.",
+  "entries": [
+    {
+      "name": "CustomEvent",
+      "exists_in_fo4": false,
+      "evidence": "compile + base script survey",
+      "provenance": [
+        "vprobe/papyrus/PipMonTestFacility.psc header"
+      ],
+      "consequence": "No event injection. Add-ons must poll or monkey-patch. PIP-MON can supply this; see ai_context/skyrim_capability_adoption.md.",
+      "replacement": "PIP-MON push events, partially declared as RegisterForEvents",
+      "detect": [
+        "CustomEvent"
+      ]
+    },
+    {
+      "name": "SendEvent",
+      "exists_in_fo4": false,
+      "evidence": "compile + base script survey",
+      "provenance": [
+        "same"
+      ],
+      "consequence": "As CustomEvent.",
+      "replacement": "PIP-MON",
+      "detect": [
+        "SendEvent"
+      ]
+    },
+    {
+      "name": "Debug script (Debug.Notification, Debug.MessageBox)",
+      "exists_in_fo4": false,
+      "evidence": "no Debug script exists in FO4 at all",
+      "provenance": [
+        "vprobe/papyrus/PipMonTestFacility.psc header"
+      ],
+      "consequence": "No sanctioned runtime diagnostic channel; mods resort to display hacks.",
+      "replacement": "PIP-MON wire logging, which is better because it is queryable after a crash and needs no game UI",
+      "detect": [
+        "Debug.Notification",
+        "Debug.MessageBox"
+      ]
+    },
+    {
+      "name": "Menu / Option property types",
+      "exists_in_fo4": false,
+      "evidence": "rejected as unknown type",
+      "error_text": "unknown type",
+      "provenance": [
+        "compile"
+      ],
+      "consequence": "No Papyrus-authored menus. INVESTIGATE, not ADOPT: whether FO4 menu internals are reachable natively is unverified.",
+      "detect": [
+        "property Menu",
+        "property Option",
+        "Menu property",
+        "Option property"
+      ]
+    },
+    {
+      "name": "bare Player identifier",
+      "exists_in_fo4": false,
+      "evidence": "compile",
+      "error_text": "variable Player is undefined",
+      "provenance": [
+        "compile"
+      ],
+      "replacement": "Game.GetPlayer(), which returns an Actor",
+      "consequence": "Skyrimalike that fails confusingly.",
+      "detect": [
+        "Player."
+      ]
+    },
+    {
+      "name": "array length intrinsic (GetLength)",
+      "exists_in_fo4": false,
+      "evidence": "compile",
+      "error_text": "not a function or does not exist",
+      "provenance": [
+        "compile"
+      ],
+      "consequence": "Editor-filled arrays are unreadable at runtime. Structural, not a missing convenience.",
+      "detect": [
+        "GetLength"
+      ]
+    },
+    {
+      "name": "array length intrinsic (GetSize, Count, Size)",
+      "exists_in_fo4": false,
+      "evidence": "compile",
+      "error_text": "parse error",
+      "provenance": [
+        "compile"
+      ],
+      "detect": [
+        "GetSize",
+        "array.Count",
+        ".Size("
+      ]
+    },
+    {
+      "name": "CreateObjectAtForm",
+      "exists_in_fo4": false,
+      "evidence": "compile",
+      "error_text": "not a function or does not exist",
+      "provenance": [
+        "compile"
+      ],
+      "consequence": "No runtime spawn from a FormID, so every reference must pre-exist. This is the 15-property CK assignment tax. PIP-MON can supply it; that is a named ADOPT.",
+      "detect": [
+        "CreateObjectAtForm"
+      ]
+    },
+    {
+      "name": "Start() / Stop()",
+      "exists_in_fo4": false,
+      "evidence": "compile",
+      "error_text": "Start is not a function or does not exist",
+      "provenance": [
+        "compile"
+      ],
+      "replacement": "StartTimer(float afInterval, int aiTimerID) and CancelTimer(int aiTimerID)",
+      "consequence": "Cosmetic. Rejected as a capability: StartTimer already does the job.",
+      "detect": [
+        "Start",
+        "Stop"
+      ]
+    },
+    {
+      "name": "OnAddToMenu / OnMenuClick / OnMenuClose in a non-Native script",
+      "exists_in_fo4": false,
+      "evidence": "compile, plus the toolchain constraint it implies",
+      "error_text": "these events require the script to be flagged Native",
+      "provenance": [
+        "vprobe/papyrus/PipMonTestFacility.psc header",
+        "compile"
+      ],
+      "consequence": "One script cannot both receive a terminal event and hold state. The two requirements are mutually exclusive in this toolchain, which is why the facility has no in-game menu and OnInit is its only event.",
+      "replacement": "Split by concern: a Native event shell with no properties that forwards each event onto the wire, and an ordinary script holding state that reads it. Once native-to-Papyrus calls work, the shell can invoke a named function on the state script directly.",
+      "detect": [
+        "OnAddToMenu",
+        "OnMenuClick",
+        "OnMenuClose",
+        "MenuButton"
+      ]
+    },
+    {
+      "name": "Event OnTimer(float)",
+      "exists_in_fo4": false,
+      "evidence": "compile",
+      "error_text": "the parameter types of function ontimer do not match the original script scriptobject",
+      "provenance": [
+        "CK base script"
+      ],
+      "replacement": "Event OnTimer(int aiTimerID) - the parameter is the timer ID, not an elapsed time",
+      "detect": [
+        "OnTimer(float",
+        "OnTimer(afReal",
+        "OnTimer(real"
+      ]
+    },
+    {
+      "name": "StartTimer",
+      "exists_in_fo4": true,
+      "evidence": "compile-verified, used by the facility probe",
+      "provenance": [
+        "CK base script",
+        "compiled"
+      ],
+      "behaviour": "Function StartTimer(float afInterval, int aiTimerID = 0) native"
+    },
+    {
+      "name": "CancelTimer",
+      "exists_in_fo4": true,
+      "evidence": "compile-verified",
+      "provenance": [
+        "CK base script",
+        "compiled"
+      ],
+      "behaviour": "Function CancelTimer(int aiTimerID = 0) native"
+    },
+    {
+      "name": "Event OnTimer(int)",
+      "exists_in_fo4": true,
+      "evidence": "compile-verified",
+      "provenance": [
+        "compiled"
+      ]
+    },
+    {
+      "name": "Native Global functions",
+      "exists_in_fo4": true,
+      "evidence": "compile-verified in PipMon.psc",
+      "provenance": [
+        "vprobe/papyrus/PipMon.psc"
+      ],
+      "behaviour": "A Papyrus function may be declared Native only if the containing script is also flagged Native, or every one is rejected at once."
+    },
+    {
+      "name": "data in a Native script",
+      "exists_in_fo4": false,
+      "evidence": "compile",
+      "error_text": "cannot be defined as native because the script is not flagged as native (inverse case); a Native script may not contain properties or variables",
+      "provenance": [
+        "compile"
+      ],
+      "consequence": "One script cannot both receive a terminal event and hold state. The two requirements are mutually exclusive in this toolchain, which is why the facility has no in-game menu.",
+      "detect": [
+        "__NATIVE_DATA__"
+      ]
+    },
+    {
+      "name": "property with an initial value, not Auto/AutoReadOnly",
+      "exists_in_fo4": false,
+      "evidence": "compile",
+      "error_text": "Only Auto and AutoReadOnly properties can have initial values",
+      "provenance": [
+        "compile"
+      ],
+      "detect": [
+        "__PROP_INITIAL__"
+      ]
+    },
+    {
+      "name": "bare ObjectReference property with no initial value",
+      "exists_in_fo4": false,
+      "evidence": "compile",
+      "provenance": [
+        "compile"
+      ],
+      "replacement": "= none Auto"
+    },
+    {
+      "name": "cross-script call with underscore (PipMon_GetVersion)",
+      "exists_in_fo4": false,
+      "evidence": "compile",
+      "error_text": "not a function or does not exist",
+      "provenance": [
+        "compile"
+      ],
+      "replacement": "PipMon.GetVersion() with a dot",
+      "consequence": "The underscore form is what the VM mangles to, and what the function is called everywhere else in this repository, so this is the single most likely mistake when extending the surface.",
+      "detect": [
+        "PipMon_"
+      ]
+    },
+    {
+      "name": "Game.GetPlayer()",
+      "exists_in_fo4": true,
+      "evidence": "compile-verified",
+      "provenance": [
+        "compiled"
+      ]
+    },
+    {
+      "name": "ObjectReference.PlaceAtMe",
+      "exists_in_fo4": true,
+      "evidence": "compile-verified",
+      "provenance": [
+        "compiled"
+      ],
+      "behaviour": "Returns a NEW Actor, so the result must be cast: akBase.PlaceAtMe(oSpawn, 0, 0) as Actor"
+    },
+    {
+      "name": "Actor.EvaluatePackage",
+      "exists_in_fo4": true,
+      "evidence": "compile-verified",
+      "provenance": [
+        "compiled"
+      ],
+      "behaviour": "The reset argument matters. Without it an actor that already ran its package will not pick it up again, so a re-run leaves the previous cast standing still."
+    }
+  ],
+  "detection_note": "Entries with exists_in_fo4 false carry a `detect` list of literal stems. tools/artifact_gate.py searches .psc sources for them using word boundaries, so a construct is caught by name rather than by a human remembering it. This is what makes the gate aware of what is passing through it. MenuButton is included with the terminal events because a MenuButton is only usable with them, so flagging it separately would be noise without adding a check."
+}

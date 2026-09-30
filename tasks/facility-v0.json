@@ -1,0 +1,350 @@
+{
+  "group": "facility-v0",
+  "title": "PIP-MON test facility, smallest version that can answer S0",
+  "note": "Steps are meant to be added ONE AT A TIME between runs. A group that must be written all at once before anything can run will not get written. Resume is decided by the checks below, never by the journal, so a Creation Kit crash costs at most the step in flight.",
+  "checkpoint": [
+    "%GAMEDIR%\\Data\\PipMonTestFacility.esp"
+  ],
+  "steps": [
+    {
+      "id": "editor-preflight",
+      "title": "Editor toolchain is present and build-matched",
+      "note": "A mismatch here is why an authored plugin gets rejected on load, and it is silent.",
+      "verify": [
+        {
+          "kind": "file-exists",
+          "path": "%GAMEDIR%\\CreationKit.exe"
+        },
+        {
+          "kind": "file-exists",
+          "path": "%GAMEDIR%\\Fallout4.exe"
+        }
+      ],
+      "unlocks": [
+        "editor.ck.present"
+      ],
+      "requires": "none"
+    },
+    {
+      "id": "plugin-scaffold",
+      "title": "Facility plugin exists and is a well-formed plugin header",
+      "note": "Proves the file is structurally valid, NOT that it has content. A header-only plugin is a legitimate state and passes here.",
+      "verify": [
+        {
+          "kind": "esp-header",
+          "path": "%GAMEDIR%\\Data\\PipMonTestFacility.esp"
+        }
+      ],
+      "unlocks": [
+        "env.plugin.writable"
+      ],
+      "requires": "none"
+    },
+    {
+      "id": "link-active",
+      "title": "Our plugin is enabled AND last in the load order",
+      "note": "In this file the last entry is the active file, so 'enabled' and 'active' are the same requirement stated twice. Verified by reading the file, not by asking Vortex or the CK.",
+      "verify": [
+        {
+          "kind": "text-contains",
+          "path": "%LOCALAPPDATA%\\Fallout4\\plugins.txt",
+          "pattern": "*PipMonTestFacility.esp",
+          "last": true
+        }
+      ],
+      "unlocks": [],
+      "requires": "none"
+    },
+    {
+      "id": "papyrus-compile",
+      "title": "Papyrus surface and facility script compile and deploy",
+      "note": "NoDeploy is deliberate: this step must be runnable while the CK is open. Deployment is its own step so the two cannot be confused.",
+      "run": {
+        "kind": "shell",
+        "exe": "powershell",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "TOOLS\\watch_papyrus.ps1",
+          "-NoDeploy"
+        ],
+        "expectExit": 0
+      },
+      "verify": [
+        {
+          "kind": "file-magic",
+          "path": "REPO\\vprobe\\papyrus\\build\\PipMon.pex",
+          "bytes": [
+            222,
+            192,
+            87,
+            250
+          ]
+        },
+        {
+          "kind": "file-magic",
+          "path": "REPO\\vprobe\\papyrus\\build\\PipMonTestFacility.pex",
+          "bytes": [
+            222,
+            192,
+            87,
+            250
+          ]
+        }
+      ],
+      "unlocks": [
+        "script.compile"
+      ],
+      "requires": "none"
+    },
+    {
+      "id": "cell-created",
+      "title": "An interior cell named PipMonFacilityCell exists in the plugin",
+      "note": "MANUAL, in the Creation Kit. The size threshold is a PROXY: a header-only plugin is 128 B, so growth past it means records were written. It cannot tell you WHICH records -- only xEdit validation can, and that is a later step. SAVE IN THE EDITOR BEFORE CLOSING: unsaved work is exactly what the last three crashes destroyed.",
+      "run": {
+        "kind": "manual",
+        "instructions": [
+          "1. Load data: Fallout4.esm + DLC + PipMonTestFacility.esp (set as ACTIVE FILE).",
+          "2. World > Worldspaces > select DefaultWorld, then create a NEW CELL in it.",
+          "3. Name the EditorID exactly: PipMonFacilityCell",
+          "4. Make it an INTERIOR cell and keep it small and empty.",
+          "5. Do NOT generate navmesh, do NOT batch compute, do NOT open the render window.",
+          "6. SAVE (the editor's own save), then close the editor."
+        ]
+      },
+      "verify": [
+        {
+          "kind": "esp-header",
+          "path": "%GAMEDIR%\\Data\\PipMonTestFacility.esp"
+        },
+        {
+          "kind": "file-minsize",
+          "path": "%GAMEDIR%\\Data\\PipMonTestFacility.esp",
+          "bytes": 400,
+          "proxy": true
+        },
+        {
+          "kind": "confirmed-by-inventory",
+          "note": "needs editor.xedit.headless to pass"
+        }
+      ],
+      "unlocks": [
+        "env.cell"
+      ],
+      "requires": "ck-open"
+    },
+    {
+      "id": "fixtures-placed",
+      "title": "Three fixtures placed in the cell: workbench, power armour station, terminal",
+      "note": "MANUAL. Vanilla objects only -- no mod references, because mod FormIDs move and a wrong one fails silently. SAVE AFTER PLACING, before doing anything else.",
+      "run": {
+        "kind": "manual",
+        "instructions": [
+          "1. Open the cell, place: a weaponsmith workbench, a power armour station, a terminal.",
+          "2. Place one marker (XMARKER) roughly where actors should appear; name it PipMonSpawnHub.",
+          "3. SAVE, then close the editor."
+        ]
+      },
+      "verify": [
+        {
+          "kind": "file-minsize",
+          "path": "%GAMEDIR%\\Data\\PipMonTestFacility.esp",
+          "bytes": 700,
+          "proxy": true
+        },
+        {
+          "kind": "confirmed-by-inventory",
+          "note": "needs editor.xedit.headless to pass"
+        }
+      ],
+      "unlocks": [
+        "env.fixtures"
+      ],
+      "requires": "ck-open"
+    },
+    {
+      "id": "render-align",
+      "title": "Render the cell and confirm the fixtures are where they were placed",
+      "note": "MANUAL, in the CK, on a SMALL interior cell only. This is the step that makes 'the cell exists' mean something: a byte threshold cannot tell you the workbench is in the room. Deliberately isolated so the crash it is most likely to cause costs only itself. Do NOT generate navmesh and do NOT batch compute.",
+      "requires": "ck-open",
+      "unlocks": [
+        "env.render.verify",
+        "editor.ck.render"
+      ],
+      "run": {
+        "kind": "manual",
+        "instructions": [
+          "1. Open the render viewport on PipMonFacilityCell (small interior: this is safe without CKPE).",
+          "2. Confirm visually: the cell is lit, and the workbench, PA station and terminal are all present.",
+          "3. If the render window crashes, that is evidence for editor.ckpe -- record it and stop.",
+          "4. Close the render window, SAVE, close the editor."
+        ]
+      },
+      "verify": [
+        {
+          "kind": "ck-render-ran",
+          "minutes": 30
+        },
+        {
+          "kind": "ck-no-recent-crash",
+          "minutes": 10
+        },
+        {
+          "kind": "confirmed-by-inventory",
+          "note": "needs editor.xedit.headless to pass"
+        }
+      ]
+    },
+    {
+      "id": "script-attached",
+      "title": "The gated .pex is imported and attached to the terminal",
+      "note": "MANUAL. Import the COMPILED artefact; never recompile it in the editor. The build gate owns that file, and an editor recompile silently un-gates it.",
+      "run": {
+        "kind": "manual",
+        "instructions": [
+          "1. Scripts > Import... > vprobe\\papyrus\\build\\PipMonTestFacility.pex",
+          "2. Select the terminal > Properties > Script > add PipMonTestFacility.",
+          "3. SAVE, then close the editor."
+        ]
+      },
+      "verify": [
+        {
+          "kind": "file-minsize",
+          "path": "%GAMEDIR%\\Data\\PipMonTestFacility.esp",
+          "bytes": 1200,
+          "proxy": true
+        },
+        {
+          "kind": "confirmed-by-inventory",
+          "note": "needs editor.xedit.headless to pass"
+        }
+      ],
+      "unlocks": [
+        "script.attach"
+      ],
+      "requires": "ck-open"
+    },
+    {
+      "id": "properties-filled",
+      "title": "Four properties assigned: TerminalRef, WorkbenchRef, PowerArmorStationRef, SpawnHub",
+      "note": "MANUAL. Drag the objects into the fields rather than typing FormIDs: this install has 200+ mods and IDs move, and a hardcoded wrong one fails silently. SAVE after filling.",
+      "run": {
+        "kind": "manual",
+        "instructions": [
+          "1. Terminal properties: TerminalRef = the terminal itself.",
+          "2. WorkbenchRef = the workbench. PowerArmorStationRef = the PA station.",
+          "3. SpawnHub = the marker.",
+          "4. Leave roster and kit properties empty for v0; the script tolerates it.",
+          "5. SAVE, then close the editor."
+        ]
+      },
+      "verify": [
+        {
+          "kind": "file-minsize",
+          "path": "%GAMEDIR%\\Data\\PipMonTestFacility.esp",
+          "bytes": 1600,
+          "proxy": true
+        },
+        {
+          "kind": "confirmed-by-inventory",
+          "note": "needs editor.xedit.headless to pass"
+        }
+      ],
+      "unlocks": [
+        "script.properties.fill"
+      ],
+      "requires": "ck-open"
+    },
+    {
+      "id": "plugin-validated",
+      "title": "Plugin inventory via headless xEdit: masters, records, FormIDs",
+      "note": "This is the step that replaces guessing. It launches xEdit, so it REFUSES to run while a Creation Kit process is open. It also needs xEdit's first-run notice clicked through once, or it reports SKIP -- which is honest, and still better than not looking.",
+      "run": {
+        "kind": "shell",
+        "exe": "powershell",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "TOOLS\\validate_plugin.ps1"
+        ],
+        "expectExit": 0,
+        "launchesGui": true
+      },
+      "verify": [
+        {
+          "kind": "json-field",
+          "path": "REPO\\runs\\watch\\xedit-latest.json",
+          "field": "status",
+          "equals": "PASS"
+        }
+      ],
+      "unlocks": [
+        "editor.xedit.headless"
+      ],
+      "requires": "ck-closed"
+    },
+    {
+      "id": "papyrus-deploy",
+      "title": "Deploy the freshly compiled .pex into the game folder",
+      "note": "Runs only when the editor is closed; the deploy half of watch_papyrus refuses to write into Data\\ while a CK session is open.",
+      "run": {
+        "kind": "shell",
+        "exe": "powershell",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "TOOLS\\watch_papyrus.ps1"
+        ],
+        "expectExit": 0
+      },
+      "verify": [
+        {
+          "kind": "file-magic",
+          "path": "%GAMEDIR%\\Data\\Scripts\\PipMonTestFacility.pex",
+          "bytes": [
+            222,
+            192,
+            87,
+            250
+          ]
+        }
+      ],
+      "unlocks": [],
+      "requires": "ck-closed"
+    },
+    {
+      "id": "live-run",
+      "title": "Live session reached ready: vprobe injected into a game with no F4SE",
+      "note": "Checks the newest runs\\<timestamp>\\run.json for reachedReady=true. The check this replaced tested that a directory existed, which passed for unrelated reasons and unlocked runtime.inject on a technicality -- a green check standing in for work never done.",
+      "run": {
+        "kind": "shell",
+        "exe": "powershell",
+        "args": [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "TOOLS\\testenv.ps1",
+          "run"
+        ],
+        "expectExit": 0
+      },
+      "verify": [
+        {
+          "kind": "run-reached-ready",
+          "minutes": 1440
+        }
+      ],
+      "unlocks": [
+        "runtime.inject"
+      ],
+      "requires": "ck-closed"
+    }
+  ]
+}

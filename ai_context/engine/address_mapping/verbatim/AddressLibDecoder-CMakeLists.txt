@@ -1,0 +1,26 @@
+---
+source_url: https://raw.githubusercontent.com/icodei/f4se-code/main/AddressLibDecoder/CMakeLists.txt
+retrieved_utc: 2026-09-30T21:53:23Z
+content_kind: upstream-verbatim
+trust: "Verbatim upstream build file, unmodified. Dependency list only."
+---
+
+add_project(
+	TARGET_TYPE EXECUTABLE
+	PROJECT AddressLibDecoder
+	VERSION 1.0.0
+	INCLUDE_DIRECTORIES
+		src
+	GROUPED_FILES
+		"src/main.cpp"
+)
+
+find_package(fmt REQUIRED CONFIG)
+find_package(mmio REQUIRED CONFIG)
+
+target_link_libraries(
+	"${PROJECT_NAME}"
+	PUBLIC
+		fmt::fmt
+		mmio::mmio
+)

@@ -1,0 +1,60 @@
+{
+  "schema": "pipmon.session.profiles/1",
+  "note": "Load-order profiles for Creation Engine sessions. 'core' is what the CK authoring session AND the playable test env use. It is deliberately curated rather than maximal: every master is load time and crash surface in the CK, and the facility references only vanilla objects plus two area mods. SimSettlements 2 is excluded by decision, not by oversight -- the bunker is a small area it was never made for, and excluding it resolves the workshop-hook conflict instead of deferring it. After a load, read EditorWarnings.txt for missing masters: that is how a curated list gets corrected rather than guessed at.",
+  "profiles": {
+    "core": {
+      "label": "PIP-MON test environment core",
+      "rationale": "in-game defaults + patches + creation frameworks + power armour + the two area mods + vendors/companions + testing aids",
+      "entries": [
+        { "name": "unofficial fallout 4 patch.esp", "why": "UFO4P: the community patch. Everything downstream assumes it." },
+        { "name": "ArmorKeywords.esm", "why": "armour keyword framework; AWKCR and paint packs depend on it" },
+        { "name": "WorkshopFramework.esm", "why": "core settlement framework" },
+        { "name": "workshopplus.esp", "why": "framework companion; settlements and bots build on it" },
+        { "name": "workshopframework_scriptoverride.esp", "why": "fixes framework script conflicts" },
+        { "name": "hudframework.esm", "why": "HUD framework; several UI mods expect it" },
+        { "name": "XDI.esm", "why": "dialogue framework; companion and radio mods target it" },
+        { "name": "vcm_librarysupportplugin_f-esl.esl", "why": "script library support for the Papyrus-side extensions" },
+        { "name": "Snap'n Build.esm", "why": "in-game creation framework" },
+
+        { "name": "Scrap Everything - Ultimate Edition.esp", "why": "scraping framework" },
+        { "name": "Scrap Everything - Automatron.esp", "why": "SE companion: Automatron" },
+        { "name": "Scrap Everything - Far Harbor.esp", "why": "SE companion: Far Harbor" },
+        { "name": "Scrap Everything - Nuka World.esp", "why": "SE companion: Nuka World" },
+        { "name": "Scrap Everything - Vault-Tec Workshop.esp", "why": "SE companion: Vault-Tec" },
+
+        { "name": "whispercraftpowerarmor.esp", "why": "Whispers workshop utility: power armour crafting at benches -- a core bench test" },
+        { "name": "whisperunlockedpowerarmorpaints.esp", "why": "paint unlocks for the above" },
+        { "name": "whisperenhancedturrets.esp", "why": "turret variants for the workshop tests" },
+        { "name": "powerarmoroverhaul.esp", "why": "power armour rebalance; the frame in the facility kit depends on this behaviour" },
+        { "name": "__the great power armor reset.esl", "why": "PA chassis/perk integration" },
+        { "name": "ccbgsfo4044-hellfirepowerarmor.esl", "why": "Hellfire X-02: the power armour under test" },
+        { "name": "ccbgsfo4115-x02.esl", "why": "X-02 variant" },
+        { "name": "cclub - x02 black devil power armors.esl", "why": "X-02 paint jobs" },
+        { "name": "awkcr - automatron.esp", "why": "armour/weapon framework: Automatron" },
+        { "name": "awkcr - vault-tec.esp", "why": "armour/weapon framework: Vault-Tec" },
+        { "name": "awkcr - nuka world.esp", "why": "armour/weapon framework: Nuka World" },
+
+        { "name": "Cotozic's Bunker Ravine.esp", "why": "the bunker: the facility's home, and the room the whole test env is built in" },
+        { "name": "theparadiseproject.esp", "why": "Paradise: the intended entrance side for the bunker door" },
+
+        { "name": "FCOM.esp", "why": "caravan merchants: the NPC vendor test path" },
+        { "name": "tce - companions enhanced 1.5.esp", "why": "companion enhancer: roster behaviour" },
+        { "name": "CheatTerminal.esp", "why": "testing aid: coc into the cell, spawn, inspect" },
+
+        { "name": "weightless item mods.esp", "why": "keeps encumbrance out of the way of item tests" },
+        { "name": "peterhicks upgrade to crafting - vanilla.esp", "why": "bench upgrade path" },
+        { "name": "vivid weathers - fo4.esp", "why": "weather: part of the environment being observed" },
+        { "name": "trees for the future.esp", "why": "foliage: part of the frame-time baseline" },
+
+        { "name": "PipMonTestFacility.esp", "why": "OURS. Always last: the last entry is the active file.", "alwaysLast": true }
+      ],
+      "excluded": [
+        { "name": "SS2.esm and the SimSettlements family", "why": "excluded by decision: the bunker is a small area SS2 was not made for; excluding resolves the workshop-hook conflict" },
+        { "name": "place_everything.esp", "why": "its feature IS place.dll, an F4SE plugin. With no F4SE it loads as an inert record and can only log errors." },
+        { "name": "REPatch_* (5 mods)", "why": "encounter revisions: gameplay variance with no bearing on what is being tested" },
+        { "name": "Seasonal Snow.esl, Seasons.esm", "why": "worldspace weather overhaul; weather is already covered by vivid weathers" },
+        { "name": "LogConsoleHistory.esp, Scopes.esp / 3dscopes-goty.esp", "why": "duplicates and conveniences" }
+      ]
+    }
+  }
+}

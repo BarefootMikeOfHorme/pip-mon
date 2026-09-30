@@ -1,0 +1,435 @@
+// =============================================================================
+//  CreationEngineTestEnvironmentManifest
+//  Schema v1.0.0 -- WORKING DRAFT, merged
+//
+//  PROVENANCE OF THIS FILE, because it matters how you read it:
+//    Sections 1-4 are the ORIGINAL four-section schema, kept as written. The
+//    shape, the field names and the HUMAN/AI INSTRUCTION convention are the
+//    starting point, not a strawman to be corrected.
+//
+//    What has been added is (a) a Section 0 and Section 5, which the original
+//    had no answer for, and (b) inline constraints on individual fields, each
+//    carrying the reason. Nothing has been deleted. Where this project would
+//    have made a different choice, the field is STILL HERE and the choice is
+//    stated as a constraint -- so the disagreement is visible and arguable
+//    rather than silently resolved by deletion.
+//
+//  THE FIVE THINGS THIS PROJECT ADDS, and the recorded failure behind each:
+//    1. PROVENANCE on every fact. "A fact with no provenance may not exist."
+//    2. AVAILABILITY distinct from ENABLED. "Off" and "cannot get it" must not
+//       look identical -- that confusion is what made five dead signatures read
+//       as an empty panel instead of five failures.
+//    3. IDENTITY. A target executable with no build key is how a wrong-build
+//       case looks healthy.
+//    4. PROVIDERS. Data\\ is virtualised on this machine. A manifest that trusts
+//       a physical path reports a clean load order for a VFS-assembled save.
+//    5. STATE. "Main menu, no loaded save" is the only automation-safe window,
+//       and a manifest cannot know it unless it is told or derives it.
+// =============================================================================
+
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CreationEngineTestEnvironmentManifest",
+  "version": "1.0.0",
+  "description": "Configuration schema for orchestrating an isolated live-testing environment between Creation Engine / GECK and a custom sidecar process.",
+
+  // ===========================================================================
+  // SECTION 0: IDENTITY AND FRESHNESS  [ADDED -- the original had no answer]
+  //
+  //   Read this before anything else. A manifest is a CACHE, and a cache needs
+  //   a verification contract or it is just a stale file with good manners.
+  //
+  //   HUMAN INSTRUCTION: Set the game build and re-survey after any game patch,
+  //   mod-manager profile change, or load-order edit.
+  //   AI INSTRUCTION: Refuse to proceed if generationHash does not match a
+  //   freshly computed one. Report a stale manifest as needing a re-survey,
+  //   never as an answer. A stale manifest must cost a re-survey, never a
+  //   wrong answer.
+  // ===========================================================================
+  "identity": {
+    "manifestVersion": "1.0.0",
+
+    // FNV-1a over the game PE HEADERS, ImageBase normalised to zero. Not
+    // Bethesda's build-key string: a string forces a PE parser into the
+    // in-process tier, which this project deliberately does not have there.
+    // The ImageBase normalisation is not optional -- the loader patches those
+    // bytes when it relocates, so disk and memory differ by exactly four bytes
+    // and can never match.
+    "gameBuildKey": "TODO-survey-measured",
+    "gameBuildKeySource": "TODO-name-the-oracle-that-measured-it",
+
+    // Human-readable only. Never an input to resolution.
+    "gameVersionString": "TODO-survey-measured",
+
+    // ONE number over (game build + provider set + load order). It is the hook
+    // map key, the drift-detector input, and the freshness token. Three jobs on
+    // one value, because three separately maintained values will eventually
+    // disagree and the disagreement will be invisible.
+    "generationHash": "TODO-computed-by-survey",
+
+    "surveyedAtUtc": "TODO-ISO-8601",
+    "surveyMode": "on-demand",
+
+    "allowStaleManifest": false,
+    "onStale": "refuse-and-request-resurvey"
+  },
+
+  // ===========================================================================
+  // SECTION 1: SYSTEM & RUNTIME CONFIGURATION
+  //
+  //   HUMAN INSTRUCTION: Specify local binaries and paths.
+  //   AI INSTRUCTION: Parse executable paths and verify existence before any
+  //   process execution. Treat every field below as OBSERVED, never assumed.
+  //
+  //   ENHANCEMENT: added `role` per host, and `launchPolicy`. The original had
+  //   one flat list of executables; a manifest that cannot say which host it is
+  //   looking at cannot apply different safety rules to the real game and to a
+  //   test facility, which is the single distinction that matters most here.
+  // ===========================================================================
+  "system": {
+    "target_executable": "Fallout4.exe",
+    "editor_executable": "CreationKit.exe",
+    "sidecar_executable": "sidecar_monitor.exe",
+
+    // [ADDED] The role decides the safety profile. See SECTION 4.
+    //   protect = the real game and the real save
+    //   test    = the facility, where a known-broken state is still worth
+    //             observing rather than tearing down
+    //   repair  = may act, only ever on a rehearsed copy
+    "roles": {
+      "target_executable": "protect",
+      "editor_executable": "test",
+      "sidecar_executable": "service"
+    },
+
+    "launch_args": [
+      "-devmode",
+      "-allowconsole",
+      "-windowed"
+    ],
+
+    // [ADDED CONSTRAINT -- the field is kept, the default is changed]
+    // The default is attach, for both hosts, and here is why:
+    //   - The game wants to come up through Fallout4Launcher.exe; spawning it
+    //     directly was tried and abandoned.
+    //   - The editor is ALREADY a running engine. There is nothing to start
+    //     for GECK -- we observe it while it is open.
+    //   - "main menu, no loaded save" is the only automation-safe window, and
+    //     no launch config can guarantee it, because the game may restore a
+    //     save on its own.
+    // Set "auto" only for a disposable test instance whose loss costs nothing.
+    "launchPolicy": {
+      "target_executable": "attach",
+      "editor_executable": "attach",
+      "allowed": ["attach", "auto"],
+      "default": "attach",
+      "onAutoWithoutDisposableInstance": "refuse"
+    },
+
+    "working_directory": "C:\\Games\\Fallout4TestEnv",
+
+    // [ADDED] Presence vs running. A check that needs the editor can be
+    // meaningful with the editor merely INSTALLED; a check that reads live
+    // runtime state needs it actually RUNNING, because otherwise it reports on
+    // a process that is not there. Conflating the two is how a tool claims to
+    // be monitoring something that does not exist.
+    "hostState": {
+      "target_executable": { "installed": "TODO-survey", "running": false, "pid": null },
+      "editor_executable": { "installed": "TODO-survey", "running": false, "pid": null }
+    },
+
+    // [ADDED] The runtime does not resolve inside the editor, and the manifest
+    // must not imply it does. The address database is keyed on a hash of the
+    // GAME PE headers; handed the editor's image it refuses, correctly.
+    "runtimeScope": {
+      "target_executable": { "inProcessRuntime": true, "dll": "vprobe.dll" },
+      "editor_executable": {
+        "inProcessRuntime": false,
+        "reason": "the address database is keyed on the game image; the editor is a peer tool, observed out-of-process (rule G3)"
+      }
+    }
+  },
+
+  // ===========================================================================
+  // SECTION 2: INTER-PROCESS COMMUNICATION (IPC)
+  //
+  //   HUMAN INSTRUCTION: Choose the transport protocol for streaming state.
+  //   AI INSTRUCTION: Initialise the selected transport channel prior to
+  //   spawning any game sub-process.
+  //
+  //   ENHANCEMENT: kept all four original fields. Added `authority` per field,
+  //   because in this project the producer endpoint is NOT ours to move and
+  //   that needs saying in the file rather than in somebody's memory.
+  // ===========================================================================
+  "ipc_transport": {
+    "mode": "named_pipe",
+
+    // [ADDED CONSTRAINT] Valid values stay as the original listed them, but
+    // shared_memory is not free: it needs handle-lifetime management across
+    // process restarts, and surviving the game's death is the property the
+    // whole external tier is built around. A named pipe gets that for free.
+    // So "mode" is recorded here, and "authority" says who may change it.
+    "authority": {
+      "mode": "design-decision",
+      "note": "Changing the carrier is a design change, not a config edit. Shared memory may be added as a SECOND transport on the same internal ring later; the wire format does not change."
+    },
+
+    // [ADDED CONSTRAINT] The producer endpoint is fixed. It is named after the
+    // API, not after the producer, precisely so that renaming the probe does
+    // not break anyone's saved config. A manifest that could move it would
+    // undo that. The runtime holds it as a compile-time constant today.
+    "pipe_name": "\\\\.\\pipe\\creation_engine_sidecar_telemetry",
+    "pipe_name_authority": {
+      "producer": "fixed",
+      "producerReason": "endpoint is named after the API so a probe rename is not a breaking change",
+      "consumer": "overridable",
+      "consumerReason": "the synthetic producer used for no-game testing needs its own endpoint"
+    },
+
+    // The endpoint this project's runtime actually opens. Recorded so a reader
+    // can tell a mismatch from a typo instead of waiting for a timeout.
+    "producerPipeName": "\\\\.\\pipe\\vlink_telemetry",
+
+    "buffer_size_kb": 1024,
+    "buffer_size_note": "A stalled consumer plus a bigger buffer is how dropped telemetry becomes a multi-gigabyte allocation inside the game. The ring is fixed-capacity and drops rather than grows; the drop count is reported, because a profiler that silently under-reports is worse than no profiler.",
+
+    "reconnect_attempts": 5,
+    "reconnect_note": "0 means unbounded. Backoff is exponential, capped at 15s, on BOTH sides -- a dashboard left open overnight must not spin on a pipe that does not exist.",
+
+    "timeout_ms": 3000,
+
+    // [ADDED] The transport is unusable for live observation on this build:
+    // four connection attempts, each followed within ~2s by the process dying,
+    // with a clean init immediately beforehand. Until that is fixed, the
+    // observation channel is a file, and this field records that rather than
+    // leaving a reader to discover it by crashing someone's game.
+    "liveObservationChannel": "file",
+    "liveObservationNote": "connect() is known-fatal on this build; a client attaching kills the process. Do not enable until IPCServer is fixed."
+  },
+
+  // ===========================================================================
+  // SECTION 3: VERBOSE TELEMETRY & LOG HOOKS
+  //
+  //   HUMAN INSTRUCTION: Toggle event types to trade overhead against detail.
+  //   AI INSTRUCTION: Filter frames by enabled flag before writing to disk.
+  //
+  //   ENHANCEMENT -- the important one. Each category is now an OBJECT rather
+  //   than a boolean, keeping `enabled` and adding `source` and `available`.
+  //
+  //   A bare boolean cannot distinguish "you turned this off" from "this is not
+  //   obtainable at all", and that distinction is the whole ballgame. It is why
+  //   five AOB signatures that matched nothing read as a quiet empty panel
+  //   instead of as five failures.
+  // ===========================================================================
+  "telemetry_stream": {
+    "poll_rate_hz": 60,
+
+    // [ADDED CONSTRAINT] Null by default, and that is a real number, not a
+    // shrug. An external process cannot read the game's address space. Polling
+    // engine globals from the sidecar is not implementable; getting them needs
+    // a hook, and no vtable slot is hooked yet. So a 60 Hz poll is a claim
+    // without a measurement, and the rule here is not to state unmeasured
+    // things as results. The value is kept because the field is legitimate once
+    // a hook exists.
+    "poll_rate_hz_note": "applies only to categories whose source is a hook; sidecar polling of engine memory is not possible. See categories[].source.",
+
+    // These rates are real and already shipped.
+    "nativeRates": { "heartbeatHz": 1, "memoryHz": 2, "vmTickOpsPerSample": 64 },
+
+    "capture_categories": {
+      "papyrus_traces": {
+        "enabled": true,
+        "source": "vtable-hook",
+        "available": false,
+        "blockedBy": "no vtable slot index is sourced; a BSScript declaration in method order is the blocker",
+        "note": "Unavailable is the honest value. Reporting it as merely 'off' is the silent-degradation failure this schema exists to prevent."
+      },
+      "actor_transforms": {
+        "enabled": true,
+        "source": null,
+        "available": false,
+        "reason": "not observable from Papyrus and not ours; a stated limitation rather than a toggle"
+      },
+      "action_events": {
+        "enabled": true,
+        "source": "papyrus-trace",
+        "available": false,
+        "blockedBy": "depends on papyrus_traces"
+      },
+      "global_variables": {
+        "enabled": true,
+        "source": "papyrus-native",
+        "available": true,
+        "note": "Reachable through the registered surface, independent of the hook layer."
+      },
+      "physics_collisions": {
+        "enabled": false,
+        "source": null,
+        "available": false,
+        "reason": "high-frequency and in-game-thread hostile; aggregation is required before it can ever be enabled"
+      }
+    },
+
+    "log_output": {
+      "stdout_enabled": true,
+
+      // [ADDED] The writer is named, because a log config that does not say
+      // this invites the exact micro-stutter the architecture exists to avoid:
+      // file I/O on a game thread. The in-process runtime does no file IO
+      // unless a marker file sits beside the DLL, and even then it is a
+      // diagnostic channel, flushed per line.
+      "writtenBy": "consumer",
+      "writtenByNote": "Never the in-process runtime on a game thread.",
+
+      "file_path": "./logs/test_session_verbose.log",
+      "rotation_max_mb": 50,
+
+      "formats": ["text", "jsonl"],
+      "jsonl_note": "JSONL, not one JSON document. A capture is streamed, not buffered: a reader that dies partway through a single document has nothing, whereas every object already emitted is still usable."
+    }
+  },
+
+  // ===========================================================================
+  // SECTION 4: SAFETY & FAULT ISOLATION
+  //
+  //   HUMAN INSTRUCTION: Set thresholds to prevent engine lockups or memory
+  //   leaks during unoptimized mod runs.
+  //   AI INSTRUCTION: Monitor sidecar resource metrics; on breach, follow the
+  //   role's policy. Do not act on the game process directly.
+  //
+  //   ENHANCEMENT -- the biggest change, and the original four fields are all
+  //   still here. The problem with a single flat set of guardrails is that the
+  //   right answer genuinely differs by situation, so one setting is a lie in
+  //   at least one of them. Two examples that drove the split:
+  //
+  //     In the real game: a hang must NOT be auto-killed. The response is
+  //     guidance -- say what is wrong and what the safe next step is. Killing
+  //     someone's game is how a monitoring tool gets uninstalled.
+  //
+  //     In a test facility: a known-broken state is worth KEEPING. The failure
+  //     is the product during a test run; tearing down destroys the evidence.
+  //
+  //   So the original fields are read as the "protect" profile, and `policy`
+  //   carries the others. `auto_kill_on_hang` is kept and is false everywhere;
+  //   it is not deleted, because a schema that pretends the capability does not
+  //   exist is less honest than one that names it and forbids it.
+  // ===========================================================================
+  "safety_guardrails": {
+    "auto_kill_on_hang": false,
+    "auto_kill_on_hang_note": "False in every role. A monitoring tool that kills the process it is monitoring is worse than no tool. Detection and guidance are always available instead, and a soft cancel is always offered before anything stronger.",
+
+    "max_memory_mb": 4096,
+    "max_memory_note": "REPORTED, never acted on. The recorded working set on a LESS modded install was already 3.52 GiB, and this machine runs 200+ mods, so a hard cap here would fire routinely. A threshold that fires routinely trains people to ignore it, and one that tears down sessions is worse than no threshold at all.",
+
+    "watchdog_timeout_ms": 10000,
+    "watchdog_note": "A cooperative wait must still be BOUNDED. A save that cannot drain has to fail and report, not wait forever -- a gate with no timeout is a freeze waiting for one bad frame, and a freeze is the exact failure this exists to prevent.",
+
+    "clean_teardown_on_exit": true,
+
+    // [ADDED] The per-role matrix. `protect` above is the default profile.
+    "policy": {
+      "protect": {
+        "appliesTo": ["target_executable"],
+        "onHang": "report-and-guide",
+        "onMemoryGrowth": "report-and-guide",
+        "mayTerminateGame": false,
+        "mayDetachRuntime": true,
+        "mayWriteSave": false,
+        "guidance": "Name the hazard, name the safe next step, stop. Soft cancel first, always offered."
+      },
+      "test": {
+        "appliesTo": ["editor_executable", "facility"],
+        "onHang": "report-and-continue-observing",
+        "onMemoryGrowth": "report",
+        "mayTerminateGame": false,
+        "mayDetachRuntime": true,
+        "mayWriteSave": false,
+        "tolerateKnownBroken": true,
+        "tolerateNote": "During a test run the failure is the product. Keep collecting the trace rather than tearing down; the next thing needed is evidence, not a clean exit."
+      },
+      "repair": {
+        "appliesTo": ["explicit-invocation-only"],
+        "onHang": "hold-bounded",
+        "mayTerminateGame": false,
+        "mayWriteSave": false,
+        "rehearseOnCopyOnly": true,
+        "requiresConfirmation": true,
+        "note": "Any remedy is rehearsed against a COPY and only offered if it survives. Never in place, never on the live save. Timestamped backup first, separate output file, quarantine on failure."
+      }
+    },
+
+    "stateOverrides": {
+      "note": "Capability depends on whether the VM is idle and whether a save is in flight -- not on whether the process is running. Main menu with no loaded save is the one window where both risky operations are safe, and it is the window where automatic reconfiguration is allowed rather than merely warned about.",
+      "capabilities": {
+        "readOnlyScan":   { "off": "safe", "mainMenu": "safe", "inGame": "safe" },
+        "saveTriage":     { "off": "safe", "mainMenu": "safe", "inGame": "REFUSED" },
+        "installHooks":   { "off": "safe", "mainMenu": "safe", "inGame": "REFUSED" },
+        "rebuildHookMap": { "off": "safe", "mainMenu": "safe", "inGame": "REFUSED" },
+        "preSaveGate":    { "off": "n/a",  "mainMenu": "n/a",  "inGame": "safe-bounded" }
+      },
+      "currentState": "UNKNOWN",
+      "currentStateNote": "Derived, never asserted. With no frame-count hook a game in a world reports zero frames exactly as a game at the menu does, so claiming MENU would be confidently wrong. UNKNOWN is worth more than a guess."
+    }
+  },
+
+  // ===========================================================================
+  // SECTION 5: PROVIDERS AND VALIDATION  [ADDED]
+  //
+  //   The original schema had no answer for "what is actually active", and on
+  //   this machine that is the question that decides whether anything else we
+  //   report is true.
+  //
+  //   Mod managers virtualise Data\\. A manifest that trusts a physical path
+  //   reports a clean load order for a save that a virtual filesystem
+  //   assembled -- and that is silent wrongness, the worst kind, because
+  //   nothing anywhere reports the contradiction.
+  //
+  //   HUMAN INSTRUCTION: Name the mod manager in use, if any.
+  //   AI INSTRUCTION: Probe every provider; compute disagreements between
+  //   them; report the disagreement as a first-class finding. When only the
+  //   physical tree is visible, say "physical only" LOUDLY.
+  // ===========================================================================
+  "providers": {
+    "probe": ["vortex", "mo2", "fomod", "f4se", "bethesda"],
+    "access": "read-only",
+    "access_note": "Read only. Never write, never reconcile, never repair. That is what keeps coexistence intact, and it is why a fourth mod manager is a new adapter rather than a change to the core.",
+    "active": "TODO-survey",
+    "effectiveTreeVisible": false,
+    "onPhysicalOnly": "warn-loudly-never-degrade-quietly"
+  },
+
+  "validation": {
+    "schemaVersion": "1.0.0",
+    "refuseUnknownVersion": true,
+    "refuseForeignImage": true,
+    "refuseOnGenerationMismatch": true,
+    "onRefusal": "fail-loudly-and-name-the-field",
+
+    "refusalNote": "A blob built for another image, an unknown schema version, a non-zero reserved header, a wrong record stride, an ambiguous hash: all refused, each with a reason. A wrong answer is worse than no answer, because the failure it prevents is a detour into an unintended function in a process whose only symptom is a crash."
+  },
+
+
+  // ===========================================================================
+  //  STATUS
+  //
+  //  [DESIGNED] -- merged draft. No reader exists for this file yet, and the
+  //  TODO values are deliberate: a reader that accepted them would be caught by
+  //  its own validation rather than by a human noticing.
+  //
+  //  ALREADY BUILT and verified, which is what a reader would have to consult:
+  //    build identity via the validated C++ parser (45 checks)
+  //    the address database, both forms, independently validated
+  //    `overseer-cli --verify` -- the environment gate, one protocol across the
+  //      game host, the editor host and no host at all
+  //    `tools/testenv.ps1 run` -- attaches, tails both file channels live,
+  //      classifies the exit, never opens the pipe, never kills the game
+  //
+  //  BLOCKED, and why:
+  //    categories stay `available: false` until a vtable slot index is sourced.
+  //      That single input gates the hook layer, then S0, and S0 decides the
+  //      save-triage and adjudication designs.
+  //    the provider survey is what makes effectiveTreeVisible truthful. Until
+  //      it exists, every load-order answer describes a tree the game does not
+  //      necessarily use.
+  // ===========================================================================
+}

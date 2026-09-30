@@ -10,9 +10,17 @@ REM    2. papyrus     the PipMon: API surface (.psc to .pex; needs the CK)
 REM    3. launcher    pre-flight + core load path, plus its fixtures
 REM    4. python      the analysis tier test suite
 REM    5. rust        the protocol crate
+REM    6. retrieval   the knowledge base invariants
 REM
 REM  A failure in any stage stops the run. Non-zero exit means something is
 REM  broken -- do not read the summary below and move on.
+REM
+REM  STAGE 6 IS NOT COSMETIC. Every rule this project relies on about its own
+REM  knowledge base was at some point true only because someone remembered it.
+REM  System documents outranked the domain files they quoted; configuration
+REM  came back as search hits; an objective went missing and a whole component
+REM  became invisible. Each shipped with every other stage green, because no
+REM  stage looked. This one looks.
 REM
 REM  The papyrus stage is the one exception: it reports SKIP and continues when
 REM  the Creation Kit is not installed, because a developer without it must
@@ -35,7 +43,7 @@ REM is a PARSE error that kills the whole script at the first such line, with a
 REM message that points nowhere near the real problem.
 
 echo ############################################################
-echo #  1/5  vprobe -- the in-process runtime
+echo #  1/6  vprobe -- the in-process runtime
 echo ############################################################
 call "%R%vprobe\build_vprobe.bat"
 if errorlevel 1 ( set FAILED=1 & echo [FAIL] vprobe build )
@@ -63,7 +71,7 @@ if errorlevel 1 ( set FAILED=1 & echo [FAIL] vtable targets )
 
 echo.
 echo ############################################################
-echo #  2/5  papyrus -- the PipMon: API surface (.psc to .pex)
+echo #  2/6  papyrus -- the PipMon: API surface (.psc to .pex)
 echo ############################################################
 REM The Papyrus surface is gated here for the same reason the native table is
 REM tested against the .psc: if PipMon.psc and PapyrusApi.cpp can drift, the
@@ -82,7 +90,7 @@ if errorlevel 1 ( set FAILED=1 & echo [FAIL] papyrus build )
 
 echo.
 echo ############################################################
-echo #  3/5  launcher -- pre-flight and core load path
+echo #  3/6  launcher -- pre-flight and core load path
 echo ############################################################
 if not exist "%R%launcher\build" mkdir "%R%launcher\build"
 call "%R%launcher\build_all.bat" "%R%launcher\build" "%R%launcher"
@@ -95,7 +103,7 @@ if errorlevel 1 ( set FAILED=1 & echo [FAIL] launcher build ) else (
 
 echo.
 echo ############################################################
-echo #  4/5  python -- analysis tier
+echo #  4/6  python -- analysis tier
 echo ############################################################
 pushd "%R%overseer_cli"
 python -m pytest -q
@@ -104,12 +112,41 @@ popd
 
 echo.
 echo ############################################################
-echo #  5/5  rust -- protocol crate
+echo #  5/6  rust -- protocol crate
 echo ############################################################
 pushd "%R%overseer_cli\rust\vlink-protocol"
 cargo test -q
 if errorlevel 1 ( set FAILED=1 & echo [FAIL] rust tests )
 popd
+
+echo.
+echo ############################################################
+echo #  6/6  retrieval -- knowledge base invariants
+echo ############################################################
+REM Reindex first, then assert. Asserting against a stale index would let a
+REM deleted or renamed file pass simply because the index had not been rebuilt,
+REM which is the same class of silent pass this project keeps refusing.
+python "%R%tools\rag_index.py" --quiet
+if errorlevel 1 ( set FAILED=1 & echo [FAIL] retrieval reindex )
+python "%R%tools\rag_selftest.py"
+if errorlevel 1 ( set FAILED=1 & echo [FAIL] retrieval selftest )
+
+REM Specs are the machine-readable half of the knowledge base. Unvalidated JSON
+REM drifts from both the prose and the code, and a spec that claims coverage it
+REM does not have is worse than no spec. spec_lint checks shape, types and
+REM honesty -- including that a component whose own status says it is unproven
+REM does not claim gate coverage. It has already caught exactly that once.
+python "%R%tools\spec_lint.py"
+if errorlevel 1 ( set FAILED=1 & echo [FAIL] spec lint )
+
+REM The artifact gate is the one that knows WHAT is passing through. Stages 1-5
+REM ask "does it compile". This asks "is the thing being compiled something
+REM Fallout 4 can actually run", using the detect lists in ai_context/spec. Known
+REM pre-existing violations are reported as acknowledged and listed; only a NEW
+REM construct in a NEW place fails the build. Run with --write-baseline only
+REM after deliberately reviewing the current findings.
+python "%R%tools\artifact_gate.py"
+if errorlevel 1 ( set FAILED=1 & echo [FAIL] artifact gate )
 
 echo.
 echo ############################################################

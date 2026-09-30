@@ -1,0 +1,69 @@
+{
+  "schema_id": "pipmon.systems_core/1",
+  "spec_id": "systems_core.address_blob",
+  "title": "SCHEMA DOOR: the address-blob format, in one versioned place",
+  "authority": "measured",
+  "version": 1,
+  "supersedes": [
+    "the format spec embedded in tools/build_libbin.py",
+    "the LAYOUT table in tools/verify_libbin.py",
+    "the constants in vprobe/include/VersionConfig.hpp"
+  ],
+  "why_this_file_exists": "The design record (HANDOVER.md section 11) names this as a wanted door and calls the three-way duplication a drift risk: the same format was described in a Python spec, a Python LAYOUT table, and C++ constants. Three descriptions of one format is two descriptions too many, and the risk is not that any of them is wrong, it is that a change lands in two of the three. This file is the single place. The three implementations must conform to it, and tools/spec_lint.py plus the retrieval selftest check that it exists.",
+  "provenance": [
+    {
+      "source": "upstream AddressLibGen/AddressLibDecoder, captured verbatim at ai_context/engine/address_mapping/verbatim/",
+      "url": "https://github.com/icodei/f4se-code",
+      "retrieved_utc": "2026-09-30",
+      "note": "Reference implementation of the same idea. NOT a dependency; libxse/addresslib does not exist publicly (404, and the libxse org has no such repo)."
+    },
+    {
+      "source": "local",
+      "note": "HANDOVER.md line 269: (vprobe.addresses.txt / .bin) are the per-build artifacts, and build_libbin.bat selects the per-build file and stages it."
+    }
+  ],
+  "prose": "Two artifacts, and the distinction matters. The TEXT form is the human-authored source: mappings named <L1.L2.L3>_<R1.R2.R3>.txt, with a fixed 18-line header that is skipped, then tab-separated pairs of hex offsets. The BINARY form is what ships and what the runtime reads: a bare array with no header, no strings, no version field, no checksum and no magic. That is a deliberate zero-allocation design, and it is why the format is so easy to get subtly wrong. Three traps are recorded below, and all three have already cost somebody time: offsets are RVA not absolute, identifiers are sparse per version, and the count field is never validated before a span is built over it.",
+  "artifacts": [
+    {
+      "name": "vprobe.addresses.txt",
+      "kind": "text source",
+      "produced_by": "hand/tool authored per build",
+      "path_pattern": "mappings/<L1.L2.L3>_<R1.R2.R3>.txt",
+      "header_lines_to_skip": 18,
+      "record": [
+        {"name": "offsetL", "type": "hex uint64", "separator": "tab"},
+        {"name": "offsetR", "type": "hex uint64"}
+      ],
+      "notes": "The R side is the runtime target. This file is a QUERY, not a fact, until it is compiled into the blob."
+    },
+    {
+      "name": "vprobe.addresses.bin",
+      "kind": "binary runtime artifact",
+      "produced_by": "tools/build_libbin.bat via build_libbin.py",
+      "consumed_by": "the T2 library, zero-alloc in-game",
+      "layout": [
+        {"offset": "0x00", "name": "count", "type": "uint64", "bytes": 8, "notes": "Number of records that follow. NEVER VALIDATED before a span is built over it; a corrupt or truncated file therefore produces an out-of-range span rather than a clean error."},
+        {"offset": "0x08", "name": "records", "type": "array<record, count>", "record_bytes": 16, "record": [
+          {"offset": "0x00", "name": "id", "type": "uint64", "bytes": 8, "notes": "Assigned by union-find over offsets across version pairs, so identical offsets SHARE an id. The counter runs 0..N over GROUPS, which makes ids SPARSE within any one version."},
+          {"offset": "0x08", "name": "offset", "type": "uint64", "bytes": 8, "notes": "RVA. The image base 0x140000000 is ALREADY SUBTRACTED. Adding it again is the classic error."}
+        ]}
+      ],
+      "invariants": [
+        "records are sorted ascending by id",
+        "no strings, no names, no version field, no checksum, no magic number",
+        "the version lives ONLY in the filename",
+        "id < count is NOT guaranteed; ids are sparse per version"
+      ]
+    }
+  ],
+  "known_traps": [
+    {"trap": "adding the image base a second time", "consequence": "addresses land outside the module, reads fault or return garbage"},
+    {"trap": "assuming id < count", "consequence": "a lookup for a valid id walks off the end of the array"},
+    {"trap": "trusting count without validating it", "consequence": "a truncated file yields a span past end-of-file instead of a clean refusal"},
+    {"trap": "expecting a version field inside the blob", "consequence": "there is none; read the filename"}
+  ],
+  "open_questions": [
+    "Whether build_libbin.py's LAYOUT and VersionConfig.hpp currently agree with each other, byte for byte, has NOT been verified. This file states the intent; it is not evidence that the three implementations match."
+  ],
+  "not_established_here": "The 18-line header skip count, the exact union-find grouping rule, and the DX10/BA2 name-hash algorithm are not established by this file. The name-hash algorithm is UNDOCUMENTED across four independent BA2 implementations and blocks a correct writer; see ai_context/engine/ba2_format/ba2-format-notes.md."
+}

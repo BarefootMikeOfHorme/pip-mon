@@ -1,0 +1,479 @@
+# =============================================================
+#  pipmon.ps1 -- THE SURFACE.
+#
+#  One entry point for the whole workspace, for AI agents and for humans,
+#  covering both Creation Engine hosts: the engine (game runtime) and the
+#  editor (FO4 Creation Kit, plus xEdit). Not two tools that disagree about the
+#  truth -- one surface that reports both, because the questions are the same
+#  questions.
+#
+#  NAME COLLISIONS, spelled out because they have been conflated before
+#    CK    = Fallout 4 Creation Kit (CreationKit.exe). The editor used here.
+#    GECK  = Garden of Eden Creation Kit, a Fallout 3 / New Vegas editor. NOT
+#            the FO4 CK, and NOT currently in use. It is a separate peer tool on
+#            the replacement list, to be modernized through our own mod later.
+#    xEdit = FO4Edit, the community record editor and headless script host.
+#
+#  WHY A SURFACE AND NOT A SCRIPT PER TASK
+#    Four separate tools already existed by the end of the first working day,
+#    each with its own output format and its own idea of what a failure looks
+#    like. That is how a session ended up reporting "done" for three things at
+#    once while one of them was quietly skipping. A surface fixes that by
+#    having exactly one output contract and exactly one exit-code vocabulary.
+#
+#  THE CONTRACT
+#    Every command emits one JSON envelope on stdout:
+#
+#      { "schema": "pipmon.surface/1",
+#        "command": "<name>",
+#        "status":  "GREEN" | "RED" | "SKIP" | "BROKEN" | "OK",
+#        "ok":      true|false,
+#        "reason":  null | "why, in one sentence",
+#        "data":    { ... command specific ... },
+#        "provenance": { "script": "...", "generatedUtc": "..." } }
+#
+#    Exit codes are the same in every command, so a caller can branch without
+#    parsing text:
+#        0  GREEN / OK   the thing ran and is good
+#        1  RED          the thing ran and is wrong
+#        2  BROKEN       a precondition is missing (toolchain, file, install)
+#        3  SKIP         the check could NOT run; unverified, NOT fine
+#        4  usage        the command line was wrong
+#
+#    SKIP IS NOT PASS. A skip is reported as a skip everywhere, including in
+#    any aggregate, because "we did not look" and "we looked and it is fine"
+#    are different facts and collapsing them is how a workspace starts lying.
+#
+#  DESIGN RULES HONOURED HERE
+#    - a fact with no provenance may not exist: every envelope names its source
+#    - refuse rather than guess: nothing here infers a value it did not read
+#    - never touch a running Creation Kit: the editor commands are read-only
+#      inspections, and the surface says so rather than implying it drives it
+# =============================================================
+[CmdletBinding()]
+param(
+    [Parameter(Position = 0)]
+    [string]$Command = 'status',
+
+    # Sub-command for grouped commands: link status|apply|restore, editor preflight.
+    # Declared as the SECOND positional parameter, not just a named one, so that
+    # `pipmon.ps1 editor preflight` works. Without Position it was rejected by
+    # parameter binding before the switch ever ran, and the error text went to
+    # stderr instead of the JSON envelope.
+    [Parameter(Position = 1)]
+    [string]$Arg,
+
+    [string]$Plugin,
+    [string]$GameDir = 'C:\Program Files (x86)\Steam\steamapps\common\Fallout 4',
+    [switch]$NoDeploy,
+    [switch]$Watch,
+
+    [string]$Query,
+    [string]$Kind,
+    [int]$Limit = 5,
+    [int]$MaxLines = 0,
+    [int]$Page = 1,
+    [string]$Format = 'dense'
+)
+
+$ErrorActionPreference = 'Continue'
+$Repo = Split-Path -Parent $PSScriptRoot
+$WatchDir = Join-Path $Repo 'runs\watch'
+
+$EXIT = @{ GREEN = 0; OK = 0; RED = 1; BROKEN = 2; SKIP = 3 }
+
+function New-Envelope($status, $reason, $data) {
+    [ordered]@{
+        schema      = 'pipmon.surface/1'
+        command     = $Command
+        status      = $status
+        ok          = ($status -in 'GREEN', 'OK')
+        reason      = $reason
+        data        = $data
+        provenance  = [ordered]@{
+            script       = 'tools/pipmon.ps1'
+            generatedUtc = (Get-Date).ToUniversalTime().ToString('o')
+            workspace    = $Repo
+        }
+    }
+}
+
+$script:surfaceExit = 0
+
+function Emit($status, $reason, $data) {
+    # Printed, not returned: a `return` here writes the exit code into the
+    # output stream and corrupts the JSON envelope for every caller.
+    Write-Output ((New-Envelope $status $reason $data) | ConvertTo-Json -Depth 6)
+    $script:surfaceExit = $EXIT[$status]
+}
+
+function Read-Report($name) {
+    $p = Join-Path $WatchDir $name
+    if (Test-Path $p) {
+        try { return Get-Content $p -Raw | ConvertFrom-Json } catch { return $null }
+    }
+    return $null
+}
+
+function Run-Tool($script, $toolArgs) {
+    $path = Join-Path $Repo $script
+    if (-not (Test-Path $path)) {
+        return @{ missing = $true; path = $path; output = @(); exit = 2 }
+    }
+    $out = & powershell -NoProfile -ExecutionPolicy Bypass -File $path @toolArgs 2>&1
+    return @{ missing = $false; path = $path; output = @($out | ForEach-Object { [string]$_ }); exit = $LASTEXITCODE }
+}
+
+switch ($Command) {
+
+    # ------------------------------------------------------------------ caps
+    'caps' {
+        # The discovery document. An agent that reads nothing else can call this
+        # and learn every command, every exit code and every current blocker.
+        $caps = [ordered]@{
+            schema     = 'pipmon.surface/1'
+            name       = 'PIP-MON workspace surface'
+            entrypoint = 'tools/pipmon.ps1'
+            generated  = [ordered]@{
+                python   = '3.12+'
+                game     = 'Fallout 4 1.11.240.0'
+                editor   = 'CreationKit.exe 1.11.240.0'
+                f4se     = 'NOT required and NOT deployed (replaced by this project)'
+            }
+            commands   = @(
+                @{ n = 'caps';    does = 'this document: commands, exit codes, blockers'; args = @() }
+                @{ n = 'status';  does = 'one-pass truth across every host, aggregated'; args = @() }
+                @{ n = 'verify';  does = 'regenerate ai_state_dashboard.md and return its summary'; args = @() }
+                @{ n = 'build';   does = 'compile Papyrus, fix compiler-named flags, verify, deploy'; args = @('-NoDeploy') }
+                @{ n = 'link';    does = 'own plugins.txt: snapshot | apply | restore | status'; args = @('status', '-Disable <plugin>', '-Enable <plugin>') }
+                @{ n = 'validate'; does = 'headless plugin validation via xEdit'; args = @('-Plugin <path>') }
+                @{ n = 'rag';      does = 'local retrieval over archive/docs/source/state/logs, with provenance'; args = @('index', 'stats', 'vocabulary', 'query -Query "<terms>" -Kind <kind> -Limit <n> -MaxLines <n> -Page <n> -Format <dense|tsv|paths|json>') }
+                @{ n = 'editor';  does = 'read-only editor-host inspection: preflight'; args = @('preflight') }
+                @{ n = 'ck-session'; does = 'curated load-order swap: inspect | prepare | restore'; args = @('prepare') }
+                @{ n = 'snapshot'; does = 'capture a restore point of plugin, pex and CK backups'; args = @('<tag>') }
+                @{ n = 'docs';    does = 'where each kind of answer lives'; args = @() }
+            )
+            exitCodes  = [ordered]@{ GREEN = 0; OK = 0; RED = 1; BROKEN = 2; SKIP = 3; usage = 4 }
+            invariants = @(
+                'SKIP is never reported as PASS.',
+                'No command writes to the game folder except build (deploy) and link apply.',
+                'No command touches a running Creation Kit or xEdit process.',
+                'Every fact in a response names the script or file it came from.',
+                'Long third-party runs are launched detached and polled, never waited on while holding the caller.'
+            )
+            blockers   = @(
+                @{ id = 'layer-a'; what = 'no vtable slot is hooked, so S0 (a compiled .psc reaching our natives) is unproven'; needs = 'a BSScript class declaration in method order to derive a slot index' }
+                @{ id = 'facility-empty'; what = 'PipMonTestFacility.esp is a 66-byte header with 0 records; xEdit confirms it'; needs = 'a cell created and saved, then re-validated' }
+                @{ id = 'xedit-untested-api'; what = 'the xEdit pascal API is only partly proven; GetPluginName does not exist in 4.1.5f and AddNewElement is unproven'; needs = 'one verified record-producing run, and the findings are recorded in runs\xedit\fo4edit-4.1.5f-pascal-api.md' }
+                @{ id = 'ckpe'; what = 'Creation Kit render window crash-risks large cells (3 dumps recorded)'; needs = 'CKPE, or an in-house replacement' }
+                @{ id = 'xedit-load-width'; what = 'xEdit loads Fallout4.ccc and the DLC list in addition to plugins.txt, so the 35-entry core does not bound the load'; needs = 'report plugin graph and resource graph separately' }
+            )
+        }
+        Write-Output ($caps | ConvertTo-Json -Depth 6)
+        $script:surfaceExit = 0
+    }
+
+    # ---------------------------------------------------------------- status
+    'status' {
+        $pap = Read-Report 'papyrus-latest.json'
+        $val = Read-Report 'xedit-latest.json'
+
+        $link = Run-Tool 'tools\linksync.ps1' @('status', '-GameDir', $GameDir)
+        $dep = Run-Tool 'testfacility\ck\verify_deploy.ps1' @('-GameDir', $GameDir)
+
+        # GUARD STATE, surfaced so an agent can see WHY a check will decline
+        # before it declines. Read-only: this never signals the editor.
+        $ckProc = Get-Process CreationKit -ErrorAction SilentlyContinue
+        $guard = [ordered]@{
+            creationKitRunning = [bool]$ckProc
+            creationKitPid     = if ($ckProc) { $ckProc.Id } else { $null }
+            policy             = 'no command writes to the game folder or launches a GUI tool while the editor is open'
+        }
+
+        $esp = Join-Path $GameDir 'Data\PipMonTestFacility.esp'
+        $espInfo = $null
+        if (Test-Path $esp) {
+            $f = Get-Item $esp
+            $espInfo = [ordered]@{
+                path = $esp; bytes = $f.Length; modified = $f.LastWriteTime.ToString('s')
+                note = 'a header-only plugin and an authored one are both "small"; size alone does not prove content'
+            }
+        }
+
+        # Aggregate honestly: a SKIP anywhere is surfaced, not averaged away.
+        $states = [ordered]@{
+            papyrus = if ($pap) { $pap.status } else { 'NOT RUN' }
+            pluginValidation = if ($val) { $val.status } else { 'NOT RUN' }
+            deploy = if ($dep.exit -eq 0) { 'GREEN' } else { 'ATTENTION' }
+            link = if ($link.exit -eq 0) { 'GREEN' } else { 'ATTENTION' }
+        }
+        $overall = 'GREEN'
+        if ($states.papyrus -ne 'GREEN') { $overall = 'RED' }
+        elseif ($states.pluginValidation -notin 'PASS', 'GREEN') { $overall = 'SKIP' }
+        elseif ($states.deploy -ne 'GREEN' -or $states.link -ne 'GREEN') { $overall = 'ATTENTION' }
+
+        $reason = switch ($overall) {
+            'GREEN' { $null }
+            'RED' { 'the Papyrus build is not green; read data.papyrus.tail' }
+            'SKIP' { 'plugin validation could not run, so the plugin is UNVERIFIED rather than fine' }
+            default { 'one or more checks need attention; see data' }
+        }
+
+        Emit $overall $reason ([ordered]@{
+            guard       = $guard
+            states      = $states
+            papyrus     = $pap
+            pluginValidation = $val
+            facilityPlugin = $espInfo
+            linkOutput  = $link.output
+            deployOutput = $dep.output
+        })
+    }
+
+    # ---------------------------------------------------------------- verify
+    'verify' {
+        $r = Run-Tool 'tools\agent_watchdog.ps1' @()
+        $dash = Join-Path $Repo 'ai_state_dashboard.md'
+        Emit (@{ 0 = 'GREEN'; 1 = 'RED'; 2 = 'BROKEN'; 3 = 'SKIP' }[$r.exit]) `
+            'dashboard regenerated; read the file for the sourced detail' `
+            ([ordered]@{ dashboard = $dash; dashboardExists = (Test-Path $dash); exit = $r.exit; output = $r.output })
+    }
+
+    # ----------------------------------------------------------------- build
+    'build' {
+        $a = @('-GameDir', $GameDir)
+        if ($NoDeploy) { $a += '-NoDeploy' }
+        $r = Run-Tool 'tools\watch_papyrus.ps1' $a
+        $rep = Read-Report 'papyrus-latest.json'
+        $status = if ($rep) { $rep.status } else { 'BROKEN' }
+        if ($status -eq 'GREEN') { $status = 'GREEN' }
+        elseif ($status -eq 'RED') { $status = 'RED' }
+        else { $status = 'BROKEN' }
+        Emit $status 'papyrus compile/fix/verify/deploy' ([ordered]@{ report = $rep; output = $r.output })
+        exit $script:surfaceExit
+    }
+
+    # ------------------------------------------------------------------ link
+    'link' {
+        $sub = if ($Arg) { $Arg } else { 'status' }
+        $r = Run-Tool 'tools\linksync.ps1' (@($sub, '-GameDir', $GameDir))
+        if ($r.missing) {
+            Emit 'BROKEN' "linksync.ps1 not found at $($r.path)" ([ordered]@{})
+            exit $script:surfaceExit
+        }
+        $status = if ($r.exit -eq 0) { 'GREEN' } else { 'RED' }
+        Emit $status "load-order link: $sub" ([ordered]@{ exit = $r.exit; output = $r.output })
+        exit $script:surfaceExit
+    }
+
+    # -------------------------------------------------------------- validate
+    'validate' {
+        $a = @()
+        if ($Plugin) { $a += @('-Plugin', $Plugin) }
+        $r = Run-Tool 'tools\validate_plugin.ps1' $a
+        $rep = Read-Report 'xedit-latest.json'
+        $status = if ($rep) { $rep.status } else { 'SKIP' }
+        Emit $status $(if ($rep -and $rep.reason) { $rep.reason } else { 'no validation report produced' }) `
+            ([ordered]@{ report = $rep; output = $r.output })
+    }
+
+    # ------------------------------------------------------------ ck-session
+    # The curated load-order swap. This is the one command that writes the file
+    # every other writer also wants, so it is exposed as its own verb rather
+    # than folded into 'link': swapping the order in and out again is a
+    # deliberate, reversible act and should look like one.
+    'ck-session' {
+        $sub = if ($Arg) { $Arg } else { 'inspect' }
+        $r = Run-Tool 'tools\ck_session.ps1' @($sub, '-GameDir', $GameDir)
+        if ($r.missing) {
+            Emit 'BROKEN' "ck_session.ps1 not found at $($r.path)" ([ordered]@{})
+            exit $script:surfaceExit
+        }
+        $status = switch ($r.exit) { 0 { 'GREEN' } 2 { 'BROKEN' } default { 'RED' } }
+        Emit $status "creation engine session load order: $sub" ([ordered]@{ exit = $r.exit; output = $r.output })
+        exit $script:surfaceExit
+    }
+
+    # -------------------------------------------------------------- snapshot
+    # The save rule, as a command rather than a habit: capture a restore point
+    # whenever something is properly or semi-completely done. The task runner
+    # snapshots after every step IT runs, but the editor's saves happen at the
+    # keyboard, where no runner is watching -- and the Creation Kit keeps its own
+    # backups in Data\Backup\, which is inside the game folder and is not a
+    # restore point the project controls.
+    'snapshot' {
+        $what = if ($Arg) { $Arg } else { 'manual' }
+        $dir = Join-Path $Repo 'runs\tasks\facility-v0\snapshots'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+        $taken = @()
+        foreach ($f in @('Data\PipMonTestFacility.esp', 'Data\Scripts\PipMonTestFacility.pex', 'Data\Scripts\PipMon.pex')) {
+            $src = Join-Path $GameDir $f
+            if (Test-Path -LiteralPath $src) {
+                $leaf = [IO.Path]::GetFileName($src)
+                $dst = Join-Path $dir "$leaf.$what.$stamp.bak"
+                Copy-Item -LiteralPath $src -Destination $dst -Force
+                $taken += [ordered]@{ from = $src; to = $dst; bytes = (Get-Item $dst).Length }
+            }
+        }
+        # The editor's own backups are outside the project and can be swept.
+        $ckBak = Join-Path $GameDir 'Backup'
+        if (Test-Path $ckBak) {
+            Get-ChildItem $ckBak -Filter '*.bak' -File -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTime -Descending | Select-Object -First 5 | ForEach-Object {
+                    $dst = Join-Path $dir "ck-own.$($_.Name).$stamp"
+                    Copy-Item -LiteralPath $_.FullName -Destination $dst -Force
+                    $taken += [ordered]@{ from = $_.FullName; to = $dst; bytes = $_.Length }
+                }
+        }
+        Emit 'GREEN' "snapshot '$what' taken" ([ordered]@{ tag = $what; directory = $dir; files = $taken })
+        exit $script:surfaceExit
+    }
+
+    # ---------------------------------------------------------------- editor
+    'editor' {
+        # READ-ONLY. The surface deliberately does not drive the Creation Kit:
+        # it has no scriptable interface here, three crash dumps are on record,
+        # and sending it keystrokes fights the user for the keyboard.
+        $sub = if ($Arg) { $Arg } else { 'preflight' }
+        $ck = Join-Path $GameDir 'CreationKit.exe'
+        $game = Join-Path $GameDir 'Fallout4.exe'
+        $running = [bool](Get-Process CreationKit -ErrorAction SilentlyContinue)
+
+        $facts = [ordered]@{}
+        if (Test-Path $ck) { $facts['creationKit'] = (Get-Item $ck).VersionInfo.ProductVersion }
+        else { $facts['creationKit'] = $null }
+        if (Test-Path $game) { $facts['game'] = (Get-Item $game).VersionInfo.ProductVersion }
+        else { $facts['game'] = $null }
+        $facts['buildsMatch'] = ($facts['creationKit'] -and $facts['game'] -and $facts['creationKit'] -eq $facts['game'])
+        $ckpe = @(Get-ChildItem (Join-Path $GameDir 'Data') -Directory -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Name -match 'PlatformExtended|CKPE' })
+        $facts['ckpe'] = if ($ckpe.Count) { ($ckpe | Select-Object -ExpandProperty Name) -join ', ' } else { $null }
+        $facts['creationKitRunning'] = $running
+        $facts['policy'] = 'read-only: this surface never drives the editor and never writes to the game folder'
+
+        if (-not $facts['creationKit']) {
+            Emit 'BROKEN' 'CreationKit.exe not found in the game folder' $facts
+            exit $script:surfaceExit
+        }
+        if (-not $facts['buildsMatch']) {
+            Emit 'RED' 'Creation Kit and game builds differ; an authored plugin can be rejected on load' $facts
+            exit $script:surfaceExit
+        }
+        if (-not $facts['ckpe']) {
+            Emit 'SKIP' 'CKPE is absent, so the editor render window crash-risks larger cells (3 dumps on record)' $facts
+            exit $script:surfaceExit
+        }
+        Emit 'GREEN' $null $facts
+        exit $script:surfaceExit
+    }
+
+    # -------------------------------------------------------------------- rag
+    # Local retrieval over the workspace: the inspiration archive, docs, source,
+    # task state and tool logs. Standard library only, no network, no model.
+    # Every hit carries its path, line range and hash, so any claim retrieved
+    # here can be traced to the file that supports it. This exists so that
+    # "where does that live" and "what did we already learn" are answered from
+    # an index instead of from a grep plus a guess.
+    'rag' {
+        $sub = if ($Arg) { $Arg } else { 'stats' }
+        $indexer = Join-Path $Repo 'tools\rag_index.py'
+        $queryTool = Join-Path $Repo 'tools\rag_query.py'
+        $db = Join-Path $Repo 'rag\index.sqlite3'
+
+        if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+            Emit 'BROKEN' 'python is not on PATH, so the local index cannot be built or queried' ([ordered]@{ indexer = $indexer })
+            exit $script:surfaceExit
+        }
+
+        if ($sub -eq 'index') {
+            $out = & python $indexer 2>&1
+            $code = $LASTEXITCODE
+            $stats = if (Test-Path $db) { @(& python $queryTool '--stats' 2>&1) } else { @() }
+            $status = if ($code -eq 0) { 'GREEN' } else { 'RED' }
+            Emit $status $(if ($code -eq 0) { $null } else { 'rag_index.py returned a nonzero exit' }) ([ordered]@{
+                    db     = $db
+                    exit   = $code
+                    output = @($out | ForEach-Object { [string]$_ })
+                    stats  = @($stats | ForEach-Object { [string]$_ })
+                })
+            exit $script:surfaceExit
+        }
+
+        if (-not (Test-Path $db)) {
+            Emit 'SKIP' "no local index at $db; build it with: tools\pipmon.ps1 rag index" ([ordered]@{ db = $db })
+            exit $script:surfaceExit
+        }
+
+        if ($sub -eq 'stats') {
+            $out = & python $queryTool '--stats' 2>&1
+            Emit 'GREEN' $null ([ordered]@{ db = $db; stats = @($out | ForEach-Object { [string]$_ }) })
+            exit $script:surfaceExit
+        }
+
+        if ($sub -eq 'vocabulary') {
+            # Self-description. A program that wants to query this workspace well
+            # should read the vocabulary rather than hardcode its own idea of the
+            # project's words, and the format is the same one used for hits.
+            $va = @($queryTool, '--vocabulary')
+            if ($Format -eq 'json') { $va += '--format' }
+            $vout = & python @va 2>&1
+            Emit 'GREEN' 'retrieval vocabulary: the surface forms this index understands' ([ordered]@{
+                    format = $Format
+                    terms  = @($vout | ForEach-Object { [string]$_ })
+                })
+            exit $script:surfaceExit
+        }
+
+        if (-not $Query) {
+            Emit 'RED' 'rag query needs terms: tools\pipmon.ps1 rag query -Query "..." (-Kind, -Limit)' ([ordered]@{
+                    usage = 'rag index | rag stats | rag query -Query <terms> [-Kind <kind>] [-Limit <n>]'
+                })
+            exit $script:surfaceExit
+        }
+
+        $a = @($queryTool, $Query, '--limit', "$Limit")
+        if ($Kind) { $a += @('--kind', $Kind) }
+        if ($MaxLines -gt 0) { $a += @('--max-lines', "$MaxLines") }
+        if ($Page -gt 1) { $a += @('--page', "$Page") }
+        if ($Format -and $Format -ne 'dense') { $a += @('--format', $Format) }
+        $out = & python @a 2>&1
+        $code = $LASTEXITCODE
+        $status = if ($code -eq 0) { 'GREEN' } else { 'RED' }
+        Emit $status $(if ($code -eq 0) { $null } else { 'rag_query.py returned a nonzero exit' }) ([ordered]@{
+                query = $Query; kind = $Kind; limit = $Limit
+                maxLines = $MaxLines; page = $Page; format = $Format
+                exit = $code
+                hits  = @($out | ForEach-Object { [string]$_ })
+            })
+        exit $script:surfaceExit
+    }
+
+    # ------------------------------------------------------------------ docs
+    'docs' {
+        $doors = [ordered]@{
+            'state of everything right now' = 'ai_state_dashboard.md  (generated; read this first)'
+            'what to do next / why'         = 'HANDOVER.md  (cold-start brief)'
+            'what the project is'           = 'README.md'
+            'the design record'             = 'PIP-MON_CONSOLIDATED.txt  (append-only)'
+            'this surface, in prose'        = 'PIPMON_INTERFACE.md'
+            'the test facility'             = 'testfacility\HANDOVER.md, FACILITY-SPEC.md, QUEST-SPEC.md, COVERAGE.md'
+            'the CK session checklist'      = 'testfacility\ck\README.md'
+            'the wire contract'             = 'docs\IPC_PROTOCOL.md  (partly fiction; see HANDOVER section 11)'
+            'heuristics'                    = 'docs\ANOMALY_RULES.md'
+            'rules that are inviolable'     = 'docs\ENGINEERING_RULES.md  (stale, but PITFALL 1 is unique)'
+            'the original ideas'            = 'inspiration archive\  (inspiration, not decisions)'
+            'what xEdit 4.1.5f can actually do' = 'runs\xedit\fo4edit-4.1.5f-pascal-api.md  (measured, not documented)'
+            'anything, with provenance'     = 'tools\pipmon.ps1 rag query -Query "..."'
+        }
+        Emit 'GREEN' $null ([ordered]@{ doors = $doors })
+        exit $script:surfaceExit
+    }
+
+    default {
+        Write-Output '{"schema":"pipmon.surface/1","status":"BROKEN","reason":"unknown command; run: tools\\pipmon.ps1 caps"}'
+        $script:surfaceExit = 4
+    }
+}
+
+exit $script:surfaceExit

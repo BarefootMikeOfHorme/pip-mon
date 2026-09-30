@@ -79,6 +79,35 @@ desktop.ini
 crash.log
 Papyrus.0.log
 
+# --- generated retrieval index ----------------------------------------------
+# rag/index.sqlite3 is DERIVED, and it is derived by a build stage, so the rule
+# at the top of this file applies exactly as it does to the address blob: a
+# stale copy committed as though it were source is a second, silently diverging
+# copy of the truth. tools/rag_index.py rebuilds it, and stage 6 of build_all.bat
+# reindexes before it self-tests, so nothing is lost by excluding it.
+#
+# The CONFIGURATION beside it is tracked, and deliberately so: ai_context/
+# vocabulary.json and ranking.json are the vocabulary and the weight model, they
+# are hand-authored, and a review of a weight change is a review of a ranking
+# change. Those are source.
+rag/index.sqlite3
+rag/index.sqlite3-journal
+rag/index.sqlite3-wal
+rag/index.sqlite3-shm
+
 # --- local scratch ---------------------------------------------------------
 *.bak
 *.tmp
+
+# --- test environment run directories --------------------------------------
+# Written by tools/testenv.ps1. One per live session, and each one carries a
+# full copy of vprobe.dll plus BOTH forms of the address database.
+#
+# This is untracked for the same reason stage/ and third_party/ are, and the
+# reason is the .gitignore rule itself: a derived artefact that a build or a
+# test run can produce must never be committable, because then a stale copy
+# gets reviewed and merged as though it were source. A committed run
+# directory would be a second, silently diverging copy of the runtime and of
+# the address database -- the exact class of bug the stale-blob guard in
+# build_all.bat exists to catch.
+runs/
