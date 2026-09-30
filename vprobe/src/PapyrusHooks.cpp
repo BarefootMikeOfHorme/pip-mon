@@ -61,19 +61,24 @@ std::uint32_t readU32(const void* base, std::size_t off) {
 // table gets free functions that forward to the manager. Each one re-reads
 // nothing and does nothing but the call: the whole point is that the patched
 // prologue lands somewhere that can return in a couple of nanoseconds.
-void hookScriptExecute(void* vmThread) {
-    if (g_manager) g_manager->onScriptExecute(vmThread);
-}
-void hookThreadExecute() {
-    if (g_manager) g_manager->onThreadExit(nullptr);
-}
-void hookDebugPrint(void* vm, const char* msg) {
-    if (g_manager) g_manager->onDebugPrint(msg);
-    else if (g_origDebugPrint) g_origDebugPrint(vm, msg);
-}
-void hookRunOnce() {
-    if (g_manager) g_manager->onFrame();
-}
+//
+// NOTE: the entry points that used to live here -- hookScriptExecute,
+// hookThreadExecute, hookDebugPrint and hookRunOnce -- have been REMOVED, not
+// disabled. They installed detours on PapyrusScript::Execute,
+// PapyrusThread::Execute, PapyrusVM::DebugPrint and
+// PapyrusVM::GetRunningThreadCount, and reading the RTTI out of Fallout4.exe
+// shows the game contains no class named PapyrusScript, PapyrusThread or
+// PapyrusVM at all. Those four resolves could only ever return null, so the
+// hooks were unreachable code that reported "unresolved, probe degraded" on
+// every single boot -- a permanent condition dressed up as a fault.
+//
+// The replacements are vtable targets in Signatures.hpp, all with confirmed
+// RTTI identity and measured slot counts. None of them is hooked yet, and that
+// is deliberate: a vtable slot is only safe to hook once its INDEX is sourced,
+// and slot indices come from a class declaration in declaration order, which
+// this project does not have for BSScript yet. Guessing a slot index is the
+// failure this whole tier model is built to prevent, so nothing is installed
+// rather than something installed at a guessed offset.
 
 } // namespace
 
@@ -290,57 +295,33 @@ void HookManager::install(vc::Resolver& resolver) {
     resolver_ = &resolver;
     g_manager = this;
 
-    // --- PapyrusScript::Execute -------------------------------------------
-    if (auto* target = resolver_->resolve("PapyrusScript::Execute")) {
-        if (auto st = detourScriptExecute_.install(target, reinterpret_cast<void*>(&hookScriptExecute));
-            st == hooks::DetourStatus::Ok) {
-            g_origScriptExecute =
-                reinterpret_cast<ScriptExecuteFn>(detourScriptExecute_.trampoline());
-            installLog_.emplace_back("PapyrusScript::Execute: hooked");
-        } else {
-            installLog_.emplace_back("PapyrusScript::Execute: " + std::string(hooks::toString(st)));
-        }
-    } else {
-        installLog_.emplace_back("PapyrusScript::Execute: unresolved, probe degraded");
-    }
-
-    // --- PapyrusThread::Execute -------------------------------------------
-    if (auto* target = resolver_->resolve("PapyrusThread::Execute")) {
-        if (auto st = detourThreadExecute_.install(target, reinterpret_cast<void*>(&hookThreadExecute));
-            st == hooks::DetourStatus::Ok) {
-            g_origThreadExecute =
-                reinterpret_cast<ThreadExecuteFn>(detourThreadExecute_.trampoline());
-            installLog_.emplace_back("PapyrusThread::Execute: hooked");
-        } else {
-            installLog_.emplace_back("PapyrusThread::Execute: " + std::string(hooks::toString(st)));
-        }
-    } else {
-        installLog_.emplace_back("PapyrusThread::Execute: unresolved, op accounting off");
-    }
-
-    // --- PapyrusVM::DebugPrint --------------------------------------------
-    if (auto* target = resolver_->resolve("PapyrusVM::DebugPrint")) {
-        if (auto st = detourDebugPrint_.install(target, reinterpret_cast<void*>(&hookDebugPrint));
-            st == hooks::DetourStatus::Ok) {
-            g_origDebugPrint = reinterpret_cast<DebugPrintFn>(detourDebugPrint_.trampoline());
-            installLog_.emplace_back("PapyrusVM::DebugPrint: hooked");
-        } else {
-            installLog_.emplace_back("PapyrusVM::DebugPrint: " + std::string(hooks::toString(st)));
-        }
-    } else {
-        installLog_.emplace_back("PapyrusVM::DebugPrint: unresolved, no script error capture");
-    }
-
-    // --- PapyrusVM::GetRunningThreadCount ---------------------------------
-    if (auto* target = resolver_->resolve("PapyrusVM::GetRunningThreadCount")) {
-        if (auto st = detourRunOnce_.install(target, reinterpret_cast<void*>(&hookRunOnce));
-            st == hooks::DetourStatus::Ok) {
-            g_origRunOnce = reinterpret_cast<RunOnceFn>(detourRunOnce_.trampoline());
-            installLog_.emplace_back("PapyrusVM::GetRunningThreadCount: hooked");
-        } else {
-            installLog_.emplace_back("GetRunningThreadCount: " + std::string(hooks::toString(st)));
-        }
-    }
+    // Four AOB code hooks used to be installed here, against
+    // PapyrusScript::Execute, PapyrusThread::Execute, PapyrusVM::DebugPrint
+    // and PapyrusVM::GetRunningThreadCount. They are gone, and this line is
+    // the replacement, for one reason worth reading.
+    //
+    // Those four names are not stale. They are not in the game. Fallout 4 has
+    // no class called PapyrusVM, PapyrusThread or PapyrusScript; the Papyrus
+    // VM is BSScript::Internal::VirtualMachine. So all four resolves returned
+    // null every time, the detours were never installed, and the log said
+    // "unresolved, probe degraded" -- which reads as a fault to be chased and
+    // is actually a permanent, already-explained fact.
+    //
+    // The distinction is not cosmetic. docs/ARCHITECTURE.md states the rule
+    // this implements: a disabled hook means a panel shows less, while a
+    // silent failure means a panel shows nothing and the game looks healthy.
+    // Logging a known-impossible target as degraded put it on the wrong side
+    // of that line, in a report whose whole purpose is to be believed.
+    //
+    // The interfaces that DO exist are in Signatures.hpp as vtable targets,
+    // each with its RTTI class name confirmed and its slot count measured by
+    // tools/measure_vtable.py. They resolve. They are not hooked, because a
+    // slot index needs a sourced declaration and none is available yet; see
+    // the note above the removed entry points.
+    installLog_.emplace_back(
+        "no AOB code hooks: the four former PapyrusVM/Thread/Script targets "
+        "name classes absent from the game's RTTI. BSScript VM interfaces "
+        "resolve as vtable targets and are awaiting sourced slot indices.");
 
     installed_.store(true, std::memory_order_release);
 }

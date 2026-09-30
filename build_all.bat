@@ -50,6 +50,17 @@ echo --- address blob (derived from the INI) ---
 call "%R%vprobe\build_libbin.bat"
 if errorlevel 1 ( set FAILED=1 & echo [FAIL] address blob )
 
+REM Same class of problem, one layer up. Signatures.hpp declares how many slots
+REM each vtable target has, and the runtime validator trusts that number, so a
+REM wrong one sends a detour into whatever function follows the table. The
+REM counts were a hand-written uniform 8 that nothing measured. This measures
+REM them against the real executable, confirms each table's RTTI class name,
+REM and fails on any disagreement. Skip with PIPMON_SKIP_LIBBIN=1.
+echo.
+echo --- vtable targets (declared vs. the real binary) ---
+call "%R%vprobe\build_vtables.bat"
+if errorlevel 1 ( set FAILED=1 & echo [FAIL] vtable targets )
+
 echo.
 echo ############################################################
 echo #  2/5  papyrus -- the PipMon: API surface (.psc to .pex)

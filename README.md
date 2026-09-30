@@ -30,7 +30,7 @@ Being blunt here on purpose. A README that oversells is worse than none.
 |---|---|
 | **In-process runtime** | Loads into a live Fallout 4 with **no F4SE and no extenders**. Runtime imports are `KERNEL32.dll` only. |
 | **Telemetry** | Live V-Link stream: heartbeats, memory, resolver state. Verified with `totalEventsDropped = 0` and a monotonic sequence. |
-| **Address resolution** | 5 vtable targets resolved from a validated address database, one of them independently confirmed against the raw binary. |
+| **Address resolution** | **18** vtable targets resolved from a validated address database. Every one has its RTTI class name confirmed against the binary and its slot count **measured** from the real table; the build fails if the two ever disagree. |
 | **Papyrus API surface** | 13 functions declared, compiled to a real `.pex` by the Creation Kit, and cross-checked against the C++ dispatch table **in both directions** by the build. |
 | **Build gate** | 5 stages, all green: native, Papyrus, launcher, Python, Rust. |
 
@@ -40,11 +40,16 @@ Being blunt here on purpose. A README that oversells is worse than none.
   tested, but nothing has yet asked a live game's VM to actually resolve one of
   our functions. That experiment is the project's central open question, and it
   has not been run.
-- **6 signature-scanned targets do not resolve**, and the symbol names for them
-  are believed to be wrong rather than stale — Fallout 4's VM is
-  `BSScript::Internal::VirtualMachine`, and there is no `PapyrusVM` or
-  `PapyrusThread` in the game's type information. The addresses they were
-  supposed to point at are unsourced.
+- **No vtable slot is hooked yet, and that is deliberate.** Resolving 18
+  interfaces tells you they exist and how big they are. It does not tell you
+  which slot is which method — that needs a C++ class declaration in
+  declaration order, which this project does not have for BSScript. Hooking a
+  guessed slot index means detouring into an unrelated function, so nothing is
+  hooked rather than something hooked at a guess. See `HANDOVER.md` §13.
+- **The six old signature-scanned targets are gone, not pending.** Fallout 4
+  has no class named `PapyrusVM`, `PapyrusThread` or `PapyrusScript`; the
+  patterns were written for classes that do not exist, so no byte tuning could
+  ever have matched them. Their real counterparts are in the table above.
 - **The dashboard has never been run.** It imports and its tests pass, but no
   one has looked at it.
 - **There is no installer.** Staging is currently a manual copy, which is the
@@ -62,14 +67,16 @@ Expected output:
 
 ```
 V-Probe self-test: 15 pass, 0 fail, 2 skip
+  OK  every declared vtable matches the binary     (18 targets)
 45 passed          (launcher)
 67 passed          (python)
 test result: ok. 5 passed    (rust)
 #  ALL GATES PASSED
 ```
 
-If your self-test count differs from 15, the build is not what this README
-describes. Check `HANDOVER.md`, which records the current state.
+If your self-test count differs from 15, or the vtable line is missing, the
+build is not what this README describes. Check `HANDOVER.md`, which records the
+current state.
 
 ### Toolchain
 
@@ -106,12 +113,15 @@ HANDOVER.md                      current state, cold-start brief
 PIP-MON_CONSOLIDATED.txt         the design record (26 sections)
 
 vprobe/            in-process runtime (C++, x64)
-  include/           PipmonEntry, PapyrusApi, VersionConfig, IPCServer
+  include/           PipmonEntry, PapyrusApi, VersionConfig, Signatures,
+                     IPCServer
   src/               main, PapyrusApi, VersionConfig, IPCServer, SelfTest
   papyrus/           the PipMon: surface: .psc, .ppj, flags, build
   libs/              per-build address database + the derived binary blob
 
 tools/             read-only inspectors and the build-time generators
+  read_rtti.py       the game's own RTTI class names, out of Fallout4.exe
+  measure_vtable.py  vtable identity and extent, offline, gated
 overseer_cli/      the consumer tier: Textual dashboard + Rust protocol crate
 launcher/          pre-flight and process launch
 docs/              wire protocol, engineering rules, anomaly rules

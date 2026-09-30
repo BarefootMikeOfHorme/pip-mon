@@ -3549,3 +3549,182 @@ STATUS
 #  against a real Fallout4.exe.
 ################################################################################
 ================================================================================
+
+################################################################################
+#  SECTION 27 -- TIER 2 GROUND TRUTH: THE SIX DEAD TARGETS, RESOLVED
+#
+#  [BUILT+TESTED]  Recorded 2026-09-29. This section closes open decision 1 in
+#  the handover and corrects two claims in it.
+#
+#  WHAT WAS WRONG
+#    Six "Tier 3" AOB targets were hand-authored against six Papyrus class
+#    names: PapyrusScript::Execute, PapyrusThread::Execute,
+#    PapyrusVM::DebugPrint, PapyrusVM::PapyrusVM,
+#    PapyrusVM::GetRunningThreadCount, FormData::CellStream. Five of six
+#    matched nothing, and the handover recorded the conclusion that the NAMES
+#    were wrong rather than stale.
+#
+#  That conclusion was right, and it is now a measurement rather than an
+#    inference. tools/read_rtti.py reads the mangled type-descriptor names the
+#    compiler emitted into Fallout4.exe -- 12,262 of them, all in .data, all
+#    structurally valid (spare == 0, vftable pointer resolving inside the
+#    image), zero rejected candidates.
+#
+#    The result is unambiguous, and it is a negative result:
+#
+#      PapyrusScript   absent   0 substring hits, 0 classes of that own name
+#      PapyrusThread   absent   0 / 0
+#      PapyrusVM       absent   0 / 0
+#      FormData        absent   3 substring hits, ALL false friends:
+#                                SavedFormData, SavedFormData again inside a
+#                                NiTMap template argument, and BGSLoadFormData
+#                                -- and 0 classes actually named FormData
+#
+#    The three FormData hits are why own_name() exists as a separate function
+#    from a substring test. A substring search would have reported
+#    "FormData: PRESENT" and the whole Tier 2 investigation would have chased
+#    a class that does not exist. A wrong answer here is worse than no answer
+#    for exactly that reason.
+#
+#    So the six patterns were not stale. They were written for classes the
+#    game does not contain, and no amount of byte tuning could ever have made
+#    them match. "5 of 6 unresolved" was indistinguishable, from the outside,
+#    from a database that needed refreshing.
+#
+#  WHAT IS ACTUALLY THERE
+#    The scripting VM is BSScript::Internal::VirtualMachine, with
+#    BSScript::IVirtualMachine as its interface. Both are in the per-build
+#    address database, along with 16 further BSScript interfaces. That gives
+#    18 vtable targets, up from 5.
+#
+#    The mapping from dead target to real class is a ROUTE, not a slot index:
+#
+#      PapyrusVM::PapyrusVM              -> BSScript::Internal::VirtualMachine
+#      PapyrusVM::DebugPrint             -> BSScript::IVMDebugInterface
+#      PapyrusScript::Execute            -> BSScript::Internal::CodeTasklet
+#                                          / ScriptFunction
+#      PapyrusVM::GetRunningThreadCount -> a method of the VM above
+#      PapyrusThread::Execute            -> no such class
+#      FormData::CellStream              -> no such class
+#
+#    WHICH SLOT is unsourced and stays that way. A slot index comes from a C++
+#    class declaration in declaration order. The vendored CommonLibF4 clone in
+#    third_party/ carries vtable ADDRESSES (REL::ID per class) but no BSScript
+#    method declarations, so there is no declaration to read an index from.
+#    Nothing is hooked on the strength of a guessed index. That is the whole
+#    point of 26.4, and it is why "18 targets resolve" and "18 methods are
+#    hooked" are very different sentences.
+#
+#  THE SLOT COUNTS WERE A FICTION
+#    The handover recorded "BSScript::IClientVM has 20 vtable slots, the
+#    signature says 8". Both numbers were wrong. IClientVM has THREE.
+#
+#    Measuring it required a rule that is not obvious, and the rule is the
+#    real finding here. MSVC lays x64 vtables out back to back with no padding
+#    and no sentinel:
+#
+#        [COL for class N][method][method]...[COL for class N+1][method]...
+#
+#    so the first 8 bytes after a table's last method are NOT a method -- they
+#    are the CompleteObjectLocator the next table needs, and they look exactly
+#    like a slot: a pointer into .rdata. Counting until the pointers stop
+#    pointing at code therefore runs straight through into the neighbouring
+#    classes, and that is where "20" came from.
+#
+#    The boundary is detected structurally: a slot is the end of this table if
+#    it is a CompleteObjectLocator, which requires BOTH a first DWORD of 1
+#    (COL_SIG_RTTI64) AND a type-descriptor RVA that resolves to a name
+#    beginning ".?A". Two independent conditions, so a run of arbitrary data
+#    does not pass. 11 of the 18 tables end on such a locator; the other 7 end
+#    on a pointer outside the image, which is a debug string ("Master vers...",
+#    "BSS header...") sitting immediately after the table.
+#
+#    The uniform 8 was over-reading IClientVM and IVMDebugInterface by 5 and 2
+#    slots -- past the end, into another class -- and under-reading
+#    IVMSaveLoadInterface by 18. Over-reading is the dangerous direction and
+#    it is what the runtime validator would have done: a locator mistaken for
+#    a method is a detour into an unrelated interface.
+#
+#    A second correction to the same claim. Many slots in these tables resolve
+#    to the SAME address (0x022C46A2 throughout). That is MSVC identical COMDAT
+#    folding, and it means "a majority of slots point into executable code" is
+#    a weak signal -- the merged stub satisfies it trivially. The validator's
+#    real work is the boundary, not the count.
+#
+#  WHAT WAS BUILT
+#    tools/measure_vtable.py -- the same check tools/read_vtable.py performs,
+#    but OFFLINE against the file instead of against a running process. That
+#    is the whole reason this was not already a gate: a design gate that needs
+#    the game running is a gate nobody runs before a release. Tier 1 is allowed
+#    to be slow and offline, and nothing about reading a vtable requires a live
+#    process.
+#
+#    It imports PeImage and the RTTI walk from read_rtti.py rather than
+#    reimplementing them. Two PE parsers would be two things that can disagree,
+#    and the disagreement would be invisible.
+#
+#    It reads its declared counts out of vprobe/include/Signatures.hpp rather
+#    than keeping a list of its own. The table is the declaration and the
+#    binary is the measurement; a hardcoded copy here would be a second source
+#    of truth, and the two would disagree within a week -- which is how the
+#    uniform 8 survived as long as it did.
+#
+#    vprobe/build_vtables.bat runs it in the build gate: tool self-tests first,
+#    then the measurement, failing on any disagreement and printing the
+#    boundary evidence for each so the correct number can be READ off the real
+#    table rather than guessed. It is wired into build_all.bat and skips
+#    cleanly with no game installed, alongside the address blob.
+#
+#  THE GATES ON THE GATE
+#    The tool refuses to report anything at all unless BSScript::IClientVM at
+#    0x25B85C8 measures as a vtable whose RTTI name is BSScript::IClientVM.
+#    Without that it exits non-zero rather than printing a list, because a
+#    tool that is wrong about the one entry it can check has no business
+#    answering about the rest.
+#
+#    It also has 15 of its own self-tests, on synthetic images built in the
+#    test: all three MSVC jump-stub forms decoded, non-stub bytes refused, a
+#    stub to a non-executable target correctly NOT counted as code, a
+#    well-formed locator recognised, a locator with a bogus type descriptor
+#    refused, a wrong signature refused, and an RVA inside a section's virtual
+#    extent but past its raw data refused.
+#
+#    That last one changed a threshold. The tool originally required 4 slots,
+#    carried over from read_vtable.py where a code-pointer count was the only
+#    available evidence. It refused IClientVM, which has three methods, and the
+#    gate then correctly refused to report anything -- a correct tool declining
+#    to answer because of a threshold inherited from a weaker one. The floor is
+#    now 1, because by that point the RTTI walk has already named the class: a
+#    table with a locator pointing at a type descriptor IS a vtable by
+#    definition, and the count measures it rather than evidencing it. Any
+#    floor above 1 is an assumption that interfaces are shaped a particular
+#    way, which is the same class of mistake as a hand-authored symbol.
+#
+#  THE FOUR HOOKS THAT WERE REMOVED
+#    PapyrusHooks.cpp installed four detours on four of the dead names, logged
+#    "unresolved, probe degraded" on every boot, and could never install. They
+#    are deleted rather than disabled, for two reasons.
+#
+#    A disabled pattern still reads as a target in the tier report, and a
+#    report with permanently-dead rows trains the reader to stop reading it.
+#
+#    And "degraded" was the wrong word. docs/ARCHITECTURE.md states the rule:
+#    a disabled hook means a panel shows less, while a silent failure means a
+#    panel shows nothing and the game looks healthy. Logging a
+#    known-impossible target as degraded put a permanent, already-explained
+#    fact on the wrong side of that line, in the one report whose purpose is
+#    to be believed. The replacement log line says what is true and why.
+#
+#  STILL NOT DONE, AND NOT TO BE SKIPPED
+#    No vtable slot is hooked. The blocker is narrow and nameable: get a
+#    BSScript class declaration with methods in declaration order, and slot
+#    indices follow mechanically. The live fork is libxse/commonlibf4 (the
+#    pinned Ryan-rsm-McKenzie clone is 1.10.163 and carries no BSScript
+#    headers at all). Until that exists, 18 resolved vtables buy identity,
+#    extent and existence -- which is what made every other correction in this
+#    section possible -- and not a single hooked method.
+#
+#    Layer A (the VM hook) and S0 (can a compiled .psc call a native with no
+#    F4SE) are both still ahead, and S0 still decides design decisions 19 and
+#    20. Nothing in this section changes that.
+################################################################################

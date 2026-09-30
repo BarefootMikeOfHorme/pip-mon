@@ -1,18 +1,56 @@
 // Signatures.hpp
 //
-// AOB signature table. This is the file you edit when a new game build lands
-// and AddressLib has not been regenerated yet -- it is also what a CI job diffs
-// so regressions are reviewable.
+// The target table: what vprobe tries to resolve, and how each one is
+// justified. This is the file a new build lands in, and the file the build
+// gate verifies against the real binary.
 //
-// IMPORTANT: these signatures are *starting points*, not gospel. They are
-// written against the shapes documented in Signatures.notes below and each one
-// is validated by AddressResolver before use. If a signature stops matching,
-// the hook disables itself and the dashboard reports it; nothing crashes.
+// THE ONE RULE THIS FILE ENFORCES
+//   Every target below is a NAME THAT EXISTS IN THE GAME, or it is not here.
+//   A target is not admitted because a plausible byte pattern was written for
+//   it. It is admitted because the game's own emitted strings prove the class
+//   is there, and the per-build address database says where it is.
 //
-// A good signature is:
-//   * anchored on opcodes that appear once in .text,
-//   * 24+ bytes long,
-//   * located at a function entry (or a known offset from one).
+//   That rule exists because of what happened the first time it was not
+//   followed. Six "Tier 3" targets were hand-authored against six plausible
+//   Papyrus class names -- PapyrusScript, PapyrusThread, PapyrusVM,
+//   FormData::CellStream. Reading the RTTI out of the actual executable shows
+//   there is no such thing as a class named PapyrusVM, PapyrusThread or
+//   PapyrusScript in Fallout 4, and the only "FormData" hits are
+//   SavedFormData, SavedFormData again inside a template, and
+//   BGSLoadFormData. The patterns were not stale. They were written for
+//   classes the game does not contain, so no amount of retuning them could
+//   ever have matched, and "5 of 6 unresolved" read exactly like a database
+//   that needed refreshing. Run tools/read_rtti.py to reproduce that finding.
+//
+//   What the game actually contains is BSScript::Internal::VirtualMachine
+//   (and its BSScript::IVirtualMachine interface). Those are in the table
+//   below, with measured slot counts.
+//
+// ON THE SLOT COUNTS
+//   Every vtableSlots value here is MEASURED, not chosen. tools/
+//   measure_vtable.py reads the real table out of Fallout4.exe, walks it until
+//   it finds the CompleteObjectLocator of the NEXT class, and reports the
+//   number of method slots in between. The build gate fails if this file and
+//   the binary disagree, so these numbers cannot silently rot into a fiction
+//   the way the previous uniform "8" did.
+//
+//   The measurement is not a formality. It corrected two things. The old
+//   "8 for everything" over-read BSScript::IClientVM and BSScript::IVMDebugInterface,
+//   claiming slots that belong to the following class, and under-read
+//   BSScript::IVMSaveLoadInterface by eighteen. An over-read is the dangerous
+//   direction: the slot past the end of a table is the next class's locator,
+//   so a validator that trusts it will happily detour into an unrelated
+//   interface. Measured, IClientVM has three methods and GameVM has three.
+//
+//   Note also that many slots resolve to the same address. That is MSVC
+//   identical COMDAT folding, and it means "most slots point at code" is a
+//   weak signal -- the runtime validator's real work is the boundary, not the
+//   count. See the non-vtable refusal in the self-test.
+//
+//   An earlier handover recorded IClientVM as having 20 slots. It has three.
+//   The 20 came from counting through the following tables; the boundary is
+//   what stops that, and it is why the boundary rule is the load-bearing part
+//   of measure_vtable.py rather than an afterthought.
 #pragma once
 
 #include <cstdint>
@@ -23,76 +61,99 @@
 
 namespace f4mon::vc {
 
-// BSScript::PapyrusVM::PapyrusVM  -- constructor.
-// Anchored on the debug-name RVA load that only PapyrusVM performs.
-inline constexpr const char* kSigVmCtor =
-    "48 8B ?? 48 89 5C 24 ?? 48 89 6C 24 ?? 48 8B DA 48 8B F9 E8 ?? ?? ?? ?? 48 8B 05 ?? ?? ?? ??";
-
-// BSScript::PapyrusVM::GetRunningThreadCount / thread-list walk.
-// The 0x400 (1024) stack-limit constant that gates Papyrus recursion lives in
-// the same function; matching it is a strong signal we found the scheduler.
-inline constexpr const char* kSigVmRunOnce =
-    "48 8B 05 ?? ?? ?? ?? 48 85 C0 74 ?? 48 8B 40 ?? 8B 90 ?? ?? ?? ?? 0F B6 C8 85 C9";
-
-// BSScript::PapyrusScript::Execute -- the per-script interpreter entry.
-// Matches the "call DebugPrint on error" tail that every generated script shares.
-inline constexpr const char* kSigScriptExecute =
-    "48 89 5C 24 ?? 48 89 6C 24 ?? 48 89 74 24 ?? 57 48 83 EC ?? 49 8B F0 48 8B DA 48 8B F9";
-
-// BSScript::PapyrusVM::DebugPrint -- papyrus-side error reporting.
-// The "%s" style indirect load chain is a 3-call signature that survives most
-// retargets.
-inline constexpr const char* kSigVmDebugPrint =
-    "48 89 5C 24 ?? 48 89 6C 24 ?? 48 83 EC ?? 4C 8B C1 48 8B D9 ?? ?? 48 8B 01";
-
-// BSScript::PapyrusThread::Execute -- the thread trampoline. A failed match here
-// means we lose per-thread op counts but keep the rest of the probe.
-inline constexpr const char* kSigThreadExecute =
-    "48 89 5C 24 ?? 48 89 6C 24 ?? 40 53 48 83 EC ?? 48 83 C4 ?? 49 8B F9";
-
-// FormData/heap object constructor used for cell-stream and object-count probes.
-inline constexpr const char* kSigCellStream =
-    "48 8B 05 ?? ?? ?? ?? 48 85 C0 74 ?? 48 8B 40 ?? 8B 88 ?? ?? ?? ?? 89 44 24 ?? C3";
-
 // ---------------------------------------------------------------------------
-//  TIER 2 TARGETS -- vtables, from the AddressLib database
+//  TIER 2 TARGETS -- vtables, from the per-build address database
 // ---------------------------------------------------------------------------
-//  These are NOT AOB patterns. An empty pattern means "Tier 1 only": there is
-//  no byte signature for a vtable, and inventing one would defeat the point.
-//  They resolve from the address database and are validated by the vtable
-//  rule -- a majority of consecutive slots must point into executable code.
+//  An empty pattern means "no byte signature", and for a vtable that is not a
+//  gap: a vtable is data, so there is nothing to pattern-match. These resolve
+//  from the address database and are validated by the vtable rule in
+//  VersionConfig -- a run of slots pointing into executable code, bounded by
+//  the next class's RTTI locator.
 //
-//  These came from a static scan of the real Fallout4.exe for build
-//  1.11.240, cross-checked against a live process. BSScript__IClientVM was
-//  measured at 6 of 8 slots in .text, the remaining two being thunks in
-//  .rdata, which is why the validator accepts a majority rather than all.
+//  The advantage over a byte pattern is the whole reason this table prefers
+//  them: a pattern is a guess about ONE function, and it is wrong silently.
+//  A vtable address is exact for the build, it is confirmed by the RTTI name
+//  the compiler itself emitted, and it opens every method on the interface at
+//  once instead of one per attempt.
 //
-//  The empty pattern is also why these are worth having when the five AOB
-//  signatures below match nothing. A byte pattern is a guess about one
-//  function; a vtable address is data, exact for the build, and it opens up
-//  every method on the interface at once instead of one at a time.
+//  slot counts below are measured by tools/measure_vtable.py; the gate
+//  enforces them. Do not adjust one to make a check pass -- if a count is
+//  wrong, the binary is what it is and the target name is what needs checking.
 
 inline const Signature kDefaultSignatures[] = {
-    // --- Tier 2: resolved from the address database ---------------------
-    {"BSScript__IClientVM",              "", 0, "Papyrus VM client interface", 8, TargetKind::VTable},
-    {"BSScript__IVMDebugInterface",      "", 0, "VM debug interface",           8, TargetKind::VTable},
-    {"BSScript__IVMSaveLoadInterface",   "", 0, "VM save/load interface",       8, TargetKind::VTable},
-    {"BSScript__IVMObjectBindInterface", "", 0, "VM object bind interface",     8, TargetKind::VTable},
-    {"GameVM",                           "", 0, "game VM dispatch",             8, TargetKind::VTable},
+    // --- the VM core -------------------------------------------------------
+    // BSScript::Internal::VirtualMachine is the class the old "PapyrusVM"
+    // targets were reaching for. 62 slots.
+    {"BSScript__Internal__VirtualMachine", "", 0, "the Papyrus VM itself",           62, TargetKind::VTable},
+    {"BSScript__IVirtualMachine",          "", 0, "VM interface, no impl",          62, TargetKind::VTable},
+    {"GameVM",                             "", 0, "game VM dispatch",                3, TargetKind::VTable},
 
-    // --- Tier 3: AOB only, currently 1 of 6 verified --------------------
-    // A note that matters when reading a failure: a zero here is NOT a
-    // database failure. These are byte patterns written from documentation,
-    // and the scan of the real binary found FIVE OF SIX MATCH NOTHING. They
-    // fail safe, meaning the hook stays uninstalled and the game is
-    // untouched -- correct behaviour, and also the reason the tier above
-    // exists. See the SIGNATURE VALIDATION block in the design document.
-    {"PapyrusVM::PapyrusVM",              kSigVmCtor,         0, "scheduler ctor", 8, TargetKind::Code},
-    {"PapyrusVM::GetRunningThreadCount",  kSigVmRunOnce,       0, "thread-list walk", 8, TargetKind::Code},
-    {"PapyrusScript::Execute",            kSigScriptExecute,  0, "script interpreter", 8, TargetKind::Code},
-    {"PapyrusVM::DebugPrint",             kSigVmDebugPrint,    0, "script error print", 8, TargetKind::Code},
-    {"PapyrusThread::Execute",            kSigThreadExecute,   0, "thread trampoline", 8, TargetKind::Code},
-    {"FormData::CellStream",              kSigCellStream,      0, "cell stream ptr", 8, TargetKind::Code},
+    // --- VM sub-interfaces, all on the same object graph --------------------
+    {"BSScript__IClientVM",                "", 0, "Papyrus VM client interface",      3, TargetKind::VTable},
+    {"BSScript__IVMDebugInterface",        "", 0, "VM debug interface",               6, TargetKind::VTable},
+    {"BSScript__IVMSaveLoadInterface",     "", 0, "VM save/load interface",          26, TargetKind::VTable},
+    {"BSScript__IVMObjectBindInterface",   "", 0, "VM object bind interface",        11, TargetKind::VTable},
+
+    // --- compilation and loading -------------------------------------------
+    // CodeTasklet and ScriptFunction are what a "PapyrusScript::Execute"
+    // target was reaching for: the compiled script and its function object.
+    {"BSScript__Internal__CodeTasklet",    "", 0, "compiled script tasklet",         2, TargetKind::VTable},
+    {"BSScript__Internal__ScriptFunction", "", 0, "one script function",            21, TargetKind::VTable},
+    {"BSScript__CompiledScriptLoader",     "", 0, "loads compiled scripts",          4, TargetKind::VTable},
+    {"BSScript__ILoader",                  "", 0, "script loader interface",         4, TargetKind::VTable},
+    {"BSScript__IStore",                   "", 0, "script store interface",         12, TargetKind::VTable},
+
+    // --- object model, policies, diagnostics --------------------------------
+    {"BSScript__IObjectProcessor",         "", 0, "object processor",                4, TargetKind::VTable},
+    {"BSScript__IFunction",                "", 0, "function interface",             21, TargetKind::VTable},
+    {"BSScript__IComplexType",             "", 0, "complex type interface",          2, TargetKind::VTable},
+    {"BSScript__IProfilePolicy",           "", 0, "VM profile policy",               5, TargetKind::VTable},
+    {"BSScript__IMemoryPagePolicy",        "", 0, "VM memory page policy",           6, TargetKind::VTable},
+    {"BSScript__ErrorLogger",              "", 0, "Papyrus error logger",            3, TargetKind::VTable},
 };
+
+// ---------------------------------------------------------------------------
+//  QUARANTINED -- removed targets, kept so the reasoning is not repeated
+// ---------------------------------------------------------------------------
+//  These are the six dead Tier-3 AOB targets. They are NOT in
+//  kDefaultSignatures and nothing resolves them, on purpose. They are
+//  recorded here because the reasoning behind their removal is expensive to
+//  re-derive and cheap to get wrong again.
+//
+//  A target                                     real class, if one exists
+//  ------------------------------------------  --------------------------------
+//  PapyrusVM::PapyrusVM                         BSScript::Internal::VirtualMachine
+//  PapyrusVM::GetRunningThreadCount            (no per-thread class; a method of
+//                                               the VM above)
+//  PapyrusVM::DebugPrint                        BSScript::IVMDebugInterface
+//  PapyrusScript::Execute                       BSScript::Internal::CodeTasklet
+//                                               / ScriptFunction
+//  PapyrusThread::Execute                       (no such class)
+//  FormData::CellStream                         (no such class; BGSLoadFormData
+//                                               is unrelated)
+//
+//  The "real class" column is a ROUTE, not a slot index. Which of the 62 slots
+//  on BSScript::Internal::VirtualMachine is the one that reports a running
+//  thread count is NOT derivable from a vtable -- it comes from a C++ class
+//  declaration in declaration order, and the vendored CommonLibF4 clone in
+//  third_party/ carries vtable ADDRESSES but no BSScript method declarations.
+//  So that mapping is unsourced today and stays unsourced here. Filling it in
+//  with a plausible guess is the exact mistake that produced this section.
+//
+//  The old patterns are gone rather than kept disabled, because a disabled
+//  pattern still reads as a target in the tier report, and a report with six
+//  permanently-dead rows trains the reader to stop reading it.
+//
+//  The two that were structurally hopeless regardless of naming, and are worth
+//  remembering: kSigVmRunOnce and kSigCellStream both begin
+//      48 8B 05 ?? ?? ?? ?? 48 85 C0 74 ?? 48 8B 40 ??
+//  which is the standard optional-singleton idiom and matches hundreds of
+//  unrelated functions. No prologue gate can save a pattern that generic: the
+//  gate is what makes a narrow pattern safe, and these were never narrow.
+//
+//  To add a code target legitimately, the order is: find the class with
+//  tools/read_rtti.py, get its address from the database, measure its table
+//  with tools/measure_vtable.py, and only then decide whether a vtable slot
+//  is enough or a byte pattern is genuinely required.
 
 } // namespace f4mon::vc

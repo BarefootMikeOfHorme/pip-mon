@@ -1,6 +1,8 @@
 ================================================================================
  PIP-MON SESSION HANDOVER
- Written 2026-09-29. Supersedes the pre-scripting snapshot of the same name.
+  Written 2026-09-29. Supersedes the pre-scripting snapshot of the same name.
+  Amended 2026-09-29 (later the same day): Tier 2 ground truth resolved, two
+  claims in section 4 corrected, new gate step. See section 13.
 ================================================================================
 
  PURPOSE
@@ -12,12 +14,13 @@
    (PIP-MON_CONSOLIDATED.txt) is append-only and self-maintaining; this file
    is not. If the two ever disagree, THIS FILE IS WRONG -- see section 8.
 
- HOW TO VERIFY THIS FILE IS STILL TRUE
-   cd <repo> && build_all.bat
-   Expected: vprobe 15 pass / 0 fail / 2 skip, launcher 45, python 67, rust 5,
-   "#  ALL GATES PASSED", exit 0.
-   A different self-test count means this file is stale, not that the build
-   broke. That specific lie is what the previous version of this file told.
+  HOW TO VERIFY THIS FILE IS STILL TRUE
+    cd <repo> && build_all.bat
+    Expected: vprobe 15 pass / 0 fail / 2 skip, launcher 45, python 67, rust 5,
+    "every declared vtable matches the binary" (18 targets),
+    "#  ALL GATES PASSED", exit 0.
+    A different self-test count means this file is stale, not that the build
+    broke. That specific lie is what the previous version of this file told.
 
 ================================================================================
  0. STANDING RULES -- READ BEFORE TOUCHING ANYTHING
@@ -90,9 +93,15 @@
      4/5  python    analysis tier, 67 tests
      5/5  rust      vlink-protocol crate, 5 tests
 
-   A sub-stage also runs inside stage 1: the address blob is regenerated from
-   the INI and verified, and a MISMATCH IS A BUILD FAILURE. That is the guard
-   against a derived artefact going stale while the build reports success.
+   Two sub-stages also run inside stage 1, and both fail the build rather than
+   warning:
+
+     - the address blob is regenerated from the INI and verified, and a
+       MISMATCH IS A BUILD FAILURE. That is the guard against a derived
+       artefact going stale while the build reports success.
+     - every vtable slot count declared in Signatures.hpp is measured against
+       the real Fallout4.exe and must agree. Added 2026-09-29; see section 13.
+       Expect 18 "[OK]" lines and "every declared vtable matches the binary".
 
  INDEPENDENCE (verified by inspection of the built artefact)
    vprobe.dll runtime imports:  KERNEL32.dll ONLY
@@ -177,29 +186,12 @@
  4. KNOWN NOT-WORKING -- READ THIS BEFORE TRUSTING A NUMBER
 ================================================================================
 
- A. TIER 2 (AOB) IS DEAD. This is the single biggest gap.
-      tier2: 0 across the board. PapyrusScript::Execute returns state
-      "rejected"; PapyrusThread::Execute, PapyrusVM::DebugPrint, ::PapyrusVM,
-      ::GetRunningThreadCount and FormData::CellStream are "missing".
+  A. TIER 2 (AOB) IS DEAD -- RESOLVED 2026-09-29. See section 13. Short
+       version: the six symbol NAMES were wrong, confirmed by reading the
+       game's own RTTI, and the real classes are now in the target table as
+       18 sourced vtable targets. The dead AOB patterns are removed. NO SLOT
+       IS HOOKED YET -- see section 13 for the one blocker.
 
-      WHY, per research (design section 26.2 and the provenance rule): the
-      six symbol NAMES are almost certainly wrong, not stale. Fallout 4's VM
-      is BSScript::Internal::VirtualMachine / GameVM. There is no PapyrusVM,
-      PapyrusThread, PapyrusScript or FormData::CellStream in the RTTI. The
-      patterns were hand-authored for functions nobody ever observed.
-
-      CONSEQUENCE: RVA 0x1B887C0 for PapyrusScript::Execute is UNSOURCED. It
-      was "confirmed" by our own tooling against our own unverified signature,
-      which is circular. Treat it as a hypothesis.
-
-      ALSO: two of the patterns share a byte-identical 12-byte prefix
-      (48 8B 05 ?? ?? ?? ?? 48 85 C0 74 ?? 48 8B 40) -- the standard optional-
-      singleton idiom. A scan will match hundreds of unrelated functions and
-      the prologue gate will correctly reject them. No gate can save a pattern
-      that generic.
-
-      WHAT IS NEEDED: ground truth from T0/T1 (RTTI class-name extraction), not
-      better hand-tuned bytes.
 
  B. DIAGNOSTIC CHANNEL HAD THREE INDEPENDENT BUGS, all fixed and now tested.
       All three presented identically -- a healthy pipe with no information.
@@ -217,9 +209,13 @@
       has attempted it. Layer B (the dispatch table) is built and tested;
       Layer A (the VM hook) does not exist.
 
- D. BSScript__IClientVM HAS 20 VTABLE SLOTS but the signature says 8.
-      Under-counting, not breaking -- 6 of 8 validated and matched the real
-      binary. Fix before Layer A.
+  D. BSScript__IClientVM SLOT COUNT -- RESOLVED 2026-09-29, and this section
+       was WRONG. See section 13. IClientVM has THREE vtable slots, not 8 and
+       not 20. Every count in the signature table is now measured against the
+       real binary and the build gate fails on any disagreement. The "20" came
+       from counting through the following tables; the entries after a table's
+       last method are the NEXT class's RTTI locator, not methods.
+
 
 ================================================================================
  5. REFUSE, DO NOT GUESS (section 26.4)
@@ -295,11 +291,18 @@
  7. OPEN DECISIONS, IN THE ORDER THEY BLOCK THINGS
 ================================================================================
 
- 1. Ground truth for Tier 2 (section 4A). Blocks Layer A. Suggested order:
-      (a) check the installed AddressLib .bin for VM-internal IDs -- cheap, and
-          it is the authoritative per-build answer
-      (b) RTTI class-name extraction from the binary (~50 lines, no new deps)
-      (c) then pefile/capstone only if (b) shows deeper analysis is needed
+  1. ~~Ground truth for Tier 2.~~ **DONE 2026-09-29.** See section 13. The
+     RTTI scan found the real classes and they are in the target table. What
+     remains is narrower and is listed as its own item below.
+  1a. **Slot indices for the 18 vtable targets.** This is the new critical
+     path, and it is one specific thing: obtain a BSScript class declaration
+     that lists methods in declaration order, and the indices follow
+     mechanically. The pinned CommonLibF4 clone in third_party/ (Ryan-rsm-
+     McKenzie, 1.10.163) carries vtable ADDRESSES but NO BSScript headers at
+     all; the live fork is libxse/commonlibf4. Until a declaration exists,
+     nothing is hooked -- a guessed index is a detour into an unrelated
+     function, which is the failure this whole tier model prevents.
+
  2. hypothesis, scoped to binary serialization and boundary decoding, proving
     malformed input degrades gracefully. Favoured before the container work
     because the spec refactor will MOVE those tests rather than invalidate
@@ -408,24 +411,32 @@
    .gitignore                       written before the first commit on
                                     purpose -- see section 11.
 
-   vprobe/            in-process runtime (C++, x64)
-     include/           PipmonEntry (load contract + capability bits),
-                        PapyrusApi (Layer B dispatch), VersionConfig (T1/T2
-                        resolver), IPCServer (the wire door)
-     src/               main, PapyrusApi, VersionConfig, IPCServer, SelfTest
-     papyrus/           the PipMon: surface: .psc, .ppj, flags, build
-     libs/              per-build address database (.txt, tracked) and the
-                        derived binary blob (.bin, NOT tracked)
-     tests/             test_harness.exe drives the in-DLL self-test
+    vprobe/            in-process runtime (C++, x64)
+      include/           PipmonEntry (load contract + capability bits),
+                         PapyrusApi (Layer B dispatch), VersionConfig (T1/T2
+                         resolver), Signatures (the target table: what is
+                         resolved and how it is justified), IPCServer (the
+                         wire door)
+      src/               main, PapyrusApi, VersionConfig, IPCServer, SelfTest,
+                         PapyrusHooks, Detour, DynamicScanner, ReadySignal
+      papyrus/           the PipMon: surface: .psc, .ppj, flags, build
+      libs/              per-build address database (.txt, tracked) and the
+                         derived binary blob (.bin, NOT tracked)
+      build_libbin.bat   INI -> blob, plus the stale-blob guard
+      build_vtables.bat  declared vtable counts vs. the real binary
+      tests/             test_harness.exe drives the in-DLL self-test
 
-   tools/             read-only inspectors and build-time generators
-     attach_inject.ps1   live injection
-     vlink_probe.py      live reader, with filters (see LOG_FORMAT.md)
-     build_libbin.py     INI + game exe -> binary blob (build time)
-     verify_libbin.py    independent blob validation
-     read_addresslib.py  AddressLib .bin -> the per-build INI
-     rtsig.cpp           read-only signature checker
-     read_vtable.py      read-only vtable validator
+    tools/             read-only inspectors and build-time generators
+      attach_inject.ps1   live injection
+      vlink_probe.py      live reader, with filters (see LOG_FORMAT.md)
+      build_libbin.py     INI + game exe -> binary blob (build time)
+      verify_libbin.py    independent blob validation
+      read_addresslib.py  AddressLib .bin -> the per-build INI
+      read_rtti.py        the game's own RTTI class names out of Fallout4.exe
+      measure_vtable.py   vtable identity + extent, OFFLINE, gated
+      read_vtable.py      vtable check against a LIVE process (superseded for
+                          gating by measure_vtable.py; still useful in-game)
+      rtsig.cpp           read-only signature checker
 
    overseer_cli/      the T4 consumer: Textual dashboard
      rust/vlink-protocol/   the Rust protocol crate
@@ -575,9 +586,9 @@
                                                 Rewrite it as a pointer plus
                                                 those sections.
 
-================================================================================
+===============================================================================
  12. HOW THE LAST SESSION WENT, SO THE PATTERNS ARE VISIBLE
-================================================================================
+===============================================================================
 
    Useful, because the failures were all silent:
      - a 541 KB text database was being parsed inside the game process; moving
@@ -595,3 +606,96 @@
    a NameError and a protocol bug that would each have wasted a game session.
    Delegating a wire-format cross-check across the three language
    implementations found two real defects nobody had looked for.
+
+
+================================================================================
+ 13. SESSION 2026-09-29 -- TIER 2 GROUND TRUTH, AND TWO CORRECTIONS
+===============================================================================
+
+  Full reasoning is in the design doc, section 27. This is the resume view.
+
+  THE GATE CHECKS ONE MORE THING NOW
+    Still five stages -- the count in section 2 is unchanged, so a self-test
+    count that shifts is a different problem. What changed is that stage 1
+    gained a second sub-step between the address blob and Papyrus:
+
+      --- vtable targets (declared vs. the real binary) ---
+
+    It runs tools/measure_vtable.py, which reads the real vtables out of
+    Fallout4.exe and fails the build if any slot count in Signatures.hpp
+    disagrees. It skips cleanly with no game installed, exactly like the
+    address blob. Expected output is now 18 "[OK]" lines and
+    "every declared vtable matches the binary".
+
+    If your run does not show that line, the gate is not what this file
+    describes.
+
+  THE TWO TOOLS
+    tools/read_rtti.py     reads the game's own mangled type names. 12,262 of
+                           them, all in .data, zero rejected. Was written in a
+                           previous session and never committed -- it is the
+                           reason the "wrong names" conclusion could be
+                           upgraded from an inference to a measurement.
+    tools/measure_vtable.py measures vtable extents OFFLINE. This exists
+                           because tools/read_vtable.py needs a live process,
+                           and a design gate that needs the game running is a
+                           gate nobody runs. Imports the PE parser and RTTI
+                           walk from read_rtti.py rather than duplicating
+                           them.
+
+  THE FINDING, IN ONE LINE
+    Fallout 4 has no class named PapyrusVM, PapyrusThread or PapyrusScript.
+    The VM is BSScript::Internal::VirtualMachine. The three "FormData" hits
+    are SavedFormData, SavedFormData inside a template, and BGSLoadFormData --
+    none of them a class called FormData. So the six dead AOB patterns were
+    written for classes that do not exist, and no byte tuning could have saved
+    them.
+
+  WHAT CHANGED
+    - Signatures.hpp: 5 targets -> 18, all vtable, all with RTTI-confirmed
+      identity and MEASURED slot counts. The six dead AOB patterns are gone.
+    - PapyrusHooks.cpp: the four detours on dead names are DELETED, and the
+      install log now states the truth instead of logging "degraded" on every
+      boot.
+    - build_all.bat / vprobe/build_vtables.bat: the new gate step.
+    - The runtime target table is 18 entries, so the self-test report grew
+      from 1376B to 1442B. Still 70% of the wire cap, and report_fits_wire
+      asserts it.
+
+  THE BOUNDARY RULE -- the one thing worth remembering
+    MSVC lays x64 vtables out back to back with no sentinel:
+
+        [COL for N][method][method]...[COL for N+1][method]...
+
+    The 8 bytes after the last method are the NEXT class's
+    CompleteObjectLocator and they look exactly like a slot. Counting until
+    pointers stop pointing at code runs straight through into the neighbours.
+    A slot ends the table only if it is a locator: first DWORD 1, AND its
+    type-descriptor RVA resolves to a name starting ".?A". Two conditions, so
+    arbitrary data does not pass. 11 of 18 tables end that way; 7 end on a
+    pointer outside the image, which is a debug string sitting right after.
+
+  MEASURED SLOT COUNTS, for anyone who needs them without running the tool
+    BSScript__Internal__VirtualMachine   62     BSScript__IFunction       21
+    BSScript__IVirtualMachine            62     BSScript__IStore         12
+    BSScript__IVMSaveLoadInterface       26     BSScript__IVMObjectBind.. 11
+    BSScript__IVMDebugInterface           6     BSScript__IProfilePolicy   5
+    BSScript__IMemoryPagePolicy          6     BSScript__CompiledScript..  4
+    BSScript__IClientVM                   3     BSScript__ILoader          4
+    GameVM                                3     BSScript__IObjectProcessor 4
+    BSScript__Internal__ScriptFunction  21     BSScript__ErrorLogger      3
+    BSScript__Internal__CodeTasklet      2     BSScript__IComplexType     2
+
+  A WARNING ABOUT THE VALIDATOR, learned the hard way
+    Many slots in these tables resolve to the SAME address (0x022C46A2
+    throughout). That is MSVC identical COMDAT folding, and it means the
+    "majority of slots point into executable code" rule is a weak signal --
+    the merged stub satisfies it trivially. The boundary is what carries the
+    weight, not the count.
+
+  STILL NOT DONE
+    No vtable slot is hooked. See open decision 1a: one specific input is
+    missing (a BSScript class declaration) and guessing around it is the one
+    thing this project must not do. Layer A and S0 are both still ahead, and
+    S0 still decides design decisions 19 and 20.
+===============================================================================
