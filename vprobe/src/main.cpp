@@ -16,6 +16,7 @@
 // Next Gen (1.10.980+) both run the same binary.
 
 #include "IPCServer.hpp"
+#include "Trace.hpp"
 #include "PapyrusHooks.hpp"
 #include "ReadySignal.hpp"
 #include "VersionConfig.hpp"
@@ -25,6 +26,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdarg>
 #include <cstdio>
 #include <memory>
 #include <string>
@@ -100,13 +102,106 @@ std::thread      g_worker;
   }
 
 
+// ---------------------------------------------------------------------------
+//  FILE TRACE -- opt-in, and the reason this file exists at all
+// ---------------------------------------------------------------------------
+//  The first live injection taught us something expensive. vprobe.dll mapped,
+//  the handshake reported LOADED, and the game was gone three seconds later --
+//  with no Windows Application Error event, no crash dump, and no Papyrus log.
+//  Worst of all, our own diagnostics were unavailable: logLine() publishes to
+//  the V-Link named pipe, and a pipe nobody has connected to yet carries
+//  nothing. So the one run that mattered produced no evidence at all.
+//
+//  This fixes that specific failure. When a marker file named `vprobe.trace`
+//  sits beside the DLL, every traceLine() is appended to `vprobe.trace.log` in
+//  the same directory, timestamped and flushed per line.
+//
+//  Design constraints, each of which is the point:
+//
+//  - OFF unless the marker exists. The default path is unchanged, and a
+//    shipped runtime does no file IO it was not asked to do.
+//  - A marker FILE, not an environment variable. The game is launched by
+//    whoever launched it, so an env var set in our shell would not reach it.
+//    A file beside the DLL is found the same way every time.
+//  - Opened, written, flushed, closed PER LINE. A buffer would lose exactly
+//    the last few lines before a crash, which are the ones that matter.
+//  - It must never be the cause of the failure it is diagnosing. Every call is
+//    best-effort and no return value is checked for anything but success;
+//    a trace that can crash the process is worse than no trace.
+
+std::wstring g_tracePath;
+bool        g_traceChecked = false;
+
+void traceLine(const char* fmt, ...) {
+    if (!g_traceChecked) {
+        g_traceChecked = true;
+
+        HMODULE self = nullptr;
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                               GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCWSTR>(&traceLine), &self);
+        if (self) {
+            wchar_t selfPath[MAX_PATH]{};
+            const DWORD n = GetModuleFileNameW(self, selfPath, MAX_PATH);
+            if (n > 0 && n < MAX_PATH) {
+                std::wstring selfPathW(selfPath);
+                const auto slash = selfPathW.find_last_of(L"\\/");
+                if (slash != std::wstring::npos) {
+                    const std::wstring dir = selfPathW.substr(0, slash + 1);
+                    if (GetFileAttributesW((dir + L"vprobe.trace").c_str())
+                        != INVALID_FILE_ATTRIBUTES) {
+                        g_tracePath = dir + L"vprobe.trace.log";
+                    }
+                }
+            }
+        }
+    }
+    if (g_tracePath.empty()) {
+        return;
+    }
+
+    char    body[1024]{};
+    va_list ap;
+    va_start(ap, fmt);
+    const int written = _vsnprintf_s(body, sizeof(body), _TRUNCATE, fmt, ap);
+    va_end(ap);
+    if (written < 0) {
+        return;
+    }
+
+    SYSTEMTIME st{};
+    GetLocalTime(&st);
+    char   line[1200]{};
+    const int n = _snprintf_s(line, sizeof(line), _TRUNCATE,
+                              "[%02u:%02u:%02u.%03u tid=%lu] %s\r\n",
+                              st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
+                              GetCurrentThreadId(), body);
+    if (n < 0) {
+        return;
+    }
+
+    HANDLE h = CreateFileW(g_tracePath.c_str(), FILE_APPEND_DATA,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                           OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    DWORD writtenBytes = 0;
+    WriteFile(h, line, static_cast<DWORD>(n), &writtenBytes, nullptr);
+    // No FlushFileBuffers: WriteFile to an append handle is already ordered
+    // and this runs on a path that must not be able to stall the game.
+    CloseHandle(h);
+}
+
+
 void logLine(const char* level, const std::string& text) {
+    traceLine("%s: %s", level, text.c_str());
     // Goes through the V-Link diag channel, not the game's log, so the dashboard
     // is the single place a user has to look.
     wire::PluginDiagPayload diag{};
     diag.level = (std::string(level) == "error")  ? wire::DiagLevel::Error
                  : (std::string(level) == "warn") ? wire::DiagLevel::Warning
-                                                 : wire::DiagLevel::Info;
+                                                  : wire::DiagLevel::Info;
     diag.textLength = 0;
     g_server.publish(wire::EventType::PluginDiag, diag, text);
 }
@@ -161,7 +256,9 @@ struct ProbeTally {
 };
 
 void bootstrap() {
+    traceLine("bootstrap: enter"); trace::session("STARTUP", "bootstrap entered");
     if (!g_server.start(kPipeName)) {
+        traceLine("bootstrap: FATAL could not open \\\\.\\pipe\\%ls", kPipeName);
         OutputDebugStringW(L"[vprobe] FATAL: could not open \\\\.\\pipe\\vlink_telemetry\n");
         // Even a failed start is reported. A runtime that cannot open its pipe
         // must not look identical to one that was never asked to. The return
@@ -170,8 +267,10 @@ void bootstrap() {
         (void)runtime::signalLoaded();
         return;
     }
+    traceLine("bootstrap: pipe open"); trace::session("STARTUP", "vlink pipe opened");
     g_server.setNameTableProvider(&nameTableProvider);
     g_server.setReportProvider(&resolverReportProvider);
+    traceLine("bootstrap: providers set");
 
     // --- address resolution ------------------------------------------------
     // The BINARY database is preferred: same data, one read, no parsing and no
@@ -179,6 +278,8 @@ void bootstrap() {
     // alongside it as the fallback and the authoritative/diffable form, so a
     // missing or foreign-build blob degrades to slower rather than to broken.
     const auto ini = findAddressLibIni();
+    traceLine("bootstrap: ini search done, found=%d path=%ls",
+              ini.empty() ? 0 : 1, ini.c_str());
     bool haveIni = false;
     bool haveBin = false;
     if (!ini.empty()) {
@@ -189,8 +290,11 @@ void bootstrap() {
             bin = bin.substr(0, dot);
         }
         bin += L".bin";
+        traceLine("bootstrap: loading bin %ls", bin.c_str());
         haveBin = g_resolver.loadAddressLibBin(bin);
+        traceLine("bootstrap: bin loaded=%d", haveBin ? 1 : 0);
         haveIni = g_resolver.loadAddressLib(ini);
+        traceLine("bootstrap: ini loaded=%d", haveIni ? 1 : 0);
     }
     if (!haveIni && !haveBin) {
         // Tier 2 only. Not an error: AOB scanning is a complete fallback, it is
@@ -206,19 +310,26 @@ void bootstrap() {
     }
 
     // --- install probes ----------------------------------------------------
+    traceLine("bootstrap: building HookManager");
     g_hooks = std::make_unique<probe::HookManager>(g_server);
+    traceLine("bootstrap: installing hooks");
     g_hooks->install(g_resolver);
+    traceLine("bootstrap: hooks installed");
 
     // Report what came up, so a user on an unsupported build immediately sees
     // which probes are live instead of wondering why the dashboard is empty.
+    traceLine("bootstrap: building resolver report");
     const std::string report = g_resolver.buildReportJson();
+    traceLine("bootstrap: resolver report %u bytes", static_cast<unsigned>(report.size()));
     wire::PluginDiagPayload diag{};
     diag.level      = wire::DiagLevel::Info;
     diag.textLength = 0;
     g_server.publish(wire::EventType::PluginDiag, diag, report);
+    traceLine("bootstrap: published resolver report");
 
     const std::string hooks = g_hooks->reportJson();
     g_server.publish(wire::EventType::PluginDiag, diag, hooks);
+    traceLine("bootstrap: published hook report");
 
     // --- tell the launcher we are up ---------------------------------------
     // Probes are counted, not assumed. Outside a real game nothing resolves,
@@ -306,17 +417,21 @@ void onLoad() {
             Sleep(100);
         }
 
-        if (!foundGame) {
-            // No game in this process. Say so, and DO NOT signal ready: a
-            // runtime with no game has no probes and cannot see a script, and
-            // the launcher must report that as Degraded rather than success.
-            logLine("error", "No Fallout4.exe in this process. Runtime is idle.");
-            OutputDebugStringW(L"[vprobe] no game module; not becoming ready\n");
-            return;
-        }
+    if (!foundGame) {
+        // No game in this process. Say so, and DO NOT signal ready: a
+        // runtime with no game has no probes and cannot see a script, and
+        // the launcher must report that as Degraded rather than success.
+        traceLine("onLoad: no Fallout4.exe in process after 60s; idle");
+        logLine("error", "No Fallout4.exe in this process. Runtime is idle.");
+        OutputDebugStringW(L"[vprobe] no game module; not becoming ready\n");
+        return;
+    }
 
-        Sleep(1500);
-        bootstrap();
+    traceLine("onLoad: game module found, settling 1500ms"); trace::session("STARTUP", "game module located; settling");
+    Sleep(1500);
+    traceLine("onLoad: calling bootstrap");
+    bootstrap();
+    traceLine("onLoad: bootstrap returned"); trace::session("STARTUP", "bootstrap complete; runtime ready");
     });
 }
 

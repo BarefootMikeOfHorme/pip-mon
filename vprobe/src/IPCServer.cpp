@@ -12,6 +12,7 @@
 #endif
 
 #include "IPCServer.hpp"
+#include "Trace.hpp"
 
 #include <Psapi.h>
 #include <TlHelp32.h>
@@ -360,6 +361,28 @@ void IPCServer::workerMain() {
     heartbeatDueNs_ = 0;
     memoryDueNs_    = 0;
 
+    // The startup trace ends at "bootstrap returned", so a crash from here on
+    // is invisible without these. The first live crash proved the point: init
+    // completed cleanly, 18/18 resolved, and the process died with no record of
+    // what it was doing afterwards. Loop counter included so a hang and a crash
+    // are distinguishable -- a counter that stops advancing means the loop
+    // wedged, which is a different fault and a different fix.
+    trace::line("worker: enter, iocp=%p pipe=%p", static_cast<void*>(iocp_),
+                static_cast<void*>(pipeServer_));
+    std::uint64_t loopCount = 0;
+    const ULONGLONG startedTick = GetTickCount64();
+
+    // The periodic state line. This is what the pipe was carrying and what the
+    // pipe now cannot carry safely, so it is written to the session file
+    // instead. Sampled every ~5s rather than at the 2Hz heartbeat rate, which
+    // would be 172,800 lines an hour.
+    //
+    // The phase is derived, not asserted: a game sitting at a menu reports a
+    // frame count of zero, and a game in a world does not. That is a real
+    // signal from the engine rather than a label this code invented, which
+    // matters because the whole point is to observe rather than to narrate.
+    std::uint64_t lastStateLog = 0;
+
     while (running_.load(std::memory_order_acquire)) {
         // Service the completion port with a bounded wait so the periodic
         // producers (heartbeat/memory) still fire when I/O is idle.
@@ -367,6 +390,12 @@ void IPCServer::workerMain() {
         ULONG_PTR   key     = 0;
         OVERLAPPED* ov      = nullptr;
         const DWORD waitMs  = 50;
+
+        ++loopCount;
+        if (loopCount <= 3 || (loopCount % 400) == 0) {
+            trace::line("worker: loop %llu waiting",
+                        static_cast<unsigned long long>(loopCount));
+        }
 
         const BOOL ok = GetQueuedCompletionStatus(iocp_, &bytes, &key, &ov, waitMs);
         const DWORD err = ok ? ERROR_SUCCESS : GetLastError();
@@ -379,14 +408,61 @@ void IPCServer::workerMain() {
         if (!ok && err != WAIT_TIMEOUT) {
             // The port itself is broken; back off briefly and let start()'s
             // error path or a subsequent recreate take over.
+            trace::line("worker: iocp error %lu, backing off",
+                        static_cast<unsigned long>(err));
             Sleep(100);
             continue;
         }
 
         // Timeout: pump data and the periodic producers.
-        writeBatch();
-        emitHeartbeat();
-        emitMemory();
+        //
+        // GATED ON A CONSUMER, and this is a fix rather than an optimisation.
+        //
+        // The periodic producers used to run unconditionally from loop 1. That
+        // means an injected runtime with nobody attached still executed
+        // emitMemory() at 2Hz forever, and emitMemory() calls
+        // countProcessThreads() -- a CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD)
+        // walk over every thread in the system, from inside a heavily modded
+        // game process. Five separate live injections each killed the process
+        // within about two seconds, INCLUDING runs where no client ever
+        // connected to the pipe, which rules the pipe out as the cause and
+        // points here.
+        //
+        // A probe with no consumer should cost nothing. There is no reason to
+        // enumerate the thread table for an audience of zero, and the tier rule
+        // is explicit that a layer may not be made more expensive than its
+        // consumer requires. Now it is quiet until someone is listening, and
+        // the state line below reports that honestly instead of reporting a
+        // heartbeat nobody asked for.
+        if (clientAttached_.load(std::memory_order_acquire)) {
+            if ((loopCount % 40) == 0) {
+                trace::line("worker: loop %llu writeBatch hb mem",
+                            static_cast<unsigned long long>(loopCount));
+            }
+            writeBatch();
+            emitHeartbeat();
+            emitMemory();
+        } else if (loopCount == 200) {
+            trace::line("worker: no consumer attached; periodic producers idle");
+        }
+
+        if ((loopCount - lastStateLog) >= 100) {
+            lastStateLog = loopCount;
+            const std::uint32_t frames = frameCounter_.load(std::memory_order_relaxed);
+            const std::uint32_t pap    = activeThreads_.load(std::memory_order_relaxed);
+            const std::uint64_t drop   = dropped_.load(std::memory_order_relaxed);
+            const float          ft    = frameTimeMs_.load(std::memory_order_relaxed);
+            trace::session(frames > 0 ? "IN_GAME" : "MENU",
+                           "uptime=%llums frames=%u papyrusThreads=%u frameMs=%.2f "
+                           "emitted=%llu dropped=%llu client=%d",
+                           static_cast<unsigned long long>(
+                               (GetTickCount64() - startedTick) / 1000),
+                           frames, pap, static_cast<double>(ft),
+                           static_cast<unsigned long long>(
+                               accepted_.load(std::memory_order_relaxed)),
+                           static_cast<unsigned long long>(drop),
+                           clientAttached_.load(std::memory_order_relaxed) ? 1 : 0);
+        }
 
         if (nameSyncRequested_.exchange(false, std::memory_order_acq_rel) && nameProvider_) {
             const std::string json = nameProvider_();
