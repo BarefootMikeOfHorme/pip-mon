@@ -95,6 +95,16 @@ ObjectReference property TestRobotRef Auto
 ObjectReference property TestNpcSpawn Auto
 ObjectReference property TestRobotSpawn Auto
 
+; --- the test character's kit -------------------------------------------------
+; Assigned in the CK like everything else. See the header on why no form IDs
+; are hardcoded: this install is heavily modded, IDs move, and a hardcoded one
+; fails silently rather than loudly.
+ObjectReference property KitWeapon Auto
+ObjectReference property KitPowerArmorFrame Auto
+ObjectReference property KitArmor Auto
+ObjectReference property KitTestItem Auto
+ObjectReference property KitBenchParts Auto
+
 ; --- verdict, readable from the CK property view and from the native side ----
 ; auto readonly is the only legal shape for a property with an initial value
 ; in this compiler: `int property x = 0` alone is rejected with "Only Auto and
@@ -244,6 +254,136 @@ Function RemoveActors()
         TestRobotRef.Delete()
     EndIf
     actorsPlaced = false
+EndFunction
+
+; ===========================================================================
+;  THE DEFAULT TEST CHARACTER
+; ===========================================================================
+;  A test environment is only comparable to itself if the character arriving in
+;  it is the same every time. This puts the kit in place idempotently, so a run
+;  can be repeated without the previous run's leftovers changing the result.
+;
+;  THE ONE THING THAT IS EASY TO GET WRONG
+;    There is no implicit `Player` in Fallout 4. `Player.AddItem(...)` fails
+;    with "variable Player is undefined" -- the bare `Player` identifier is a
+;    Skyrim-ism. The accessor here is `Game.GetPlayer()`, which returns an Actor.
+;
+;  WHY THE KIT IS CK-ASSIGNED AND NOT A HARMLESS HARDCODE
+;    A hardcoded form ID would break the first time a mod shifts that record,
+;    and it breaks silently: the item simply does not appear and the test looks
+;    like a product failure. Properties cost one CK assignment and survive any
+;    load order.
+;
+;  RETURNS a bitfield rather than a bool, because "did the character setup run"
+;    and "did every piece of the kit land" are different questions and a single
+;    bool throws the second one away:
+;      1  weapon equipped
+;      2  power armor frame added
+;      4  armour added
+;      8  test item added
+;      16 bench parts added
+;      32 the character was already set up (nothing re-added)
+
+Int Function SetupTestCharacter()
+    Actor pPlayer = none
+    Int iDid = 0
+    Int iCount = 0
+
+    pPlayer = Game.GetPlayer()
+    If pPlayer == none
+        Return 0
+    EndIf
+
+    ; Idempotence by inventory check rather than a flag. A save can be loaded,
+    ; reverted or console-fiddled with, and a property saying "done" would then
+    ; be a lie; asking the inventory is the only check that cannot drift.
+    If pPlayer.GetItemCount(KitWeapon) > 0
+        iDid = iDid + 32
+    ElseIf KitWeapon != none
+        pPlayer.AddItem(KitWeapon, 1)
+        pPlayer.EquipItem(KitWeapon)
+        iDid = iDid + 1
+    EndIf
+
+    If pPlayer.GetItemCount(KitPowerArmorFrame) == 0
+        If KitPowerArmorFrame != none
+            pPlayer.AddItem(KitPowerArmorFrame, 1)
+            iDid = iDid + 2
+        EndIf
+    EndIf
+
+    If pPlayer.GetItemCount(KitArmor) == 0
+        If KitArmor != none
+            pPlayer.AddItem(KitArmor, 1)
+            iDid = iDid + 4
+        EndIf
+    EndIf
+
+    If pPlayer.GetItemCount(KitTestItem) == 0
+        If KitTestItem != none
+            pPlayer.AddItem(KitTestItem, 1)
+            iDid = iDid + 8
+        EndIf
+    EndIf
+
+    ; Bench parts are a convenience, not a fixture: enough of them that a
+    ; workbench in the cell is immediately usable, without needing a vendor.
+    iCount = pPlayer.GetItemCount(KitBenchParts)
+    If iCount < 50
+        If KitBenchParts != none
+            pPlayer.AddItem(KitBenchParts, 50 - iCount)
+            iDid = iDid + 16
+        EndIf
+    EndIf
+
+    Return iDid
+EndFunction
+
+; Power armor needs a station to enter from, which is a fixture rather than an
+; inventory item, so it is a separate call. Idempotent in the same way: the
+; station refuses if the actor is already in a frame, so this is safe to retry.
+Bool Function EnterPowerArmor()
+    Actor pPlayer = none
+    pPlayer = Game.GetPlayer()
+    If pPlayer == none
+        Return false
+    EndIf
+    If PowerArmorStationRef == none
+        Return false
+    EndIf
+    If pPlayer.GetItemCount(KitPowerArmorFrame) == 0
+        ; Entering with no frame on the actor silently does nothing in game, so
+        ; say so here rather than letting it look like a station fault.
+        Return false
+    EndIf
+    pPlayer.SwitchToPowerArmor(PowerArmorStationRef)
+    Return true
+EndFunction
+
+; Removes only what this script added, so a failed run can be reset without
+; touching anything the player picked up themselves.
+Function ClearTestCharacter()
+    Actor pPlayer = none
+    pPlayer = Game.GetPlayer()
+    If pPlayer == none
+        Return
+    EndIf
+    pPlayer.UnequipAll()
+    If KitWeapon != none
+        pPlayer.RemoveItem(KitWeapon)
+    EndIf
+    If KitPowerArmorFrame != none
+        pPlayer.RemoveItem(KitPowerArmorFrame)
+    EndIf
+    If KitArmor != none
+        pPlayer.RemoveItem(KitArmor)
+    EndIf
+    If KitTestItem != none
+        pPlayer.RemoveItem(KitTestItem)
+    EndIf
+    If KitBenchParts != none
+        pPlayer.RemoveItem(KitBenchParts)
+    EndIf
 EndFunction
 
 ; ===========================================================================
