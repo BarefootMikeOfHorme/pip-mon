@@ -120,6 +120,7 @@ Bool property s0StringReturned = false auto readonly
 Bool property s0StringArrayReturned = false auto readonly
 Bool property s0Passed = false auto readonly
 Bool property actorsPlaced = false auto readonly
+Bool property probeFired = false auto readonly
 
 Int kEventMaskAll = 255
 
@@ -665,5 +666,42 @@ Event OnInit()
     ; fires native calls is indistinguishable from a bug when you are diagnosing
     ; one, and the first run of a new build deserves a deliberate act rather
     ; than an ambient one. The native side calls RunNativeProbe() explicitly.
+    ;
+    ; THE TIMER CALLS ARE NEW, and they are what makes the experiment runnable
+    ; at all. The line above says the native side calls RunNativeProbe(), and
+    ; that was true only in intent: Layer A -- the VM hook the native side
+    ; would call through -- does not exist yet. So nothing was calling this
+    ; function, and a live session would have produced no verdict whatsoever
+    ; rather than a failing one. The probe is still not fired from OnInit; it is
+    ; fired once from a timer, which keeps the deliberate-act property and gives
+    ; the run an actual trigger.
+    ;
+    ; THE TIMER API IS NOT WHAT IT LOOKS LIKE. The first attempt at this used
+    ; Start()/Stop() and Event OnTimer(float), all three of which are real
+    ; Skyrim Papyrus and none of which exist in Fallout 4. The compiler said so
+    ; by name -- "Start is not a function or does not exist" -- and the base
+    ; script the CK installs is the authority, so it was read rather than
+    ; recalled:
+    ;
+    ;     Function StartTimer(float afInterval, int aiTimerID = 0) native
+    ;     Function CancelTimer(int aiTimerID = 0) native
+    ;     Event OnTimer(int aiTimerID)
+    ;
+    ; The parameter is the timer ID, not an elapsed time, and an event whose
+    ; signature does not match ScriptObject's declaration is rejected outright:
+    ; "the parameter types of function ontimer ... do not match the original
+    ; script scriptobject".
     Unsubscribe()
+    StartTimer(2.0)
+EndEvent
+
+Event OnTimer(int aiTimerID)
+    ; One shot. A repeated probe would keep re-writing the verdict properties
+    ; and would make a stable reading indistinguishable from a flapping one.
+    If probeFired
+        Return
+    EndIf
+    probeFired = true
+    CancelTimer()
+    RunNativeProbe()
 EndEvent

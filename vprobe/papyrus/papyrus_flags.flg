@@ -138,3 +138,41 @@ Flag ReadOnly 13
 {
 Property
 }
+// Added by tools/fix_papyrus_flags.py: the compiler reported this flag as
+// undeclared while building against the CK's base scripts.
+Flag collapsed 14
+{
+Script
+Property
+StructVar
+Function
+Variable
+
+Group
+}
+
+// Added by tools/fix_papyrus_flags.py: the compiler reported this flag as
+// undeclared while building against the CK's base scripts.
+Flag conditional 15
+{
+Script
+Property
+StructVar
+Function
+Variable
+}
+
+
+// Added by tools/fix_papyrus_flags.py: the compiler reported this flag as
+// undeclared while building against the CK's base scripts.
+Flag mandatory 16
+{
+Script
+Property
+StructVar
+Function
+Variable
+Group
+}
+
+

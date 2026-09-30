@@ -63,8 +63,14 @@ if (Test-Path $libs) {
 
 Write-Output ''
 Write-Output 'Plugin'
-$plug = @(Get-ChildItem (Join-Path $GameDir 'Data') -File -Include '*.esp','*.esl' -ErrorAction SilentlyContinue |
-          Where-Object { $_.Name -like 'PipMonTestFacility*' })
+# The extension test is done with Where-Object rather than -Include. -Include is
+# ignored on a literal (non-wildcard) -Path in PowerShell, so the original form
+# of this row returned NOTHING for any input -- the plugin check could never
+# pass, whether or not the plugin existed. A check that cannot pass is worse
+# than no check, because it reads as a finding rather than as a broken tool.
+$dataDir = Join-Path $GameDir 'Data'
+$plug = @(Get-ChildItem $dataDir -File -ErrorAction SilentlyContinue |
+          Where-Object { $_.Extension -in '.esp', '.esl' -and $_.Name -like 'PipMonTestFacility*' })
 if ($plug.Count -gt 0) {
     foreach ($p in $plug) { Row $true $p.Name ("{0} B  {1}" -f $p.Length, $p.LastWriteTime.ToString('MM-dd HH:mm')) }
 } else {
