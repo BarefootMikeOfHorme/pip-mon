@@ -4,27 +4,337 @@
   "title": "Canonical nomenclature: what each word denotes, and which spec defines it",
   "authority": "measured",
   "provenance": [
-    {"source": "ai_context/vocabulary.json", "note": "retrieval surface forms"},
-    {"source": "ai_context/spec/*.json", "note": "the specs these terms point at"},
-    {"source": "HANDOVER.md and repeated session corrections", "note": "CK versus GECK has been conflated more than once"}
+    {
+      "source": "ai_context/vocabulary.json",
+      "note": "retrieval surface forms"
+    },
+    {
+      "source": "ai_context/spec/*.json",
+      "note": "the specs these terms point at"
+    },
+    {
+      "source": "HANDOVER.md and repeated session corrections",
+      "note": "CK versus GECK has been conflated more than once"
+    }
   ],
   "prose": "The retrieval vocabulary answers 'what words match'. This file answers 'what does the word DENOTE', which is a different question and the one that causes real errors. CK and GECK are the canonical example: they have been conflated repeatedly, GECK is a Fallout 3 and New Vegas editor, and it is not the tool in use. type is what a program should switch on. spec points at the machine-readable definition, so a term is never a label without a definition behind it. This file is the join between the human-readable corpus, the machine-readable specs and the retrieval index.",
   "entries": [
-    {"name": "CK", "type": "editor", "aliases": ["Creation Kit", "CreationKit.exe", "FO4CK"], "provenance": ["game folder version check"], "see_also": ["GECK", "xEdit"], "note": "Fallout 4 Creation Kit. The authoring host. Builds match the game at 1.11.240.", "spec": null},
-    {"name": "GECK", "type": "editor", "aliases": ["Garden of Eden Creation Kit", "geck.bethsoft"], "provenance": ["HANDOVER.md"], "see_also": ["CK"], "note": "A Fallout 3 and New Vegas editor. NOT the FO4 CK and NOT in use. A separate peer tool on the replacement list, to be modernized through our own mod later. Conflating this with CK has caused repeated wasted work.", "spec": null},
-    {"name": "xEdit", "type": "editor", "aliases": ["FO4Edit", "xFOEdit64", "xFOEdit"], "provenance": ["runs/xedit/fo4edit-4.1.5f-pascal-api.md"], "see_also": ["CK"], "note": "FO4Edit 4.1.5f x64, build 7C57FA01. Community record editor and headless script host. Replaces the CK for record validation and generation where possible.", "spec": "ai_context/spec/xedit_api.json"},
-    {"name": "Creation Engine", "type": "engine", "aliases": ["CE", "Fallout 4 engine"], "provenance": ["game build 1.11.240"], "note": "The runtime. Hosts the Papyrus VM and the wire.", "spec": null},
-    {"name": "Papyrus", "type": "language", "aliases": ["Papyrus VM", "psc", "pex"], "provenance": ["compiler 2.8.0.4"], "note": "The scripting language. Compiler version 2.8.0.4 in use.", "spec": "ai_context/spec/papyrus_constructs.json"},
-    {"name": "Layer A", "type": "architecture_layer", "aliases": ["VM hook", "vtable slot", "BSScript hook"], "provenance": ["project design"], "note": "The BSScript vtable slot that lets native code intercept a Papyrus call. DOES NOT EXIST YET. This is the central blocker.", "spec": "ai_context/spec/program_components.json"},
-    {"name": "Layer B", "type": "architecture_layer", "aliases": ["script surface", "PipMon surface"], "provenance": ["vprobe/papyrus/PipMon.psc"], "note": "The Papyrus-visible API. Compiles and deploys. Calls into Layer A, which is absent.", "spec": "ai_context/spec/program_components.json"},
-    {"name": "wire", "type": "subsystem", "aliases": ["V-Link", "IPC", "buss", "bus"], "provenance": ["docs/IPC_PROTOCOL.md"], "note": "Native-to-Papyrus data path. The protocol doc is partly fiction; see HANDOVER section 11 before trusting it.", "spec": "ai_context/spec/program_components.json"},
-    {"name": "control plane", "type": "subsystem", "aliases": ["CLI", "terminal", "overseer_cli", "surface", "dashboard"], "provenance": ["tools/pipmon.ps1", "overseer_cli"], "note": "Where a human or another provider's model sits in to run tasks. This is the mod's reason for existing as a product, and it was MISSING from the retrieval objectives until the alignment audit.", "spec": "ai_context/spec/program_components.json"},
-    {"name": "S0", "type": "stage", "aliases": ["stage 0", "native reachability"], "provenance": ["vprobe/papyrus/PipMonTestFacility.psc"], "note": "Prove a compiled .psc reaches a native we registered, with no F4SE. UNPROVEN.", "spec": "ai_context/spec/program_components.json"},
-    {"name": "Tier 1 / Tier 2 / Tier 3", "type": "resolver_tier", "aliases": ["AddressLib", "vtable", "AOB", "signature scan"], "provenance": ["vprobe/src/PapyrusApi.cpp"], "note": "Address resolution strategies, in preference order. The surface reports which tier resolved each probe so triage can explain itself. 18/18 resolve via Tier 1.", "spec": null},
-    {"name": "F4SE", "type": "external", "aliases": ["F4SE loader", "Fallout 4 Script Extender"], "provenance": ["verified: no loader in the game root"], "note": "NOT a dependency, NOT a target API, NOT deployed. Studied for structural logic and scope. SKSE is its Skyrim counterpart, so SKSE-gated capability is a candidate for PIP-MON to supply rather than a prohibition.", "spec": "ai_context/spec/program_components.json"},
-    {"name": "CommonLibF4", "type": "library", "aliases": ["libxse", "commonlibf4"], "provenance": ["third_party/CommonLibF4"], "note": "Reverse-engineered engine layouts, vendored, 350 files. Unlike F4SE this is a LAYOUT library: depending on it is depending on facts about the game. Holds BSScript.h and VTABLE_IDs.h, the most direct lead to Layer A.", "spec": null},
-    {"name": "ESL", "type": "file_format", "aliases": ["light master", "lightmaster"], "provenance": ["fopdoc"], "note": "A flag in the record header, 0x00000200. Not a separate container.", "spec": "ai_context/spec/fo4_record_format.json"},
-    {"name": "Creation Sync", "type": "workflow", "aliases": ["tandem", "two hosts"], "provenance": ["project design"], "note": "Authoring in the CK, playing in the game, one mod, validated by both.", "spec": "ai_context/spec/program_components.json"},
-    {"name": "SKIP", "type": "status", "aliases": ["unverified"], "provenance": ["HANDOVER.md"], "note": "The check could not run. NEVER reported as PASS. 'We did not look' and 'we looked and it is fine' are different facts.", "spec": null}
+    {
+      "name": "CK",
+      "type": "editor",
+      "aliases": [
+        "Creation Kit",
+        "CreationKit.exe",
+        "FO4CK"
+      ],
+      "provenance": [
+        "game folder version check"
+      ],
+      "see_also": [
+        "GECK",
+        "xEdit"
+      ],
+      "note": "Fallout 4 Creation Kit. The authoring host. Builds match the game at 1.11.240.",
+      "spec": null
+    },
+    {
+      "name": "GECK",
+      "type": "editor",
+      "aliases": [
+        "Garden of Eden Creation Kit",
+        "geck.bethsoft"
+      ],
+      "provenance": [
+        "HANDOVER.md"
+      ],
+      "see_also": [
+        "CK"
+      ],
+      "note": "A Fallout 3 and New Vegas editor. NOT the FO4 CK and NOT in use. A separate peer tool on the replacement list, to be modernized through our own mod later. Conflating this with CK has caused repeated wasted work.",
+      "spec": null
+    },
+    {
+      "name": "xEdit",
+      "type": "editor",
+      "aliases": [
+        "FO4Edit",
+        "xFOEdit64",
+        "xFOEdit"
+      ],
+      "provenance": [
+        "runs/xedit/fo4edit-4.1.5f-pascal-api.md"
+      ],
+      "see_also": [
+        "CK"
+      ],
+      "note": "FO4Edit 4.1.5f x64, build 7C57FA01. Community record editor and headless script host. Replaces the CK for record validation and generation where possible.",
+      "spec": "ai_context/spec/xedit_api.json"
+    },
+    {
+      "name": "Creation Engine",
+      "type": "engine",
+      "aliases": [
+        "CE",
+        "Fallout 4 engine"
+      ],
+      "provenance": [
+        "game build 1.11.240"
+      ],
+      "note": "The runtime. Hosts the Papyrus VM and the wire.",
+      "spec": null
+    },
+    {
+      "name": "Papyrus",
+      "type": "language",
+      "aliases": [
+        "Papyrus VM",
+        "psc",
+        "pex"
+      ],
+      "provenance": [
+        "compiler 2.8.0.4"
+      ],
+      "note": "The scripting language. Compiler version 2.8.0.4 in use.",
+      "spec": "ai_context/spec/papyrus_constructs.json"
+    },
+    {
+      "name": "Layer A",
+      "type": "architecture_layer",
+      "aliases": [
+        "VM hook",
+        "vtable slot",
+        "BSScript hook"
+      ],
+      "provenance": [
+        "project design"
+      ],
+      "note": "The BSScript vtable slot that lets native code intercept a Papyrus call. DOES NOT EXIST YET. This is the central blocker.",
+      "spec": "ai_context/spec/program_components.json"
+    },
+    {
+      "name": "Layer B",
+      "type": "architecture_layer",
+      "aliases": [
+        "script surface",
+        "PipMon surface"
+      ],
+      "provenance": [
+        "vprobe/papyrus/PipMon.psc"
+      ],
+      "note": "The Papyrus-visible API. Compiles and deploys. Calls into Layer A, which is absent.",
+      "spec": "ai_context/spec/program_components.json"
+    },
+    {
+      "name": "wire",
+      "type": "subsystem",
+      "aliases": [
+        "V-Link",
+        "IPC",
+        "buss",
+        "bus"
+      ],
+      "provenance": [
+        "docs/IPC_PROTOCOL.md"
+      ],
+      "note": "Native-to-Papyrus data path. The protocol doc is partly fiction; see HANDOVER section 11 before trusting it.",
+      "spec": "ai_context/spec/program_components.json"
+    },
+    {
+      "name": "control plane",
+      "type": "subsystem",
+      "aliases": [
+        "CLI",
+        "terminal",
+        "overseer_cli",
+        "surface",
+        "dashboard"
+      ],
+      "provenance": [
+        "tools/pipmon.ps1",
+        "overseer_cli"
+      ],
+      "note": "Where a human or another provider's model sits in to run tasks. This is the mod's reason for existing as a product, and it was MISSING from the retrieval objectives until the alignment audit.",
+      "spec": "ai_context/spec/program_components.json"
+    },
+    {
+      "name": "S0",
+      "type": "stage",
+      "aliases": [
+        "stage 0",
+        "native reachability"
+      ],
+      "provenance": [
+        "vprobe/papyrus/PipMonTestFacility.psc"
+      ],
+      "note": "Prove a compiled .psc reaches a native we registered, with no F4SE. UNPROVEN.",
+      "spec": "ai_context/spec/program_components.json"
+    },
+    {
+      "name": "Tier 1 / Tier 2 / Tier 3",
+      "type": "resolver_tier",
+      "aliases": [
+        "AddressLib",
+        "vtable",
+        "AOB",
+        "signature scan"
+      ],
+      "provenance": [
+        "vprobe/src/PapyrusApi.cpp"
+      ],
+      "note": "Address resolution strategies, in preference order. The surface reports which tier resolved each probe so triage can explain itself. 18/18 resolve via Tier 1.",
+      "spec": null
+    },
+    {
+      "name": "F4SE",
+      "type": "external",
+      "aliases": [
+        "F4SE loader",
+        "Fallout 4 Script Extender"
+      ],
+      "provenance": [
+        "verified: no loader in the game root"
+      ],
+      "note": "NOT a dependency, NOT a target API, NOT deployed. Studied for structural logic and scope. SKSE is its Skyrim counterpart, so SKSE-gated capability is a candidate for PIP-MON to supply rather than a prohibition.",
+      "spec": "ai_context/spec/program_components.json"
+    },
+    {
+      "name": "CommonLibF4",
+      "type": "library",
+      "aliases": [
+        "libxse",
+        "commonlibf4"
+      ],
+      "provenance": [
+        "third_party/CommonLibF4"
+      ],
+      "note": "Reverse-engineered engine layouts, vendored, 350 files. Unlike F4SE this is a LAYOUT library: depending on it is depending on facts about the game. Holds BSScript.h and VTABLE_IDs.h, the most direct lead to Layer A.",
+      "spec": null
+    },
+    {
+      "name": "ESL",
+      "type": "file_format",
+      "aliases": [
+        "light master",
+        "lightmaster"
+      ],
+      "provenance": [
+        "fopdoc"
+      ],
+      "note": "A flag in the record header, 0x00000200. Not a separate container.",
+      "spec": "ai_context/spec/fo4_record_format.json"
+    },
+    {
+      "name": "Creation Sync",
+      "type": "workflow",
+      "aliases": [
+        "tandem",
+        "two hosts"
+      ],
+      "provenance": [
+        "project design"
+      ],
+      "note": "Authoring in the CK, playing in the game, one mod, validated by both.",
+      "spec": "ai_context/spec/program_components.json"
+    },
+    {
+      "name": "SKIP",
+      "type": "status",
+      "aliases": [
+        "unverified"
+      ],
+      "provenance": [
+        "HANDOVER.md"
+      ],
+      "note": "The check could not run. NEVER reported as PASS. 'We did not look' and 'we looked and it is fine' are different facts.",
+      "spec": null
+    },
+    {
+      "name": "L-IN",
+      "type": "placement_layer",
+      "aliases": [
+        "in-engine",
+        "in-game"
+      ],
+      "provenance": [
+        "ai_context/systems_core/structural_layers.md"
+      ],
+      "see_also": [
+        "L-BE",
+        "L-HOST",
+        "Layer A",
+        "Papyrus"
+      ],
+      "note": "Runs inside Fallout4.exe or CreationKit.exe: the Papyrus VM, Layer A and B, anything holding a game address. Shares the frame budget and the CPU with the renderer. Cost ceiling: zero-alloc in the hot path, never block a frame. A log line here costs real milliseconds of the player's frame.",
+      "spec": "ai_context/systems_core/structural_layers.md"
+    },
+    {
+      "name": "L-HOST",
+      "type": "placement_layer",
+      "aliases": [
+        "in-process",
+        "vprobe.dll"
+      ],
+      "provenance": [
+        "ai_context/systems_core/structural_layers.md"
+      ],
+      "see_also": [
+        "L-IN",
+        "L-BE"
+      ],
+      "note": "A separate module inside one of the two host processes. Inherits the host's crash domain, so a crash in L-HOST is indistinguishable from a crash in Bethesda's code to whoever is sitting in front of it.",
+      "spec": "ai_context/systems_core/structural_layers.md"
+    },
+    {
+      "name": "L-BE",
+      "type": "placement_layer",
+      "aliases": [
+        "backend",
+        "out-of-process",
+        "overseer_cli"
+      ],
+      "provenance": [
+        "ai_context/systems_core/structural_layers.md"
+      ],
+      "see_also": [
+        "wire",
+        "L-IN"
+      ],
+      "note": "overseer_cli, the Rust vlink-protocol crate, ai_watcher, the retrieval tools, the dashboards. Shares nothing, and can be stopped and restarted without touching the game. Cost ceiling effectively none, which is exactly why the expensive work belongs here.",
+      "spec": "ai_context/systems_core/structural_layers.md"
+    },
+    {
+      "name": "placement axis",
+      "type": "architecture_concept",
+      "aliases": [
+        "structural layers",
+        "cost ceiling"
+      ],
+      "provenance": [
+        "ai_context/systems_core/structural_layers.md"
+      ],
+      "see_also": [
+        "T5",
+        "wire"
+      ],
+      "note": "WHERE code runs and what it may cost. ORTHOGONAL to the T0-T5 data-flow axis. A thing can sit at any tier in any layer. Conflating the two axes is why four Papyrus scripts ended up doing backend work in the one place they could least afford to do it.",
+      "spec": "ai_context/systems_core/structural_layers.md"
+    },
+    {
+      "name": "ring buffer",
+      "type": "architecture_concept",
+      "aliases": [
+        "preallocated ring",
+        "in-engine budget"
+      ],
+      "provenance": [
+        "ai_context/systems_core/structural_layers.md"
+      ],
+      "see_also": [
+        "wire",
+        "L-IN"
+      ],
+      "note": "The in-engine telemetry budget is a fixed preallocated ring, not a stream. The engine writes compact fixed-size records; the backend drains over the wire at whatever rate it likes; when the backend is slow the oldest records are overwritten. This is what makes the backend free to be verbose SAFELY: asking for more detail cannot make the engine do more work, because the writing was already paid for and already bounded.",
+      "spec": "ai_context/systems_core/structural_layers.md"
+    }
   ]
 }

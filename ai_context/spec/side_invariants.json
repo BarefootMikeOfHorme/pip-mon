@@ -1,0 +1,230 @@
+{
+  "spec_id": "sides.invariants",
+  "kind": "invariant",
+  "title": "The three sides of the aisle, and the preconditions each one requires",
+  "authority": "measured",
+  "audited": "2026-09-30",
+  "prose": "Work is separated into three sides -- engine, PIP-MON in-house, and Creation Kit -- and each side has its own setup invariants. An invariant is not a capability: it is not something to build toward incrementally, it is true or it is not, and while it is false the entire side is unavailable. That distinction is the point. A capability can be partially delivered and still useful; an unmet invariant means nothing on that side works, no matter how much else is finished. The engine side currently fails at exactly one invariant, Layer A, and that single failure is why S0 is unproven, why the four testlab scripts cannot run, and why the in-engine half of the project is blocked. Everything else on that side is green. One unmet precondition is doing all the damage, which is why per-side status is reported separately and a global green gate is not permitted to imply a working side.",
+  "status_vocabulary": {
+    "MET": "Verified true, with evidence.",
+    "NOT_MET": "Verified false. Named, not inferred.",
+    "UNVERIFIED": "Not checked. Explicitly not the same as MET.",
+    "NOT_APPLICABLE": "Does not apply to this side."
+  },
+  "sides": [
+    {
+      "side": "engine",
+      "summary": "Anything that runs inside Fallout4.exe. Papyrus, Layer A and B, the wire's engine end.",
+      "available": false,
+      "blocked_by": [
+        "layer-a"
+      ]
+    },
+    {
+      "side": "in-house",
+      "summary": "PIP-MON's own code and contracts, at either placement. Natives, the wire, the backend, the surface.",
+      "available": true,
+      "blocked_by": []
+    },
+    {
+      "side": "creation-kit",
+      "summary": "Anything at authoring time. The CK, its addons, headless xEdit, and the validation tooling.",
+      "available": "partial",
+      "blocked_by": [
+        "ckpe",
+        "ck-render-stability"
+      ]
+    }
+  ],
+  "entries": [
+    {
+      "name": "game and editor builds match",
+      "side": "engine",
+      "status": "MET",
+      "evidence": "Fallout4 and CreationKit both report 1.11.240.0; an authored plugin is rejected on load if they differ.",
+      "provenance": [
+        "tools/pipmon.ps1 editor preflight"
+      ],
+      "blocks": [
+        "every engine-side surface"
+      ],
+      "notes": "Cheap to check, expensive to ignore."
+    },
+    {
+      "name": "Papyrus compiles with the real CK compiler",
+      "side": "engine",
+      "status": "MET",
+      "evidence": "PipMon.psc and PipMonTestFacility.psc compile via build_papyrus.bat; PipMon.pex 1034 B and PipMonTestFacility.pex 12080 B are deployed and valid.",
+      "provenance": [
+        "build_all.bat stage 2"
+      ],
+      "notes": "Compilation is not reachability. A valid pex proves the surface is legal Papyrus, nothing more."
+    },
+    {
+      "name": "every probe the surface claims resolves",
+      "side": "engine",
+      "status": "MET",
+      "evidence": "18 of 18 probes resolve through Tier 1 AddressLib lookup.",
+      "provenance": [
+        "vprobe runtime"
+      ],
+      "notes": "Resolution is not dispatch. This was true while S0 was unproven, which is the proof that they are different systems."
+    },
+    {
+      "name": "Layer A: the BSScript vtable slot exists",
+      "side": "engine",
+      "status": "NOT_MET",
+      "evidence": "No vtable slot is hooked. There is no mechanism by which a compiled .psc can reach a native we registered.",
+      "provenance": [
+        "ai_context/spec/program_components.json",
+        "ai_context/goal_alignment.md"
+      ],
+      "blocks": [
+        "S0",
+        "all Papyrus-to-native calls",
+        "the four testlab scripts",
+        "the wire's engine end"
+      ],
+      "spec": "ai_context/spec/program_components.json",
+      "notes": "THE blocker. Most direct lead is CommonLibF4 RE/Bethesda/BSScript.h, which holds native declarations in method order, and which is the thing the blocker note has always asked for. Everything else on this side is green."
+    },
+    {
+      "name": "in-engine budget: hot path is zero-alloc and never blocks a frame",
+      "side": "engine",
+      "status": "UNVERIFIED",
+      "evidence": "No measurement exists. The constraint is documented in the tier table but nothing asserts it.",
+      "provenance": [
+        "HANDOVER.md tier table"
+      ],
+      "notes": "UNVERIFIED, not MET. A design rule nobody measures is a hope."
+    },
+    {
+      "name": "telemetry ring buffer is preallocated and bounded",
+      "side": "engine",
+      "status": "NOT_MET",
+      "evidence": "Not implemented. The design is recorded in structural_layers.md; there is no buffer in the runtime.",
+      "provenance": [
+        "ai_context/systems_core/structural_layers.md"
+      ],
+      "blocks": [
+        "safe backend verbosity"
+      ],
+      "notes": "This is what would make a verbose backend safe next to a frame-budgeted engine. Until it exists, the backend's freedom to be verbose is unmanaged."
+    },
+    {
+      "name": "native table and .psc agree in both directions",
+      "side": "in-house",
+      "status": "MET",
+      "evidence": "The self-test asserts every function declared in PipMon.psc has a matching row in the native table, and every row is declared in the script.",
+      "provenance": [
+        "vprobe/papyrus/PipMon.psc header",
+        "build_all.bat"
+      ],
+      "notes": "A surface in only one language is invisible or calls into nothing."
+    },
+    {
+      "name": "ABI version and capability mask are defined and reportable",
+      "side": "in-house",
+      "status": "PARTIALLY_MET",
+      "evidence": "GetVersion, GetCapabilities and GetRuntimeStatus are declared. Whether they answer is unproven, because answering requires Layer A.",
+      "provenance": [
+        "vprobe/papyrus/PipMon.psc"
+      ],
+      "notes": "The surface is defined; its behaviour is unproven, because answering requires Layer A. Recorded as partial so it is not mistaken for a working capability."
+    },
+    {
+      "name": "the wire contract is versioned",
+      "side": "in-house",
+      "status": "PARTIALLY_MET",
+      "evidence": "docs/IPC_PROTOCOL.md had three of ten payload sizes wrong when audited against the static_asserts. Sizes and field orders were corrected; it still documents a priority-drop scheme, a control channel and a config file that do not exist.",
+      "provenance": [
+        "docs/IPC_PROTOCOL.md",
+        "HANDOVER.md section 11"
+      ],
+      "spec": null,
+      "notes": "An audit found real drift, so this is recorded as partial rather than assumed good from the fact that a doc exists."
+    },
+    {
+      "name": "backend is reachable, drainable, and restartable without touching the game",
+      "side": "in-house",
+      "status": "MET",
+      "evidence": "overseer_cli runs standalone; 106 python checks pass; ai_watcher.py republishes live state to a file with a polling fallback because watchdog is absent.",
+      "provenance": [
+        "build_all.bat stage 4",
+        "tools/ai_watcher.py"
+      ],
+      "notes": "This is the side that is genuinely available today, and it is why the project is not starting from nothing."
+    },
+    {
+      "name": "CK and game builds match",
+      "side": "creation-kit",
+      "status": "MET",
+      "evidence": "tools/pipmon.ps1 editor preflight compares ProductVersion for both.",
+      "provenance": [
+        "tools/pipmon.ps1"
+      ],
+      "notes": null
+    },
+    {
+      "name": "CKPE present, or an in-house replacement",
+      "side": "creation-kit",
+      "status": "NOT_MET",
+      "evidence": "Absent. Three CK crash dumps are on record, and the render window crash-risks larger cells.",
+      "provenance": [
+        "ai_context/goal_alignment.md",
+        "ai_context/systems/ckpe/ckpe-insights.md"
+      ],
+      "blocks": [
+        "authoring cells larger than a handful of objects"
+      ],
+      "notes": "CKPE is not wanted as a dependency. Eleven of its twenty techniques assess as portable and the Cell View list virtualisation is the most promising lead, but that is a candidate and not a diagnosis."
+    },
+    {
+      "name": "the tool used for record work is headless and stable",
+      "side": "creation-kit",
+      "status": "PARTIALLY_MET",
+      "evidence": "xEdit headless loads the full 35-plugin core and reaches Finalize at about 2m15s. It has never produced a validation report: the first attempt aborted on GetPluginName, which does not exist, and the corrected script has not yet completed a run.",
+      "provenance": [
+        "runs/xedit/fo4edit-4.1.5f-pascal-api.md",
+        "ai_context/spec/xedit_api.json"
+      ],
+      "blocks": [
+        "record generation without the CK",
+        "automated validation"
+      ],
+      "notes": "The load is proven; the output is not. Those are different claims and only the first is established."
+    },
+    {
+      "name": "the editor can be driven programmatically",
+      "side": "creation-kit",
+      "status": "NOT_MET",
+      "evidence": "The CK has no scriptable interface on this machine. Every editor-facing tool is therefore read-only inspection, and authoring is manual.",
+      "provenance": [
+        "tools/pipmon.ps1",
+        "HANDOVER.md"
+      ],
+      "blocks": [
+        "anything requiring unattended authoring"
+      ],
+      "notes": "This is why headless xEdit matters so much: it is the only route to record automation that does not require driving the CK."
+    }
+  ],
+  "provenance": [
+    {
+      "source": "ai_context/goal_alignment.md",
+      "note": "goal-to-component-to-gate audit, 2026-09-30. Six rows there read no; this file splits that same finding by side rather than by goal."
+    },
+    {
+      "source": "build_all.bat stages 1-6",
+      "note": "every MET below was read out of an actual stage result, not asserted."
+    },
+    {
+      "source": "runs/xedit/fo4edit-4.1.5f-pascal-api.md",
+      "note": "the xEdit load measurement and the GetPluginName abort."
+    },
+    {
+      "source": "vprobe/papyrus/PipMon.psc, docs/IPC_PROTOCOL.md, HANDOVER.md",
+      "note": "the surface, the wire doc, and the three CK crash dumps."
+    }
+  ]
+}

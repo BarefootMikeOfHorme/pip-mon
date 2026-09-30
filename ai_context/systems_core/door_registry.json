@@ -345,6 +345,15 @@
       "authority": "upstream-verbatim",
       "keeper": null,
       "notes": "A thin stub in practice: five links, two of which the page itself labels deprecated. Recorded so nobody re-derives that it is thin."
+    },
+    {
+      "id": "placement",
+      "question": "Where does this code run, and what may it cost",
+      "path": "ai_context/systems_core/structural_layers.md",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": "tools/spec_lint.py",
+      "notes": "The PLACEMENT axis: L-IN / L-HOST / L-BE, orthogonal to the T0-T5 data-flow axis. Records why four Papyrus scripts are misplaced rather than broken, and the ring-buffer design that makes a verbose backend safe next to a frame-budgeted engine."
     }
   ],
   "not_a_door": [

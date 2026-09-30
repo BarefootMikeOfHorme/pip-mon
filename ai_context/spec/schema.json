@@ -29,6 +29,11 @@
       "entry_required": ["name", "type", "provenance"],
       "entry_optional": ["aliases", "see_also", "note", "spec"]
     },
+    "invariant": {
+      "describes": "A precondition that must hold before a side of the work functions at all. Unlike a capability, an invariant is not something to build toward incrementally: it is true or it is not, and while it is false the whole side is unavailable.",
+      "entry_required": ["name", "side", "status", "evidence", "provenance"],
+      "entry_optional": ["blocks", "notes", "spec"]
+    },
     "compat_mapping": {
       "describes": "A capability another product exposes, mapped to what we expose and at what status. Exists because mods declare F4SE or AddressLib as a dependency and a reader needs to know whether we cover it, plan to, or never will.",
       "entry_required": ["name", "source_product", "our_equivalent", "status", "provenance"],

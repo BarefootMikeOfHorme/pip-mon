@@ -148,6 +148,14 @@ REM after deliberately reviewing the current findings.
 python "%R%tools\artifact_gate.py"
 if errorlevel 1 ( set FAILED=1 & echo [FAIL] artifact gate )
 
+REM Per-side status. Every other stage is GLOBAL, which is its weakness: a green
+REM gate says the thing builds, not that any side of the work functions. Two of
+REM three sides are currently unavailable while the gate is green. This stage
+REM reports the split, so "everything passes" can never be mistaken for "the
+REM engine side works".
+python "%R%tools\side_gate.py"
+if errorlevel 1 ( set FAILED=1 & echo [FAIL] side gate )
+
 echo.
 echo ############################################################
 if %FAILED% EQU 0 (

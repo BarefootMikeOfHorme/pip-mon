@@ -373,7 +373,28 @@
       "IPC",
       "wire",
       "Creation Sync",
-      "creation_sync"
+      "creation_sync",
+      "OverseerBridge",
+      "V-Link client",
+      "shim",
+      "wire snapshot"
+    ],
+    "placement_layers": [
+      "L-IN",
+      "L-HOST",
+      "L-BE",
+      "in-engine",
+      "out-of-process",
+      "backend",
+      "placement axis",
+      "structural layers",
+      "cost ceiling",
+      "ring buffer",
+      "frame budget",
+      "latency",
+      "zero-alloc",
+      "verbosity",
+      "escalation"
     ]
   }
 }
