@@ -123,11 +123,21 @@ echo.
 echo ############################################################
 echo #  6/6  retrieval -- knowledge base invariants
 echo ############################################################
-REM Reindex first, then assert. Asserting against a stale index would let a
-REM deleted or renamed file pass simply because the index had not been rebuilt,
-REM which is the same class of silent pass this project keeps refusing.
-python "%R%tools\rag_index.py" --quiet
-if errorlevel 1 ( set FAILED=1 & echo [FAIL] retrieval reindex )
+REM Self-alignment runs FIRST, because validating a stale derivation produces a
+REM green gate that means nothing. Repair is limited to things that are DERIVED:
+REM a function of on-disk state, where re-deriving cannot lose anything. The
+REM gate also names what it REFUSES to repair -- the artifact baseline, the
+REM authority tiers, the compat statuses -- because a gate that repairs its own
+REM signals is not a gate. The refusals are printed on every run on purpose.
+python "%R%tools\selfalign.py" --repair
+if errorlevel 1 ( set FAILED=1 & echo [FAIL] self-align )
+
+REM The index is a derived artifact, so it is gitignored rather than committed.
+REM Asserting that here as well, because a committed index is a second,
+REM silently diverging copy of the truth and gitignore alone is a convention.
+git check-ignore -q rag/index.sqlite3
+if errorlevel 1 ( set FAILED=1 & echo [FAIL] retrieval index is committed and must be derived )
+
 python "%R%tools\rag_selftest.py"
 if errorlevel 1 ( set FAILED=1 & echo [FAIL] retrieval selftest )
 
