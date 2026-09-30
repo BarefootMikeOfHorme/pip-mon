@@ -116,3 +116,25 @@ StructVar
 Function
 Variable
 }
+
+// ReadOnly, and its absence cost a compile cycle on PipMonTestFacility.psc.
+//
+// `auto readonly` on a property is core FO4 Papyrus, not an extension, but the
+// compiler still needs it DECLARED in this file or it rejects the property with
+// "Unknown user flag readonly". Same rule as every other flag here, and it is
+// not discoverable: nothing in the compiler output points at the flags file,
+// and the properties that fail are ordinary-looking lines in the middle of a
+// file. Worse, the failure is not local. The parser then mis-attributes every
+// declaration after it, producing a dozen unrelated-looking errors -- a string
+// literal "not viable", a duplicate variable, an '=' expecting a parenthesis --
+// none of which have anything to do with the flag. Fixing the one flag cleared
+// all of them.
+//
+// Note the comment syntax, because getting it wrong is the same mistake twice:
+// this grammar accepts `//` only. A `;` comment is not a comment here, it is a
+// parse error, and it takes PipMon.psc down with it even though PipMon.psc
+// never mentions ReadOnly.
+Flag ReadOnly 13
+{
+Property
+}

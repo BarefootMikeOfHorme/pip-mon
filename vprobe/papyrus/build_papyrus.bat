@@ -80,8 +80,10 @@ REM the compile failed with "Unable to find flags file" plus "unable to locate
 REM script PipMon". Flattening into the run directory is the verified layout.
 copy /y "%FO4%\Data\Scripts\Source\*.psc" "%STAGE%\" >nul
 copy /y "%PAPYRUS%\PipMon.psc"        "%STAGE%\" >nul
+copy /y "%PAPYRUS%\PipMonTestFacility.psc" "%STAGE%\" >nul
 copy /y "%PAPYRUS%\papyrus_flags.flg" "%STAGE%\" >nul
-echo   staged base scripts + PipMon.psc + flags into %STAGE%
+echo   staged base scripts + PipMon.psc + PipMonTestFacility.psc + flags
+echo   into %STAGE%
 
 echo.
 echo === compiling PipMon.psc ===
@@ -92,23 +94,48 @@ set RC=%errorlevel%
 popd
 if not "%RC%"=="0" ( echo FAILED: Papyrus compile exited %RC% & exit /b %RC% )
 
+REM The facility script is compiled in the SAME gate, and this is the whole
+REM point of putting it here. It is the only script in the project that CALLS
+REM the native surface, so it is the only thing that can catch a .psc that no
+REM longer matches PipMon.psc. A gate that compiled only the surface would
+REM report green while the one script that talks to it was broken -- which is
+REM the exact shape of failure this project keeps re-learning.
+REM
+REM It is deliberately NOT flagged Native (see the script's own header): it is
+REM an ordinary script that happens to call natives, and flagging it Native
+REM would make the VM hunt for a body for every function in it.
+echo.
+echo === compiling PipMonTestFacility.psc ===
+pushd "%STAGE%"
+"%CC%" PipMonTestFacility.psc -f=papyrus_flags.flg
+set RC2=%errorlevel%
+popd
+if not "%RC2%"=="0" ( echo FAILED: facility compile exited %RC2% & exit /b %RC2% )
+
 echo.
 if not exist "%STAGE%\PipMon.pex" (
   echo FAILED: the compiler reported success but produced no PipMon.pex
   exit /b 1
 )
+if not exist "%STAGE%\PipMonTestFacility.pex" (
+  echo FAILED: the compiler reported success but produced no
+  echo         PipMonTestFacility.pex
+  exit /b 1
+)
 
-REM Verify the artefact rather than trusting the compiler's own exit code,
+REM Verify the artefacts rather than trusting the compiler's own exit code,
 REM for the same reason the native build does: a compiler that exits 0 having
 REM written nothing is a failure mode that has already bitten this project once.
 powershell -NoProfile -Command ^
-  "$b=[IO.File]::ReadAllBytes('%STAGE%\PipMon.pex'); if ($b.Length -lt 8 -or $b[0] -ne 0xDE -or $b[1] -ne 0xC0 -or $b[2] -ne 0x57 -or $b[3] -ne 0xFA) { Write-Host 'FAILED: PipMon.pex is not a PEX image (bad magic)'; exit 1 } else { Write-Host ('  OK  PipMon.pex is a PEX image, ' + $b.Length + ' bytes') }"
+  "$b=[IO.File]::ReadAllBytes('%STAGE%\PipMon.pex'); if ($b.Length -lt 8 -or $b[0] -ne 0xDE -or $b[1] -ne 0xC0 -or $b[2] -ne 0x57 -or $b[3] -ne 0xFA) { Write-Host 'FAILED: PipMon.pex is not a PEX image (bad magic)'; exit 1 } else { Write-Host ('  OK  PipMon.pex is a PEX image, ' + $b.Length + ' bytes') }; $f=[IO.File]::ReadAllBytes('%STAGE%\PipMonTestFacility.pex'); if ($f.Length -lt 8 -or $f[0] -ne 0xDE -or $f[1] -ne 0xC0 -or $f[2] -ne 0x57 -or $f[3] -ne 0xFA) { Write-Host 'FAILED: PipMonTestFacility.pex is not a PEX image (bad magic)'; exit 1 } else { Write-Host ('  OK  PipMonTestFacility.pex is a PEX image, ' + $f.Length + ' bytes') }"
 if errorlevel 1 exit /b 1
 
 if not exist "%PAPYRUS%\build" mkdir "%PAPYRUS%\build"
 copy /y "%STAGE%\PipMon.pex" "%PAPYRUS%\build\PipMon.pex" >nul
+copy /y "%STAGE%\PipMonTestFacility.pex" "%PAPYRUS%\build\PipMonTestFacility.pex" >nul
 
 echo.
-echo PipMon.pex  built at %PAPYRUS%\build\PipMon.pex
+echo PipMon.pex               built at %PAPYRUS%\build\PipMon.pex
+echo PipMonTestFacility.pex   built at %PAPYRUS%\build\PipMonTestFacility.pex
 endlocal
 exit /b 0
