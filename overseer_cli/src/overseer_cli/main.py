@@ -62,6 +62,31 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("-v", "--verbose", action="count", default=0, help="repeat for more logging")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+
+    # The environment gate. It is a flag rather than a subcommand so that the
+    # documented `tui` / `headless` invocations keep working exactly as they
+    # are, and it short-circuits before any pipe or Textual import: the gate has
+    # to be runnable with no game, no editor and no dashboard, because that is
+    # one of the three hosts it exists to report on (G16 -- everything that
+    # matters is reachable from a command line first).
+    p.add_argument(
+        "--verify",
+        action="store_true",
+        help="run the environment gate and exit (no game required)",
+    )
+    p.add_argument(
+        "--depth", type=int, choices=(0, 1, 2), default=1,
+        help="--verify depth: 0 verdict, 1 per-check, 2 adds evidence",
+    )
+    p.add_argument(
+        "--layer", action="append", default=None,
+        help="--verify: restrict to a layer (repeatable): "
+             "artefact identity deploy editor runtime",
+    )
+    p.add_argument(
+        "--json", action="store_true",
+        help="--verify: machine-readable output",
+    )
     return p
 
 def _configure_logging(verbosity: int) -> None:
@@ -160,6 +185,27 @@ async def _run_tui(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     _configure_logging(args.verbose)
+
+    # Before the platform warning: the gate is the one path that must work
+    # everywhere, including a non-Windows dev box, where it reports hosts as
+    # absent rather than refusing to run.
+    if args.verify:
+        from .envgate import main as gate_main
+
+        gate_argv: list[str] = ["--depth", str(args.depth)]
+        for layer in args.layer or []:
+            gate_argv += ["--layer", layer]
+        if args.json:
+            gate_argv.append("--json")
+        if args.pipe != PIPE_PATH:
+            # The gate reads the filesystem, not the wire. Say so rather than
+            # accepting a flag that would silently do nothing.
+            print(
+                "note: --pipe does not affect --verify; the gate reads artefacts "
+                "and recorded runs, and never opens the V-Link pipe.",
+                file=sys.stderr,
+            )
+        return gate_main(gate_argv)
 
     if sys.platform != "win32":
         # Not fatal: the protocol layer is testable anywhere, and someone may be

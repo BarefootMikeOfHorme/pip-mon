@@ -69,7 +69,7 @@ Expected output:
 V-Probe self-test: 15 pass, 0 fail, 2 skip
   OK  every declared vtable matches the binary     (18 targets)
 45 passed          (launcher)
-67 passed          (python)
+106 passed         (python)
 test result: ok. 5 passed    (rust)
 #  ALL GATES PASSED
 ```

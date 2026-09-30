@@ -16,7 +16,7 @@
 
   HOW TO VERIFY THIS FILE IS STILL TRUE
     cd <repo> && build_all.bat
-    Expected: vprobe 15 pass / 0 fail / 2 skip, launcher 45, python 67, rust 5,
+    Expected: vprobe 15 pass / 0 fail / 2 skip, launcher 45, python 106, rust 5,
     "every declared vtable matches the binary" (18 targets),
     "#  ALL GATES PASSED", exit 0.
     A different self-test count means this file is stale, not that the build
@@ -87,10 +87,10 @@
    build_all.bat
 
      1/5  vprobe    runtime: Zydis, compile /W4 /WX, link, 17 self-test checks
-                    (15 pass, 0 fail, 2 skip -- see section 3)
+                     (15 pass, 0 fail, 2 skip -- see section 3)
      2/5  papyrus   PipMon.psc -> PipMon.pex, real Creation Kit compiler
      3/5  launcher  pre-flight and core load path, 45 tests
-     4/5  python    analysis tier, 67 tests
+     4/5  python    analysis tier + environment gate, 106 tests
      5/5  rust      vlink-protocol crate, 5 tests
 
    Two sub-stages also run inside stage 1, and both fail the build rather than
@@ -426,9 +426,13 @@
       build_vtables.bat  declared vtable counts vs. the real binary
       tests/             test_harness.exe drives the in-DLL self-test
 
-    tools/             read-only inspectors and build-time generators
-      attach_inject.ps1   live injection
-      vlink_probe.py      live reader, with filters (see LOG_FORMAT.md)
+     tools/             read-only inspectors and build-time generators
+       attach_inject.ps1   live injection
+       testenv.ps1         THE TEST ENVIRONMENT. preflight / stage / run / tail.
+                          Per-run dir under runs\, attaches, tails both file
+                          channels live, writes run.json, classifies the exit.
+                          Never opens the V-Link pipe; never kills the game.
+       vlink_probe.py      live reader, with filters (see LOG_FORMAT.md)
       build_libbin.py     INI + game exe -> binary blob (build time)
       verify_libbin.py    independent blob validation
       read_addresslib.py  AddressLib .bin -> the per-build INI
@@ -438,8 +442,13 @@
                           gating by measure_vtable.py; still useful in-game)
       rtsig.cpp           read-only signature checker
 
-   overseer_cli/      the T4 consumer: Textual dashboard
-     rust/vlink-protocol/   the Rust protocol crate
+    overseer_cli/      the T4 consumer: Textual dashboard
+      src/overseer_cli/envgate.py   THE ENVIRONMENT GATE. One protocol, three
+                          Creation Engine hosts (game / GECK / offline). Every
+                          check declares the host it needs; a check that could
+                          not run is SKIP with a reason and never a pass.
+                          `overseer-cli --verify --depth 2`
+      rust/vlink-protocol/   the Rust protocol crate
    launcher/          pre-flight and process launch (45 tests)
    overseer_event_bridge/   in-game bridge: console commands + a .psc that
                            calls the PipMon: surface
