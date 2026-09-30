@@ -119,11 +119,36 @@
  THE ADDRESS BLOB (real, gated)
    tools/build_libbin.py    INI + game exe -> compact binary, at build time
    tools/verify_libbin.py   independent validation of the result
-   vprobe/libs/fo4_1_11_240.addresses.bin   8617 records, 103,428 B
-   Format (24B header): magic "PLIB" | schema | buildKey | count |
-                         recordSize | reserved
-   The parse happens at BUILD time. In-game it is one hash, one short scan,
-   one binary search, zero per-entry allocation.
+   vprobe/libs/fo4_1_11_240.addresses.txt   TRACKED: the per-build database
+   vprobe/libs/fo4_1_11_240.addresses.bin   NOT tracked: derived + machine-
+                                            specific (see section 10)
+   8617 records, 103,428 bytes.
+
+   FORMAT -- 24 B header, then N x 12 B records, all little-endian:
+     0   4   magic       "PLIB"
+     4   4   schema      layout version; the reader REFUSES an unknown one
+     8   4   buildKey    FNV-1a over the game PE HEADERS
+     12  4   recordCount
+     16  4   recordSize  12 in v1
+     20  4   reserved    must be 0, and is validated
+     record: nameHash(4) rva(4) classId(1) slot(1) flags(2)
+   The parse happens at BUILD time. In-game it is one PE-header hash, one short
+   scan, one binary search, zero per-entry allocation.
+
+   WHY THE HEADER IS SHAPED THAT WAY:
+     - schema_version exists because a same-size layout change would otherwise
+       be read silently and yield plausible, wrong addresses. An earlier
+       version had no version field at all, only a spare `reserved`.
+     - buildKey is a hash of the PE HEADERS, not Bethesda's build-key STRING.
+       A string would have forced a PE parser into the in-process tier, which
+       this project deliberately does not have there. The header bytes are
+       mapped 1:1 file-to-memory, so both sides agree with no parser on either
+       end. It stops before the optional header because that region holds the
+       ASLR-dependent image base.
+     - `reserved` is validated rather than ignored, so a v2 that reuses those
+       bytes cannot be misread as v1.
+
+ VERSION CONTROL AND LICENCE: see section 10.
 
  LIVE VALIDATION (in a real game, main menu, no extenders)
    Loaded, 25 frames, totalEventsDropped = 0, monotonic sequence.
@@ -242,6 +267,26 @@
    Scripts per the shipped PapyrusProject.xsd. The Skyrim shape is accepted
    silently and produces NO OUTPUT -- a green invocation that compiled nothing.
 
+ THE BUILD PRODUCES A NAME THE RUNTIME DOES NOT LOOK FOR.
+   The repository keeps one database PER GAME BUILD, named with the build
+   version (fo4_1_11_240.addresses.txt). The runtime has a FIXED contract name
+   (vprobe.addresses.txt / .bin) and will not enumerate a directory, because T2
+   is not allowed to do work at runtime.
+   Those two facts have to meet, and they meet at BUILD time -- T1 may be slow,
+   T2 may not. build_libbin.bat now selects the per-build file and stages it
+   under the runtime's name into vprobe/libs/deploy/, then verifies the contract
+   name exists.
+
+   This was a real, SILENT defect, found only by a documentation audit. The
+   build produced one filename and the runtime searched for another, so the
+   repository's own database could never be loaded -- and because the blob path
+   is DERIVED from the INI path, a miss took the binary database down with it.
+   It appeared to work only because a manual staging step happened to copy the
+   file under the contract name. Nothing in the gate compared the two, so a
+   green build shipped a database the runtime could not find. That presents as
+   "text form unavailable", which is the silent-degradation class this project
+   treats as its worst outcome.
+
  DO NOT USE ">" IN ANY echo IN A BUILD SCRIPT. cmd parses it as redirection and
    overwrites the artefact with the TEXT of the echo, after the gate has
    already printed success. This has happened twice.
@@ -262,13 +307,20 @@
  3. Container vs per-build blob. Many game folders are expected. A single
     PLBC container with N (buildKey, offset, count) entries would distribute
     one file; the tier rules hold either way, so this does not block.
- 4. Single-source the format spec. The schema constant currently lives in
-    build_libbin.py AND VersionConfig.hpp, and the layout in three places. A
-    spec file plus a GENERATED C++ header removes the drift.
+ 4. Single-source the format spec. STILL TRUE and not yet done. The schema
+    constant lives in build_libbin.py AND VersionConfig.hpp; the layout in
+    three places. A spec file plus a GENERATED C++ header removes the drift,
+    and section 11 says where it should land (the SCHEMA DOOR).
  5. Consolidate the three separate "is it working?" answers
     (vlink_probe --summary-only, Resolver::explain, PipMon:IsHookLive) under
     one capability at three depths. Section 26.5, recorded as NOT DONE.
  6. Build Layer A, then S0. The answer decides 19, 20, and the event models.
+ 7. Fix the remaining documentation: ENGINEERING_RULES.md (stale, and its
+    PITFALL 1 is uniquely valuable), ARCHITECTURE.md (superseded, but holds the
+    thread model and the V-Probe/V-Link prefix constraint). Full per-file
+    detail in section 11.
+ 8. Add an installer. Staging is a manual copy, which has now caused two
+    separate problems and is the most user-visible gap.
 
  LIBRARY DECISIONS (design section 25.3)
    Adopt: pefile, capstone, hypothesis, libxse/commonlibf4, commonlib-shared,
@@ -296,23 +348,43 @@
      -----------  -------------------------------  --------------------------
      design       PIP-MON_CONSOLIDATED.txt         CURRENT. 203 KB, 3551
                   (203,598 B, 3551 lines)          lines, 26 sections.
-                                                    Sections 24/25/26 are
-                                                    the recent work.
      resume       HANDOVER.md (this file)          CURRENT as of 2026-09-29.
-     protocol     docs/IPC_PROTOCOL.md             ~25h old. VERIFY BEFORE
-                                                    RELYING: predates the
-                                                    libbin and papyrus work.
-     rules        docs/ENGINEERING_RULES.md        ~25h old. Same caveat.
-     anomalies    docs/ANOMALY_RULES.md            ~25h old. Same caveat.
-     arch         docs/ARCHITECTURE.md             ~25h old, and now
-                                                    COMPETES with section 26.
-                                                    Reconcile or supersede.
+     readme       README.md                        CURRENT. Created late in
+                                                    the session; states plainly
+                                                    what WORKS and what does
+                                                    NOT, because a README that
+                                                    oversells is the first thing
+                                                    a new reader trips over.
+     licence      LICENSE                          CURRENT. Personal Use
+                                                    Licence, not open source.
+     protocol     docs/IPC_PROTOCOL.md             PARTLY FIXED. Sizes and
+                                                    field orders corrected from
+                                                    the static_asserts; still
+                                                    documents a priority-drop
+                                                    scheme, a control channel
+                                                    and a config file that do
+                                                    not exist. See section 11.
+     rules        docs/ENGINEERING_RULES.md        STALE, not started. Its
+                                                    PITFALL 1 is uniquely
+                                                    valuable -- preserve it.
+     anomalies    docs/ANOMALY_RULES.md            CURRENT. Verified line by
+                                                    line against the code.
+                                                    Nothing to do.
+     arch         docs/ARCHITECTURE.md             SUPERSEDED by section 26,
+                                                    but uniquely holds the
+                                                    thread model and the
+                                                    V-Probe/V-Link prefix
+                                                    constraint. Do not delete.
      logging      tools/LOG_FORMAT.md              CURRENT.
      papyrus      vprobe/papyrus/papyrus_flags     CURRENT.
                   .flg.md
-     MISSING      README.md, INSTALL.md            do not exist. No build or
-                                                    install instructions for a
-                                                    newcomer.
+
+   The audit method is worth keeping: an agent cross-checked every doc claim
+   against the actual code and found that the wire-protocol doc had three of
+   ten payload sizes wrong. Documentation drift in this project is not
+   cosmetic -- it had a reader-facing document disagreeing with three
+   separately-asserted implementations, and the stale Heartbeat size was a bug
+   the code comments said was already fixed.
 
    NOT YET BUILT, and wanted in the hallway:
      - a SCHEMA DOOR: describe the address-blob format in one place, reachable
@@ -326,32 +398,185 @@
 ================================================================================
 
    build_all.bat                    the gate. Start here.
-   PIP-MON_CONSOLIDATED.txt        the design record. 26 sections.
+   PIP-MON_CONSOLIDATED.txt         the design record. 26 sections.
    HANDOVER.md                      this file.
+   README.md                        what it is, how to build, what WORKS and
+                                    what does NOT. Honest by design.
+   LICENSE                          Personal Use Licence. NOT open source:
+                                    use/mod/share the binary, never publish
+                                    the source, never sell, never claim it.
+   .gitignore                       written before the first commit on
+                                    purpose -- see section 11.
 
-   vprobe/include/PipmonEntry.hpp  PIP-MON's own load contract + capability bits
-   vprobe/include/PapyrusApi.hpp   Layer B dispatch core (the 13 natives)
-   vprobe/include/VersionConfig.hpp Tier-1 resolver, blob format contract
-   vprobe/include/IPCServer.hpp    V-Link server, the hallway's wire door
-   vprobe/src/PapyrusApi.cpp       the native table
-   vprobe/src/VersionConfig.cpp    blob loader, peHeaderHash, lookupBin
-   vprobe/src/SelfTest.cpp         the 17 checks
-   vprobe/papyrus/                 the Papyrus surface + its build
-   vprobe/libs/                    the address INI and derived blob
+   vprobe/            in-process runtime (C++, x64)
+     include/           PipmonEntry (load contract + capability bits),
+                        PapyrusApi (Layer B dispatch), VersionConfig (T1/T2
+                        resolver), IPCServer (the wire door)
+     src/               main, PapyrusApi, VersionConfig, IPCServer, SelfTest
+     papyrus/           the PipMon: surface: .psc, .ppj, flags, build
+     libs/              per-build address database (.txt, tracked) and the
+                        derived binary blob (.bin, NOT tracked)
+     tests/             test_harness.exe drives the in-DLL self-test
 
-   tools/attach_inject.ps1         live injection
-   tools/vlink_probe.py            live reader, now with filters (LOG_FORMAT.md)
-   tools/build_libbin.py           INI + exe -> blob
-   tools/verify_libbin.py          independent blob validation
-   tools/rtsig.cpp                 read-only signature checker
-   tools/read_vtable.py            read-only vtable validator
+   tools/             read-only inspectors and build-time generators
+     attach_inject.ps1   live injection
+     vlink_probe.py      live reader, with filters (see LOG_FORMAT.md)
+     build_libbin.py     INI + game exe -> binary blob (build time)
+     verify_libbin.py    independent blob validation
+     read_addresslib.py  AddressLib .bin -> the per-build INI
+     rtsig.cpp           read-only signature checker
+     read_vtable.py      read-only vtable validator
 
-   overseer_cli/                   the T4 consumer: Textual dashboard
-   overseer_cli/rust/vlink-protocol/   the Rust protocol crate
-   launcher/                       pre-flight and process launch
+   overseer_cli/      the T4 consumer: Textual dashboard
+     rust/vlink-protocol/   the Rust protocol crate
+   launcher/          pre-flight and process launch (45 tests)
+   overseer_event_bridge/   in-game bridge: console commands + a .psc that
+                           calls the PipMon: surface
+   pip_mon_testlab/   three .psc probes (leak / loop / terminal) for driving
+                      the surface from inside a save
+   docs/              IPC_PROTOCOL, ENGINEERING_RULES, ANOMALY_RULES,
+                      ARCHITECTURE -- see section 8, three of four need work
+   stage/             deployment staging. NOT tracked. Not source.
+   third_party/       vendored. NOT tracked. Not compiled.
+   inspiration archive/  the original idea files. NOT design decisions; the
+                      consolidated doc superseded them.
 
 ================================================================================
- 10. HOW THE LAST SESSION WENT, SO THE PATTERNS ARE VISIBLE
+ 10. VERSION CONTROL AND LICENCE -- THE GROUND RULES
+================================================================================
+
+   THERE IS NOW A LOCAL GIT REPO. There was none until the end of the previous
+   session, which means that work has no history. That cannot be recovered; it
+   can only not be repeated.
+
+     commit 2d5f832  "PIP-MON: initial commit"
+     115 files, branch master, NO REMOTE, working tree clean.
+
+   NO REMOTE IS CONFIGURED, deliberately. This is a local repository. Do not
+   add one and do not push without being asked (G10).
+
+   WHAT IS DELIBERATELY NOT TRACKED, and why each one matters:
+     third_party/            a full .git clone of a THIRD-PARTY repo (19.5 MB).
+                             Flattening it would mix their history into ours.
+                             It is a DATA reference; nothing compiles it.
+     vprobe/libs/*.bin      derived, regenerated and byte-compared by the
+                             build, AND machine-specific: its header carries a
+                             hash of the local Fallout4.exe, so a committed
+                             copy would be wrong on every other machine.
+     stage/                 a deployment staging area, not source.
+     *.pex *.dll *.exe      build outputs. The build regenerates and verifies
+                             each one.
+     vprobe/libs/*.txt      IS TRACKED. That is the per-build database
+                             everything derives from, not an artefact.
+
+   THE .gitignore WAS WRITTEN BEFORE THE FIRST COMMIT, on purpose. The rule it
+   encodes: a build gate that regenerates a derived artefact must never be able
+   to commit that artefact by accident, because then a stale copy gets reviewed
+   and merged as though it were source. That is not hypothetical -- it is the
+   same class of bug as the stale-blob guard the build now enforces.
+
+   LICENSE: the project Personal Use Licence in LICENSE. It is NOT open source
+   and NOT OSI-licensed. The short form, which README repeats:
+     ALLOWED    use it, mod with it, modify it for yourself, read the source,
+                share the COMPILED binary, contribute changes back
+     NOT ALLOWED publish the source anywhere, redistribute source (including
+                inside a mod or a tutorial zip), sell or licence it, use it
+                commercially, strip the copyright, or claim authorship
+   One judgement call was made and is open to reversal: clause 1e ALLOWS private
+   sharing of the compiled binary. Tighten it to single-machine if preferred.
+
+   Nothing proprietary is in the tree: no game asset, no extender binary, no
+   Creation Kit file. Verified by extension sweep at commit time (zero .dll,
+   .exe, .pex, .bin).
+
+   FROM NOW ON: commit at meaningful boundaries, not every edit. A commit
+   message should state what is VERIFIED and what is NOT -- the initial commit
+   does this, and that is the standard to keep.
+
+================================================================================
+ 11. THE DOCS DOORS -- AND AN AUDIT THAT HAS NOT BEEN ACTED ON
+================================================================================
+
+   The hallway (26.5) wants two doors. Neither is built yet:
+     - a SCHEMA DOOR: the address-blob format described in ONE place,
+       versioned, instead of a spec in build_libbin.py, a LAYOUT table in
+       verify_libbin.py, and constants in VersionConfig.hpp. That is the drift
+       risk in section 7 item 4.
+     - a DOCS DOOR: an index saying which document answers which question and
+       how fresh it is, so a cold reader is directed instead of guessing.
+
+   A full audit of docs\ was performed at the end of the previous session. Only
+   part of it has been acted on. THE REST IS OUTSTANDING WORK:
+
+     FILE                       VERDICT      DONE?
+     -------------------------  -----------  -------------------------------
+     docs\IPC_PROTOCOL.md       WRONG        PARTLY. Payload sizes corrected
+                                                (Heartbeat 44->40, ThreadState
+                                                20->21, VmTick 28->30) and two
+                                                field ORDERS corrected from the
+                                                static_asserts. STILL WRONG:
+                                                  - claims priority-aware frame
+                                                    dropping exists; it does
+                                                    not, and never has
+                                                  - documents a control channel
+                                                    (soft_cancel, force_kill,
+                                                    dump_stack, set_sampling)
+                                                    with no sender and no
+                                                    receiver
+                                                  - documents a
+                                                    vprobe_settings.jsonc
+                                                    config file; the probe has
+                                                    NO config reader at all
+                                                  - omits the address blob and
+                                                    the Papyrus surface
+                                                entirely
+     docs\ENGINEERING_RULES.md  STALE        NOT STARTED. Rule 2 says
+                                                "two-tier" (now four), gives a
+                                                demoted INI path as the primary
+                                                location, and Rule 3 states as
+                                                implemented a control-channel
+                                                queue that does not exist. Its
+                                                PITFALL 1 (the silent VM freeze
+                                                with no crash) is the single most
+                                                valuable thing in docs/ and is
+                                                covered by NO other document.
+                                                Preserve it.
+     docs\ANOMALY_RULES.md      CURRENT      Nothing to do. Verified line by
+                                                line against detector.py and
+                                                rules_config.py: every threshold,
+                                                formula, severity and key
+                                                matches.
+     docs\ARCHITECTURE.md       SUPERSEDED   NOT STARTED. It presents a
+                                                COMPETING 5-row component table
+                                                with no cost-ceiling column, so
+                                                a reader follows it instead of
+                                                section 26. It also cites a
+                                                README.md that did not exist
+                                                until the same session. DO NOT
+                                                DELETE IT -- it uniquely holds:
+                                                  the THREAD MODEL and its
+                                                  ownership rule (section 26
+                                                  does not cover which thread
+                                                  does what)
+                                                  degradation-as-a-state: "a
+                                                  disabled hook means this panel
+                                                  shows less; a silent failure
+                                                  means this panel shows nothing
+                                                  and you think the game is
+                                                  healthy"
+                                                  the V-Probe/V-Link shared
+                                                  PREFIX rationale -- a
+                                                  wire-compatibility constraint
+                                                  on a deployed public name.
+                                                  HIGHEST RISK ITEM TO LOSE.
+                                                  trademark discipline: no
+                                                  official logos, no "official
+                                                  tool" language
+                                                Rewrite it as a pointer plus
+                                                those sections.
+
+================================================================================
+ 12. HOW THE LAST SESSION WENT, SO THE PATTERNS ARE VISIBLE
 ================================================================================
 
    Useful, because the failures were all silent:
