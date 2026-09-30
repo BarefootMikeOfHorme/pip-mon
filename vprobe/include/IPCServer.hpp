@@ -93,6 +93,15 @@ public:
     // are telemetry, not synchronisation, so a slightly stale value is correct
     // behaviour rather than a bug.
     void setFrameCount(std::uint32_t frames) noexcept {
+        // The FIRST non-zero frame count is what proves a frame source is
+        // actually attached. Until one exists, the phase tag has to admit it
+        // cannot tell a menu from a world -- see the state line in
+        // workerMain(). Deriving MENU from a counter that nothing increments is
+        // a tag that is confidently wrong, which is the one thing a status
+        // report must never be.
+        if (frames > 0) {
+            frameSourceLive_.store(true, std::memory_order_release);
+        }
         frameCounter_.store(frames, std::memory_order_relaxed);
     }
     void setFrameTimeMs(float ms) noexcept { frameTimeMs_.store(ms, std::memory_order_relaxed); }
@@ -167,6 +176,10 @@ private:
     // worker, so heartbeats can report them without touching game state.
     std::atomic<std::uint32_t> frameCounter_{0};
     std::atomic<float>         frameTimeMs_{0.0f};
+    // True only once something has actually reported a frame. Distinguishes
+    // "the counter is zero because we are at a menu" from "the counter is
+    // zero because nothing is driving it".
+    std::atomic<bool>          frameSourceLive_{false};
     std::atomic<std::uint32_t> activeThreads_{0};
     std::atomic<std::uint32_t> queuedThreads_{0};
     std::atomic<std::uint32_t> streamedCells_{0};

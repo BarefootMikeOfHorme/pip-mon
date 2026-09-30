@@ -452,16 +452,33 @@ void IPCServer::workerMain() {
             const std::uint32_t pap    = activeThreads_.load(std::memory_order_relaxed);
             const std::uint64_t drop   = dropped_.load(std::memory_order_relaxed);
             const float          ft    = frameTimeMs_.load(std::memory_order_relaxed);
-            trace::session(frames > 0 ? "IN_GAME" : "MENU",
+            // The phase is DERIVED, never asserted -- but only where there is a
+            // real signal to derive from.
+            //
+            // frameCounter_ is fed by HookManager::onFrame(), which is called by
+            // the VM tick hook. That hook does not exist yet, so frameCounter_
+            // is permanently 0 and a naive frames>0 test would report MENU
+            // while the player is standing in a world. A tag that is confidently
+            // wrong is worse than one that admits it does not know, so with no
+            // frame source attached the phase is UNKNOWN, and the line says so
+            // in plain text rather than implying a menu.
+            const char* phase = "UNKNOWN";
+            if (frames > 0) {
+                phase = "IN_GAME";
+            } else if (frameSourceLive_) {
+                phase = "MENU";
+            }
+            trace::session(phase,
                            "uptime=%llums frames=%u papyrusThreads=%u frameMs=%.2f "
-                           "emitted=%llu dropped=%llu client=%d",
+                           "emitted=%llu dropped=%llu client=%d frameSource=%s",
                            static_cast<unsigned long long>(
                                (GetTickCount64() - startedTick) / 1000),
                            frames, pap, static_cast<double>(ft),
                            static_cast<unsigned long long>(
                                accepted_.load(std::memory_order_relaxed)),
                            static_cast<unsigned long long>(drop),
-                           clientAttached_.load(std::memory_order_relaxed) ? 1 : 0);
+                           clientAttached_.load(std::memory_order_relaxed) ? 1 : 0,
+                           frameSourceLive_ ? "hook" : "none");
         }
 
         if (nameSyncRequested_.exchange(false, std::memory_order_acq_rel) && nameProvider_) {
