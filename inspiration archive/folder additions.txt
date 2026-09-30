@@ -1,0 +1,12 @@
+PIP-MON SUITE
+                                      │
+   ┌──────────────────────────────────┼──────────────────────────────────┐
+   ▼                                  ▼                                  ▼
+[ V-PROBE ]                     [ OVERSEERCLI ]                 [ PIPMON_TESTLAB ]
+ Native C++ F4SE Probe           Terminal UI & Diagnostics       Sandbox Cell (.esp)
+   │                                  │
+   │                                  ├── In-Game Creation Sync (%LOCALAPPDATA%/plugins.txt)
+   │ (V-Link CBOR Stream)            ├── Nexus Mods & CurseForge API Client (OAuth / NXM Protocol)
+   │                                  └── Graph-Based Auto-Sorter (Dynamic LOOT Replacement)
+   ▼                                  
+[ Fallout4.exe Engine ]

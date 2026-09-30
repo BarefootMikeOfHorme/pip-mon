@@ -1,0 +1,53 @@
+===================================================================================
+     RAW SOURCE ARCHITECTURE ANALYSIS: F4SE / SKSE & COMMONLIB PARADIGMS
+===================================================================================
+
+Looking at the raw source structure of F4SE/SKSE (and modern wrappers like CommonLibSSE/NG) 
+reveals how Bethesda script extenders are structurally built, where their code weight 
+lies, and how we can adapt, streamline, and surpass those mechanics.
+
+-----------------------------------------------------------------------------------
+1. THE RAW ANATOMY OF A LEGACY EXTENDER
+-----------------------------------------------------------------------------------
+
+A. The Loader (`f4se_loader.exe`)
+   - What it does: A lightweight Win32 wrapper (~50-100KB) that spawns `Fallout4.exe` 
+     in a suspended state via `CreateProcessW`, allocates a target memory region, 
+     injects the core DLL, and executes a remote thread to force-load the runtime.
+   - Our Takeaway: Instead of a manual loader that spawns processes and injects into 
+     live memory (which triggers modern anti-cheat flags and breaks on every executable 
+     hash change), our tool uses a streamlined, static dynamic-link structure (`vprobe.dll`) 
+     that hooks cleanly at initialization.
+
+B. The Core API & Address Library (`F4SE / CommonLib`)
+   - What it does: A massive C++ codebase (~100k+ lines) containing structural class 
+     definitions for every engine object (`TESForm`, `BGSQuest`, `Actor`, `TESObjectREFR`). 
+     Because Bethesda updates shift virtual method table (vtable) offsets, modern libraries 
+     use an **Address Library** CSV database to resolve memory offsets dynamically by ID rather 
+     than hardcoding addresses.
+   - Our Takeaway: We adopt the concept of dynamic address resolution (mapping structural 
+     offsets at runtime), but we strip out the massive C++ object hierarchies that bloat 
+     plugin memory. We only map the minimal pointers we actually need (`SaveGame`, 
+     `PapyrusVM`, and ring-buffer queues).
+
+C. Trampolines and Hooking (`SKSE::Trampoline`)
+   - What it does: Allocates a small executable memory cave (e.g., 64–512 bytes) near 
+     the game's code segment to write assembly `JMP` overrides, redirecting engine functions 
+     to custom C++ handler functions.
+   - Our Takeaway: This is the exact raw technique we keep for `vprobe.dll`. We use 
+     minimal inline assembly detours to catch the exact moment `SaveGame()` fires, passing 
+     control to our safety valve without rewriting game routines.
+
+-----------------------------------------------------------------------------------
+2. HOW WE EXTEND & SURPASS IT (THE PIPELINE SHIFT)
+-----------------------------------------------------------------------------------
+
+Legacy Code Pattern               Our Modernized Implementation
+-------------------               -----------------------------
+Monolithic C++ SDK linking        Isolate C++ strictly to the `vprobe.dll` memory bridge; 
+                                  shift heavy execution logic completely to Rust.
+Synchronous Papyrus registration  Remove custom script functions from the VM entirely; 
+                                  stream raw state changes out via lockless shared memory (`mmap`).
+In-process crash exposure         Isolate data parsing, DAG sorting (KaDag), and diagnostics 
+                                  out-of-process so a plugin error never crashes the game.
+===================================================================================

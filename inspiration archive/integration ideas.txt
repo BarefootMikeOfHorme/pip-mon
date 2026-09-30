@@ -1,0 +1,96 @@
+===================================================================================
+      FALLOUT 4 / CREATION ENGINE INTEGRATION & CANARY REDUX PRE-SAVE PROTOCOLS
+===================================================================================
+
+This document synthesizes our core technical architecture for PIP-MON, KaDag, and 
+Canary Redux, focusing specifically on native Creation Engine (Fallout 4 & Skyrim) 
+mechanics, Papyrus VM thread queue handling, and pre-save serialization validation.
+
+-----------------------------------------------------------------------------------
+1. PAPYRUS VM INTEGRATION & PRE-SAVE VALIDATION CATCH
+-----------------------------------------------------------------------------------
+
+A. The Papyrus Serialization Issue
+   - How Creation Engine Saves Work: During `SaveGame()`, the engine writes a delta 
+     of changed world forms AND serializes the entire active state of the Papyrus VM 
+     (suspended script threads, local variables, active timers, and pending event queues).
+   - The Hazard: If a save is executed while the VM queue depth is high (>50 pending 
+     events or active infinite loops), half-executed script states and unattached 
+     handles get permanently baked into the `.fos` (FO4) or `.ess` (Skyrim) save chunk.
+   - Result: Permanent save corruption, script lag, or immediate CTD on load.
+
+B. Canary Redux Pre-Save Lock Valve (The Kinggath Protocol Engine Hook)
+   - Native Assembly Intercept: `vprobe.dll` hooks `SaveGame()` at the native C++ level.
+   - Quiescence Polling: Queries `PapyrusVM::GetNumPendingEvents()`.
+   - Execution Hold Valve: The hook pauses the save execution thread for up to 1500ms, 
+     allowing worker threads to drain pending Papyrus stack events to 0.
+   - Serialization Validation Catch: Right before the binary save chunk is written 
+     to disk, Canary Redux performs a final validation pass:
+       1. Verifies VM stack depth == 0 (Quiescent State).
+       2. Scans active handles for orphaned/deleted FormIDs.
+       3. Releases the native save thread ONLY when safety flags pass.
+
+-----------------------------------------------------------------------------------
+2. SKYRIM & CREATION ENGINE CROSS-VARIANT PARALLELS
+-----------------------------------------------------------------------------------
+
+A. Engine Family Inheritance (Skyrim 32-bit/SE -> Fallout 4 -> Starfield)
+   - Both FO4 and Skyrim run on evolutionary variants of the Creation Engine (Gamebryo 
+     lineage) and share identical Papyrus VM architectures, `.PEX` bytecode execution, 
+     and FormID reference array rules.
+   - Key Difference in FO4: Addition of Light Plugins (`.esl` / 0xFE index subdivision) 
+     and Precombined Geometry / Previs occlusion groups (`PRKC`).
+
+B. Modding Ecosystem Innovations to Adopt (Skyrim Modder Paradigms)
+   - SKSE / Engine Fixes Protocols: Utilizing native C++ memory patches to fix 
+     internal array overflows and handle leaks rather than relying on script workarounds.
+   - PO3 / PapyrusExtender Architecture: Exposing low-level native engine struct 
+     pointers directly to out-of-process tooling via zero-allocation memory reads.
+   - Canary (Kinggath Original): Standardizing save file health tracking through 
+     guarded script variables and native pre-save health checks.
+
+-----------------------------------------------------------------------------------
+3. ISOLATED SYSTEM GOALS & DESIGN BOUNDARIES
+-----------------------------------------------------------------------------------
+
+A. Creation Engine / FO4 First Strategy
+   - Design focus remains strictly anchored on Fallout 4 / Skyrim Creation Engine 
+     internals, raw memory structures, and Papyrus serialization.
+   - Cross-engine abstractions (such as Unity/Unreal paradigms) are evaluated 
+     purely for general low-level performance concepts (e.g., arena allocation, 
+     lockless SPSC ring buffers) and are NOT attached to Unity runtime dependencies.
+
+B. Out-of-Process Terminal Execution (PIP-MON / KaDag)
+   - Zero In-Game Overlay Overhead: PIP-MON renders on a secondary screen/terminal 
+     via Ratatui, leaving 100% of DirectX 11/12 GPU pipelines dedicated to Fallout 4.
+   - Shared Memory Ring Buffer (`mmap` via `vprobe.dll`): Telemetry streams out of 
+     the game process with zero heap allocation and zero frame latency.
+
+-----------------------------------------------------------------------------------
+4. COMPLETE PRE-SAVE & SERIALIZATION WORKFLOW MATRIX
+-----------------------------------------------------------------------------------
+
+   [ Engine Triggers SaveGame() ]
+                 |
+                 v
+   [ vprobe.dll Intercepts Call ]
+                 |
+                 v
+   [ Check PapyrusVM::GetNumPendingEvents() ]
+                 |
+                 +---> Queue > 0  ---> [ Hold Thread (up to 1500ms) for Queue Drain ]
+                 |                                      |
+                 +---> Queue == 0 <---------------------+
+                 |
+                 v
+   [ Canary Redux Final Pre-Save Validation Catch ]
+     - Validate VM Stack Depth == 0
+     - Verify Zero Orphaned FormIDs in Active Handles
+     - Check File Handles via Win32 Lock Guard
+                 |
+                 v
+   [ Binary State Written Safely to Disk (.fos) ]
+                 |
+                 v
+   [ PIP-MON TUI Displays: "SAVE COMPLETE - STATE CLEAN" ]
+===================================================================================

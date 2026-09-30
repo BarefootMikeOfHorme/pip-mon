@@ -1,0 +1,8 @@
+LIBRARY vprobe
+EXPORTS
+    F4SEAPI_MakePluginInfo
+    VPROBE_OnLoad
+    VPROBE_OnUnload
+    VPROBE_SelfTest
+    VPROBE_SelfTestText
+    VPROBE_SelfTestFree

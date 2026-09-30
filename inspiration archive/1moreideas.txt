@@ -1,0 +1,65 @@
+===================================================================================
+   ECOSYSTEM REPLACEMENT MAPPING: F4SE/SKSE PLUGINS & CREATION KIT DEPENDENCIES
+===================================================================================
+
+To fully build our unified out-of-process engine pipeline, we must account for the 
+entire web of auxiliary mods, patches, dependency frameworks, and compiler tools built 
+around both the runtime (F4SE) and the out-of-game editor (Creation Kit / GECK).
+
+-----------------------------------------------------------------------------------
+1. RUNTIME-FOCUSED ECOSYSTEM (Replacing F4SE & In-Process Plugins)
+-----------------------------------------------------------------------------------
+
+When replacing the runtime script extender layer, we replace not just the core binary, 
+but an entire ecosystem of dependent plugins, memory patches, and native helper mods:
+
+A. Core Runtime & Memory Infrastructure
+   * F4SE / SKSE (Script Extenders): The base in-process injection loader.
+   * Address Library for SKSE / F4SE: Maps dynamic memory offsets by ID to prevent 
+     version-breaking updates. (Our system handles dynamic resolution at the `vprobe.dll` layer).
+   * Buffout 4 / Net Script Framework: Crash loggers and exception handlers that hook 
+     in-process CPU registers. (Replaced by our proactive out-of-process telemetry pipeline).
+
+B. Native Script & Function Extenders
+   * po3 Papyrus Extender / Papyrus Utils: Adds file I/O, JSON parsing, and advanced math. 
+     (Replaced by our asynchronous Rust daemon and file-handling parsers).
+   * MCM (Mod Configuration Menu) & Scaleform Frameworks: UI configuration overlays. 
+     (Replaced by PIP-MON, our out-of-process Ratatui TUI dashboard).
+   * MCM Settings Manager / Setting Loaders: Persistent configuration hooks.
+
+C. Save Health & Game-State Patches
+   * Canary / Save Game Script Cleaner tools: Reactive scripts that check global variables. 
+     (Replaced by Canary Redux, our native pre-save hardware valve that polls VM queue depth).
+   * Engine Fixes / Tweaks (e.g., High FPS Physics Fix, PRP - Pre-Combine Repair Patch): 
+     Low-level engine modifications. (KaDag handles pre-combine and asset validation out-of-process).
+
+-----------------------------------------------------------------------------------
+2. OUT-OF-GAME / EDITOR-FOCUSED ECOSYSTEM (Replacing Creation Kit & G.E.C.K.)
+-----------------------------------------------------------------------------------
+
+When replacing the development and compilation layer, we target the tools used outside 
+the game executable to build, pack, and validate mods:
+
+A. Editors & Compilers
+   * Creation Kit / G.E.C.K.: Official Bethesda development suites for world building.
+   * Creation Kit Platform Extended / fixes: Community bug-fixing plugins for the editor itself.
+   * Papyrus Compiler (`CompilerLauncher.exe`, `.psc` to `.pex` compiler): Converts high-level 
+     script text into virtual machine bytecode.
+
+B. Asset & Mod Packaging Tools
+   * Archive2 (`Archive2.exe`): Bethesda's official tool to pack textures, meshes, and sounds into `.ba2` archives.
+   * xEdit / FO4Edit / SSEEdit: Record-level database inspection tools used to resolve mod conflicts.
+     * *Our Replacement:* **KaDag** absorbs the core functionality of xEdit—parsing `.esp`/`.esm` records, 
+       building asset dependency DAGs, and validating `.ba2` synchronization *before* the game boots.
+
+-----------------------------------------------------------------------------------
+3. SUMMARY: THE DUAL-PIPELINE REPLACEMENT TARGETS
+-----------------------------------------------------------------------------------
+
+Pipeline Boundary   Legacy Ecosystem Replaced          Our Unified Architecture
+-----------------   -------------------------          ------------------------
+Runtime (In-Game)   F4SE, Buffout 4, po3 Extender,     `vprobe.dll` (C++ probe) + `mmap` IPC + 
+                    MCM, Canary (Save Watchers)        Rust Async Daemon / PIP-MON TUI
+Offline (Out-of-Game) Creation Kit, Archive2, xEdit,   **KaDag** (Rust-based DAG graph resolver, 
+                    Papyrus Bytecode Compilers         BA2 validator, and record analyzer)
+===================================================================================

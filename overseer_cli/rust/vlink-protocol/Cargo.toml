@@ -1,0 +1,17 @@
+[package]
+name = "vlink-protocol"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "V-Link wire format: zero-copy, safe ABI bindings for PIP-MON telemetry"
+license = "MIT"
+publish = false
+
+[dependencies]
+# Zero-copy POD casts with no `unsafe` at the call site. `try_from_bytes`
+# returns Result, so a malformed buffer is an error value rather than UB.
+bytemuck = { version = "1.16", features = ["derive", "must_cast"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"

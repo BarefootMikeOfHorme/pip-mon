@@ -1,0 +1,61 @@
+===================================================================================
+     SAVE-STATE ISOLATION & LOAD-ORDER PROFILE SPECIFICATION (BETHESDA / UNITY)
+===================================================================================
+
+This specification defines the nomenclature and architecture for the Save-State 
+Context Selector and Plugin Management Matrix, integrating Bethesda's Creation 
+Engine save structures with Unity's Build Profile/Scene List paradigm.
+
+-----------------------------------------------------------------------------------
+1. INDUSTRY NOMENCLATURE & PARADIGM COMPARISON
+-----------------------------------------------------------------------------------
+Bethesda / Modding      Unity Engine Equivalent         System Feature Name
+------------------      -----------------------         -------------------
+Save File (.fos)        Build Profile / Scene List      Save-State Context Profile
+plugins.txt Array       Asset Dependency Manifest       Staged Plugin Matrix
+Missing Masters Warning Unresolved Serialized Ref       Orphaned Dependency Alert
+Profile-Specific Saves  Target Build Configuration      Profile Sandbox Isolation
+xEdit FormID Override   Prefab Variant Mask             Winning Override Resolver
+
+
+-----------------------------------------------------------------------------------
+2. CONTEXT SELECTOR & MATRIX SPECIFICATION
+-----------------------------------------------------------------------------------
+[A] Header Context Selector (Dropdown / Hotkey Overlay):
+  - Global Mode: Displays all installed files in `Data/`.
+  - Save-State Mode: Dynamically parses the header of a selected `.fos` save file.
+    * Bethesda Save Headers (.fos): Contain an explicit uint16 length-prefixed array 
+      of active `.esm`/`.esp`/`.esl` file names recorded at the precise time of saving.
+    * Actionable Diff Panel: Auto-populates two sub-lists:
+      1) Expected but Disabled (Missing from current load order -> Highlighted Red)
+      2) Active but Unused (Present in current load order but absent in save -> Yellow)
+
+[B] Vortex-Style Plugin Table Matrix (Row-Based Tiers):
+  - Table Columns:
+    1) State Toggle (`[x]` Enabled / `[ ]` Disabled)
+    2) Slot Index (`0x00` - `0xFE` / Light `0xFD:0x000`)
+    3) Plugin Name
+    4) Domain Category (e.g., Domain 0: Core, Domain 5: Gameplay)
+    5) Quick Action Badges (`[ Pin ]`, `[ Previs! ]`, `[ Sync ]`)
+  - Hotkey Actions:
+    * `Spacebar`: Toggle Plugin Activation State (Updates Staged Buffer)
+    * `Shift + S`: Sync Load Order directly to selected Save File Array
+    * `Shift + D`: Run Tarjan Cycle Detection across active DAG edges
+
+
+-----------------------------------------------------------------------------------
+3. IMPLEMENTATION INTEGRATION FOR TAB 4 (TUI / CLI)
+-----------------------------------------------------------------------------------
+- Pure Subprocess Execution:
+  * When executing `loot-cli.exe --auto-sort`, KaDag passes the active staging file 
+    `OvMonDat/staging/plugins.txt` via pipe.
+  * The result is merged back into the DAG UI without ever calling `libloot` C++ 
+    headers directly, preserving MIT / GPLv3 licensing separation.
+
+- Non-Destructive Backup & Apply Chain:
+  1. User toggles plugins or selects `[ Sync to Save ]`.
+  2. Staged diff updates in memory (`OvMonDat/staging/plugins.txt`).
+  3. User presses `[ F4: Apply Changes ]`.
+  4. System writes timestamped backup: `Data/plugins.txt.bak_YYYYMMDD_HHMMSS`.
+  5. Moves staged file to `Data/plugins.txt`.
+===================================================================================

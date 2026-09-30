@@ -1,0 +1,249 @@
+================================================================================
+ KaDag - graph-based load-order sorter for PIP-MON
+ Design notes, not implementation. Written before any code on purpose.
+================================================================================
+
+STATUS: parked. Not started. The functional core (vprobe + OverseerCLI) has
+priority until it is verified against a real Fallout 4 executable.
+
+
+--------------------------------------------------------------------------------
+1. WHY THIS IS A SEPARATE PROJECT
+--------------------------------------------------------------------------------
+
+PIP-MON is a telemetry profiler. KaDag is a mod manager. They share exactly one
+thing: FormID -> source-mod mapping, which PIP-MON already produces and KaDag
+already needs.
+
+Bundling them would mean:
+  - a profiler that can WRITE to Data/  -> a corrupted plugins.txt is an
+    unrecoverable load-order brick
+  - OAuth tokens and API keys inside a tool that runs alongside a live game
+  - threshold tweaks to a monitor requiring a plugin DLL rebuild
+
+So: separate binaries, shared data, one optional install relationship.
+
+
+--------------------------------------------------------------------------------
+2. THE INTERFACE BETWEEN THEM (the only coupling)
+--------------------------------------------------------------------------------
+
+PIP-MON already emits, per VM tick:
+    ModLoadPayload { formId, modIndex, sourceNameId, loadFlags }
+
+and a load-order report on connect. That is sufficient for KaDag to attribute a
+FormID to a file. KaDag does not need to load vprobe.dll, hook anything, or run
+in-game -- it can read the same plugins.txt directly. The shared artifact is a
+JSON export, not a runtime dependency:
+
+    ovmon export-loadorder --out loadorder.json
+
+Rule: PIP-MON never calls KaDag. KaDag may read PIP-MON's export. One direction
+only, so a sorter bug can never affect a running session.
+
+
+--------------------------------------------------------------------------------
+3. THE CORE ALGORITHM
+--------------------------------------------------------------------------------
+
+Build a DAG, topologically sort it, detect cycles.
+
+  3.1  Record conflict graph
+       For every pair (A, B) where A and B both define the same FormID, the
+       one that loads LATER wins. A must therefore load BEFORE B.
+       Edge: A -> B  ("A must precede B")
+
+       This is the master-file version comparison LOOT already does. It is not
+       a novel problem and should not be reinvented -- see section 6.
+
+  3.2  Topological sort (Kahn's algorithm)
+       indegree[i] = number of unresolved predecessors
+       queue = all nodes with indegree 0
+       repeatedly pop, emit, decrement successors
+       O(V + E), milliseconds for any realistic load order
+
+  3.3  Cycle detection is FREE
+       Kahn's leaves any node with a non-zero indegree at the end of a correct
+       run. Whatever remains is exactly the cycle set. No separate DFS needed.
+
+  3.4  Stable tie-breaking
+       A pure topological sort is not deterministic. Must break ties by:
+         1. ESM before ESP
+         2. official DLC (DLC01..) last
+         3. alphabetical
+       Otherwise every run reshuffles the load order and users lose trust.
+
+
+--------------------------------------------------------------------------------
+4. PARSING .esp / .esm WITHOUT THE CREATION KIT
+--------------------------------------------------------------------------------
+
+Must be done by reading the PE + Bethesda plugin headers directly. No CK, no GUI.
+
+  4.1  TES4 header
+       'TES4\0' magic, then a GRUP 'HEDR' whose subrecord 'HEDR' holds:
+         uint32 recordCount
+         uint32 nextFormId
+         uint8  groupType
+         uint8  padding[3]
+       nextFormId is how much load-order space the mod consumes.
+
+  4.2  Master (MOU) record
+       'SSEP'/'ONAM'/'MRAU' -- the master list. This is the primary signal for
+       "mod A requires mod B". Cheap, always present, high value.
+
+  4.3  Full record scan
+       Walk GRUP 'GRUP' -> RECORD 'XXXX' -> subrecords. For every record emit
+       (formId, overrideIndex, recordType). Conflicts are then
+       formId -> { (mod, index) } and the winner is the max index.
+
+  4.4  .esl (light plugins)
+       Obfuscated on disk. An F4SE loader is REQUIRED to read them. This is the
+       hard constraint: KaDag cannot be fully accurate without either
+       depending on the game or on a plugin like "esl" by Pyrilus.
+
+  4.5  Existing tooling
+       Python: `mutagen` / `esptool` (bsabp). Rust: `teslib`, `sr2`/`afijiff`.
+       Do not write a parser from scratch if a maintained one exists.
+
+
+--------------------------------------------------------------------------------
+5. COMPATIBILITY LOGIC (the part everyone underestimates)
+--------------------------------------------------------------------------------
+
+A sorter is only as good as its rules. LOOT's real value is years of curated
+rules, not the algorithm.
+
+  5.1  Rule layers, highest priority first
+         1. explicit user pins      (never move these)
+         2. version mismatch        (Blue Mesh / Trainwreck rule family)
+         3. active requirements    (A says "requires B" -> B first)
+         4. compatibility patches   (one mod specifically patches another)
+         5. dirty edits             (a file edited in Creation Kit)
+         6. record conflicts        (the DAG)
+         7. tie-break heuristics    (ESM, DLC, alpha)
+
+  5.2  Critical correctness rule
+       If a mod is DIRTY (edited outside the CK, so its HEDR count and actual
+       records disagree), the DAG's conflict edges are UNRELIABLE. Dirty mods
+       must be pinned and warned about loudly, never silently sorted.
+
+  5.3  Overwrite is not a conflict
+       Two mods defining the same FormID is the NORMAL case. "Conflict" means
+       two mods defining the same formId + recordType + subrecord path. Treating
+       plain overwrites as conflicts produces a useless warning on every load
+       order in existence.
+
+
+--------------------------------------------------------------------------------
+6. THE LIBLOOT QUESTION (honest options)
+--------------------------------------------------------------------------------
+
+LOOT already solves this. libloot is licensed GPLv3.
+
+  option A - link libloot          correct, fast, but GPLv3 contaminates the
+                                   whole suite's licence. PIP-MON is MIT.
+  option B - reimplement           months of work, competes with a mature
+                                   project, and lands a worse rule set
+  option C - call the LOOT CLI     LOOT ships `loot-cli` with a documented
+                                   command interface. No licence issue, no
+                                   reimplementation, and it gets their rule
+                                   updates for free.
+  option D - own graph, own rules  only if the user genuinely needs something
+                                   LOOT cannot do
+
+RECOMMENDED: C, with B as a documented fallback. This is the single place
+where "build it ourselves" is most likely to be the wrong call, and it is worth
+being explicit about that before writing any code.
+
+
+--------------------------------------------------------------------------------
+7. SAFE API SURFACE
+--------------------------------------------------------------------------------
+
+Semi-modular, and safe by construction.
+
+  7.1  Read-only core (no risk, always available)
+         load plugins.txt, plugins.txt.esl, DLCList.txt
+         parse headers, build the conflict graph, detect cycles
+         produce a PROPOSED order
+       This half is a pure function. It cannot corrupt anything.
+
+  7.2  Optional, off by default, never automatic
+         apply a proposed order
+         download from Nexus / CurseForge
+         read .esl via a loader plugin
+
+  7.3  The write rule
+         NEVER write Data/plugins.txt in place.
+           - read original
+           - write proposed to OvMonDat/staging/plugins.txt
+           - show a diff
+           - require explicit confirmation
+           - only then move it, and keep a timestamped backup
+         A load-order brick is unrecoverable without manual file recovery. This
+         is the whole design constraint that the earlier "mutate plugins.txt
+         from in-game" idea violated.
+
+  7.4  Mod-manager-agnostic BY DEFAULT
+         Assume NOTHING about the user's setup. No Vortex, MO2, Nexus, or
+         CurseForge integration is required or assumed. Every integration is an
+         optional adapter behind the same interface:
+             interface ModSource { list() -> [Mod]; fetch(id) -> Path }
+         Adapters: PlainFolder, Vortex, MO2, Nexus, CurseForge
+         A user on a plain Data/ folder and a user on Vortex get the same
+         core, differing only in the adapter.
+
+
+--------------------------------------------------------------------------------
+8. REMOTE / DOWNLOAD SCOPE (small, optional, high risk)
+--------------------------------------------------------------------------------
+
+  8.1  Why this is separable
+         Downloads and API calls have NOTHING to do with sorting. They can be a
+         completely separate process that emits a manifest, which the sorter
+         then consumes. That separation means a compromised API client cannot
+         touch the load order.
+
+  8.2  Credentials
+         Nexus OAuth and CurseForge keys in the OS credential store, never in
+         config. Keys on disk in a modding tool is a supply-chain risk against
+         the user.
+
+  8.3  Hash-based auto-identification
+         Match downloaded archives by SHA-256 against a known-mod database.
+         This is genuinely useful (drop a .zip in, get metadata back) and needs
+         no credentials at all if the database is local.
+
+  8.4  Rate limits and etiquette
+         Cache aggressively, respect the API rate limit, and never hammer it in
+         a loop. A tool that gets a user rate-limited on Nexus is a bad citizen.
+
+
+--------------------------------------------------------------------------------
+9. BUILD ORDER (if/when it starts)
+--------------------------------------------------------------------------------
+
+  phase 1  read-only core: plugins.txt parser + .esl/header parser
+  phase 2  conflict graph + Kahn topological sort + cycle report
+  phase 3  compatibility rule layers 1-4
+  phase 4  staging + diff + explicit apply, with backup
+  phase 5  mod-manager adapters (PlainFolder first, then Vortex/MO2)
+  phase 6  remote metadata, credentials, download
+  phase 7  (only if justified) own LOOT-compatible rules, or wrap loot-cli
+
+Phases 1-4 are genuinely useful on their own and carry all the real risk.
+Phases 6-7 are the parts most likely to be dropped or deferred.
+
+
+--------------------------------------------------------------------------------
+10. OPEN QUESTIONS
+--------------------------------------------------------------------------------
+
+  Q1  Does the user actually need their own sorter, or is loot-cli enough?
+      -> answer this BEFORE writing phase 2. Cheap to answer, expensive to undo.
+  Q2  .esl obfuscation: accept a hard dependency on an F4SE-based reader, or
+      ship a partial parser that warns on every light plugin?
+  Q3  Where does "dirty mod" detection get its authority? CK is the only
+      reliable source and it is a GUI app.
+  Q4  GPLv3 acceptable if it buys a correct rule set? PIP-MON is currently MIT.

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  PipMon.ppj : Papyrus project for the PIP-MON API surface.
+
+  SCHEMA, and the mistake worth recording
+    The first version of this file used the SKYRIM project shape
+    (PapyrusCompile / CompileDisplayName / Files). Fallout 4 uses a different
+    one, and the XSD shipped beside PapyrusCompiler.exe is authoritative:
+
+        PapyrusProject  (root, with Output/Flags/Asm/Optimize attributes)
+          Imports / Import   (one per import directory, semicolon-free)
+          Folders / Folder
+          Scripts / Script   (one per .psc to compile)
+
+    Getting this wrong does not error usefully. PapyrusCompiler accepted the
+    Skyrim-shaped file, reported nothing, and silently produced no output:
+    a green-looking invocation that compiled nothing. When a Papyrus build
+    emits nothing, check the project schema against the shipped XSD before
+    suspecting the compiler.
+
+  WHY A .ppj AT ALL
+    Two reasons, one mechanical and one structural.
+
+    Mechanical: PapyrusCompiler parses its own command line with a splitter
+    that does not tolerate the spaces in this repo's path, and the base-script
+    import directory lives under "Program Files (x86)". A project file names
+    sources by relative path from its own directory, so no spaced absolute
+    path is ever handed to the argument parser.
+
+    Structural: section 23.3 records that FO4 namespaced identifiers must be
+    parents of each other in the file system, and that namespaced scripts are
+    compiled through a project file. Compiling the surface as a project is
+    the supported path for anything with a namespace, not a workaround.
+-->
+<PapyrusProject Output="build" Flags="papyrus_flags.flg">
+  <Imports>
+    <Import>base</Import>
+  </Imports>
+  <Scripts>
+    <Script>PipMon.psc</Script>
+  </Scripts>
+</PapyrusProject>

@@ -1,0 +1,60 @@
+===================================================================================
+     FEATURE PARITY & SURPASSAL MATRIX: LEGACY SCRIPT EXTENDERS VS. PIP-MON SUITE
+===================================================================================
+
+This document breaks down every major capability of legacy Bethesda scripting plugins 
+and extenders (F4SE, po3 Papyrus Extenders, MCM, Canary, Buffout 4) and details how 
+our custom out-of-process architecture meets, exceeds, and completely surpasses them.
+
+-----------------------------------------------------------------------------------
+1. LEGACY FEATURE BREAKDOWN & OUR MODERN ARCHITECTURAL EQUIVALENT
+-----------------------------------------------------------------------------------
+
+A. F4SE (Fallout 4 Script Extender) - Core DLL Injection & Native Function Registration
+   - Legacy Approach: Hooks game memory in-process, registers custom Papyrus functions, 
+     and exposes native assembly offsets to script plugins. Fragile to every game update.
+   - Our Improvement: `vprobe.dll` isolates memory probing to a lightweight zero-allocation 
+     native module. Heavy logic is offloaded out-of-process to Rust, completely eliminating 
+     in-process DLL collision and update-breaking vtable shifts.
+
+B. po3 / Papyrus Extenders - Math, File I/O, & Array Manipulation Utilities
+   - Legacy Approach: Forces heavy file parsing and math loops to run synchronously 
+     inside the game's main execution thread via Papyrus callbacks.
+   - Our Improvement: Handled asynchronously by KaDag and our Rust daemon pipeline. 
+     Complex load-order graphs, file parsing, and data validation run out-of-process 
+     on separate CPU cores with zero game-thread frame stutter.
+
+C. MCM (Mod Configuration Menu) - Flash/ActionScript UI Settings Management
+   - Legacy Approach: Embeds heavy ActionScript 2 / Scaleform UI elements directly into 
+     the render loop, clogging the UI thread and bloating save files with persistent settings.
+   - Our Improvement: PIP-MON runs as an independent, out-of-process Ratatui TUI dashboard 
+     on a separate monitor/window, leaving DirectX 11/12 GPU pipelines 100% dedicated to Fallout 4.
+
+D. Buffout 4 / Crash Loggers - Exception Catching & Crash Diagnostics
+   - Legacy Approach: Intercepts unhandled CPU exceptions in-process to dump register 
+     states to a text file *after* the game has already crashed.
+   - Our Improvement: Proactive telemetry monitoring. PIP-MON continuously streams 
+     thread health, heap states, and queue depth, catching anomalies (like high VM queue 
+     saturation) *before* a crash happens.
+
+E. Canary (Kinggath Save Health) - Basic Save Script Polling
+   - Legacy Approach: Relies on in-game quest scripts to periodically check global 
+     variables and flag save corruption risks.
+   - Our Improvement: Canary Redux enforces a native pre-save hardware valve. It intercepts 
+     `SaveGame()`, polls `PapyrusVM::GetNumPendingEvents()` at the engine pointer level, 
+     forces queue draining, and validates handle integrity before writing clean binaries.
+
+-----------------------------------------------------------------------------------
+2. COMPARISON MATRIX: LEGACY VS. PIP-MON PIPELINE
+-----------------------------------------------------------------------------------
+
+Capability Area      Legacy Mod/Extender Model      Our PIP-MON Suite Solution
+---------------      -------------------------      --------------------------
+Execution Scope      In-Process (All plugins in     Out-of-Process Rust Daemon + 
+                     same memory space, high CTD)   Isolated Minimal C++ Probe (`vprobe.dll`)
+Thread Safety        Synchronous game-thread blocks Asynchronous, lockless IPC ring buffers (`rtrb`)
+UI / Configuration   In-game Flash/Scaleform (MCM)  External Ratatui TUI Dashboard (PIP-MON)
+Load Order & Assets  Basic .esp/.esm indexing       Async DAG graph analysis (.esp + .ba2 sync)
+Save Protection      Reactive crash logs (Buffout)  Proactive Pre-Save Queue Valve (Canary Redux)
+Performance Impact   High script lag / micro-stutters Zero heap allocation / 0ms game-thread overhead
+===================================================================================

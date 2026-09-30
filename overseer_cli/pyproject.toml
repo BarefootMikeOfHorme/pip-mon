@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "overseer-cli"
+version = "0.1.0"
+description = "PIP-MON Component 2: out-of-process Papyrus telemetry dashboard over V-Link"
+readme = "../README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "PIP-MON contributors" }]
+keywords = ["fallout4", "papyrus", "telemetry", "tui", "diagnostics"]
+classifiers = [
+    "Environment :: Console :: Curses",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Monitoring",
+]
+
+# Textual drives the dashboard; rich is used for the headless `--json` log mode
+# and for the sparkline rendering that Textual does not provide.
+dependencies = [
+    "textual>=0.80",
+    "rich>=13.7",
+    "structlog>=24.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "mypy>=1.9",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+overseer-cli = "overseer_cli.main:main"
+
+[project.urls]
+Homepage = "https://github.com/pip-mon/pip-mon-suite"
+
+# ---------------------------------------------------------------------------
+# setuptools layout
+# ---------------------------------------------------------------------------
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["overseer_cli*"]
+
+[tool.setuptools.package-data]
+overseer_cli = ["*.tcss"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# pythonpath is what makes `src/` importable without an editable install, so
+# `pytest` works in a fresh clone before anything is built or pip-installed.
+pythonpath = ["src"]
+filterwarnings = ["error::DeprecationWarning:overseer_cli.*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "ASYNC"]
+# The IPC client must be cancellable; cancelling mid-await is a normal path.
+ignore = ["B008"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/overseer_cli"]
+# The wire structs are parsed with struct.Struct, which mypy cannot see through.
+disallow_untyped_calls = false

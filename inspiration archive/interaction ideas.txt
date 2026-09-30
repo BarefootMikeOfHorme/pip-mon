@@ -1,0 +1,98 @@
+===================================================================================
+   DEEP DIVE: CREATION ENGINE (FO4) NATIVE ARCHITECTURE & SYSTEM INTEGRATION
+===================================================================================
+
+Modding tools often treat Creation Engine as a black box—relying on high-level 
+scripting or blunt binary overrides. This deep dive maps how our design (PIP-MON, 
+KaDag, and Canary Redux) interacts directly with Fallout 4's native low-level 
+subsystems, engine threads, and memory layout.
+
+-----------------------------------------------------------------------------------
+1. NATIVE ENGINE THREADING & PIP-MON INTERACTION
+-----------------------------------------------------------------------------------
+Engine Thread Topology:
+  - Main / Render Thread: Handles DX11/DX12 frame pacing, scene graphs, scaleform.
+  - Job Threads (TaskScheduler): Asynchronous job queue for collision, AI pathing.
+  - Papyrus VM Thread Pool: Executes bytecode, processes event queues, manages state.
+
+Our Integration Point:
+  - Non-Blocking Memory-Mapped Buffer (mmap):
+    Traditional mod tools hook into the Papyrus thread or main render loop to log 
+    data, causing micro-stutters and thread starvation.
+  - vprobe.dll taps into memory pointers via SEH (__try / __except) protected 
+    reads and dumps binary telemetry onto a lockless ring buffer in shared memory.
+  - PIP-MON consumes this data out-of-process, guaranteeing ZERO extra frame delay 
+    or Papyrus stack bloat regardless of telemetry volume.
+
+-----------------------------------------------------------------------------------
+2. FORM-ID ALLOCATION & THE "RULE OF ONE" IN MEMORY
+-----------------------------------------------------------------------------------
+Native FormID Indexing (32-bit):
+  - [0xAA] [0xBBBBBB] -> 8-bit Plugin Index (0x00 to 0xFE) + 24-bit Object ID.
+  - Light Plugins (.esl): Re-index the slot byte: [0xFE] [0xAAA] [0xBBB] -> 
+    Slot 0xFE is subdivided into 4,096 light slots (0x000 - 0xFFF).
+
+Native Overrides ("Rule of One"):
+  - When the game boots, the engine parses active plugins top-to-bottom.
+  - Winning record wins the pointer allocation in the runtime Data Handler.
+  - The Problem: Overriding a record without updating dependents breaks engine 
+    assumptions (e.g., cell edits breaking Previs occlusion geometry).
+
+KaDag Integration:
+  - Reads raw `TES4` binary headers and record groups (`GRUP`) directly from disk.
+  - Resolves FormID pointers and detects record-level override collisions before 
+    the engine ever initializes, exposing broken master chains and Previs 
+    violations in our DAG matrix prior to launch.
+
+-----------------------------------------------------------------------------------
+3. PAPYRUS VM INNER WORKINGS & CANARY REDUX (THE KINGGATH PROTOCOL)
+-----------------------------------------------------------------------------------
+How Papyrus Writes Saves:
+  1. Engine triggers `SaveGame()`.
+  2. The Papyrus VM pauses execution and serializes its current state:
+     - Active Thread Stacks (Frame variables, call stacks).
+     - Unattached Script Instances (Objects instantiated without a parent FormID).
+     - Global & Array Variable Heaps.
+  3. If `SaveGame()` runs while the VM queue is full (>50 pending events), unresolved 
+     pointers and half-executed thread states get permanently "baked" into the 
+     `.fos` save chunk. On reload, these broken states cause infinite loops or CTDs.
+
+Canary Redux Native Interception:
+  - C++ Plugin (`.dll`) hooks `SaveGame()` at the native assembly level.
+  - Queries native engine struct: `PapyrusVM::GetNumPendingEvents()`.
+  - Pre-Save Lock Valve: Holds the save thread execution for up to 1500ms, allowing 
+    the VM worker threads to empty their stack queues.
+  - Disk write occurs ONLY when the VM is quiescent (stack depth = 0), preventing 
+    script baking at the engine level without executing any Papyrus code itself.
+
+-----------------------------------------------------------------------------------
+4. CELL OCCLUSION (PREVIS / PRECOMBINE) & ENGINE STABILITY
+-----------------------------------------------------------------------------------
+Native Occlusion System:
+  - Precombined Meshes (PRKC): Combines dozens of static meshes in a cell into a 
+    single giant draw call to optimize CPU overhead.
+  - Previs (Visibility Data): Pre-calculated occlusion geometry determining what 
+    is visible from any point in a cell.
+
+The Flaw in Native Engine:
+  - Modifying a single static object in a cell via a `.esp` breaks the Precombine 
+    reference. The engine falls back to drawing hundreds of individual meshes 
+    and disables Previs, resulting in massive FPS drops or invisible geometry.
+
+Our Engine Telemetry Response:
+  - Tab 4 / KaDag flags cell record overrides that lack matching generated Previs 
+    overrides (`PRKC` / `.vis` flags).
+  - PIP-MON correlates sudden draw-call spikes during cell transitions to Previs 
+    mismatches rather than blame native C++ or graphics card drivers.
+
+-----------------------------------------------------------------------------------
+5. SUMMARY OF CREATION ENGINE INTEGRATION POINTS
+-----------------------------------------------------------------------------------
+Subsystem              Native Engine Issue                 Our Integration / Solution
+---------              -------------------                 --------------------------
+Papyrus VM             Stack overflow & baked scripts      Canary Redux Pre-Save Valve
+Data Handler           Silent "Rule of One" corruption     KaDag Record DAG & Slot Index
+Occlusion (Previs)     Broken geometry & draw-call spikes  Static PRKC Conflict Scanner
+Save Serialization     Corrupt .fos header arrays          Out-of-Process Repair Engine
+IPC & Profiling        In-process logging causes stutters  Lockless Shared Memory Buffer
+===================================================================================

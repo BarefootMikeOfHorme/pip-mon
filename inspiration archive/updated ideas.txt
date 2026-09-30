@@ -1,0 +1,88 @@
+===================================================================================
+ PIP-MON / KADAG / CANARY REDUX: TAB 3 (PLUGINS) - PAGE 2 SPECIFICATION
+ MODULE REPOSITORY & ENGINE NATIVE LIBRARIES (READABLE SOURCE & RAW BINARY)
+===================================================================================
+
+[ PAGE 2 LAYOUT MAP ]
++---------------------------------------------------------------------------------+
+| TAB 3: PLUGINS | PAGE 1: ACTIVE LOAD ORDER  ->  [ PAGE 2: NATIVE LIBRARIES ]   |
++---------------------------------------------------------------------------------+
+| SECTION A: READABLE SOURCE LIBRARIES    | SECTION B: RAW BINARY & MEMORY HOOKS  |
+| - High-level script, graph, & AST parsers| - Low-level byte, mmap, & crash stack  |
++---------------------------------------------------------------------------------+
+| SECTION C: UNIFIED PIPELINE MATRIX (Source -> Intercept -> Repair Pipeline)    |
++---------------------------------------------------------------------------------+
+
+-----------------------------------------------------------------------------------
+SECTION A: READABLE SOURCE & HIGHER-LEVEL ENGINE LIBRARIES
+-----------------------------------------------------------------------------------
+Used for analyzing script logic, parsing ASCII/AST records, and generating DAG graphs.
+
+1. Mutagen (C# / CLI Bridge)
+   * Domain: High-level record generation, AST script parsing, and declarative mod edits.
+   * Role in System: Generates strongly-typed C#/Rust intermediate representations of 
+     records for KaDag without executing Papyrus code inside the game thread.
+
+2. LOOT / libloadorder / esplugin (Rust)
+   * Domain: ASCII load order evaluation and topological dependency graph sorting.
+   * Role in System: Powering the KaDag DAG matrix, reading `.esp`/`.esm`/`.esl` header 
+     flags (0xFE light slots), and sorting master constraints in sub-milliseconds.
+
+3. Champollion / PEX Decompiler (C++ / Rust Port)
+   * Domain: Reads compiled Papyrus byte-code (`.pex`) and reconstructs human-readable 
+     Source Papyrus Scripting (`.psc`).
+   * Role in System: Live inspection of active thread stacks identified by Canary Redux. 
+     When a thread locks, it decompiles the offending `.pex` on-the-fly to pin-point 
+     the exact source function call.
+
+-----------------------------------------------------------------------------------
+SECTION B: RAW BINARY, MEMORY INTERCEPT, & CRASH STACK LIBRARIES
+-----------------------------------------------------------------------------------
+Used for zero-copy memory reads, byte-level save-game slice manipulation, and 
+out-of-process C++ thread stack walking.
+
+1. rust-minidump / minidump-stackwalk (Rust)
+   * Domain: Native Windows `.dmp` crash log parser and stack walker.
+   * Role in System: Parses native Fallout 4 crash dumps asynchronously. When FO4 
+     CTDs, minidump extracts the exact faulting C++ memory address, loaded DLL, 
+     and instruction pointer without needing a debugger attached.
+
+2. zlib-ng + flate2 (C++ / Rust Bindings)
+   * Domain: Zero-copy raw binary stream decompression.
+   * Role in System: Reads compressed chunks inside FO4 `.fos` save files in memory. 
+     Decompresses save header byte slices in <1ms to inspect active script heaps.
+
+3. zerocopy + byteorder (Rust)
+   * Domain: Direct casting of raw C++ memory pointers into Rust structs.
+   * Role in System: Consumes the Shared Memory Ring Buffer (mmap) written by `vprobe.dll`. 
+     Converts raw engine C++ memory slices to Rust data without allocations.
+
+4. Capstone Engine (C++ / Python)
+   * Domain: Low-level disassembly framework.
+   * Role in System: Disassembles engine memory addresses around `SaveGame()` and 
+     `PapyrusVM` vtables dynamically, avoiding hardcoded static offsets across FO4 updates.
+
+-----------------------------------------------------------------------------------
+SECTION C: UNIFIED PIPELINE ARCHITECTURE MATRIX
+-----------------------------------------------------------------------------------
+
+ +-------------------------------------------------------------------------------+
+ |                        LAYER 1: RAW BINARY / MEMORY (DLL)                     |
+ |  [vprobe.dll] --(mmap IPC)--> [zerocopy / zlib-ng] --(Raw Byte Slices)----+   |
+ +-------------------------------------------------------------------------------|
+                                                                                 |
+                                                                                 v
+ +-------------------------------------------------------------------------------+
+ |                       LAYER 2: READABLE SOURCE & DAG (DAEMON)                 |
+ |  [esplugin] ----> Generates Record Graph Matrix (KaDag)                       |
+ |  [Champollion] -> Decompiles Faulting Stack Bytecode (.pex -> .psc)           |
+ |  [minidump]    -> Symbolicates Native CTD Addresses to DLL Offsets            |
+ +-------------------------------------------------------------------------------+
+                                                                                 |
+                                                                                 v
+ +-------------------------------------------------------------------------------+
+ |                        LAYER 3: TERMINAL UI (PIP-MON TAB 3 PG 2)              |
+ |  - Displays Live Buffer Bandwidth & Byte Read Rates                           |
+ |  - Highlights Faulting .psc Lines & Active Native Library Bindings            |
+ +-------------------------------------------------------------------------------+
+===================================================================================

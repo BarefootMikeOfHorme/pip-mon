@@ -1,0 +1,42 @@
++-----------------------------------------------------------------------------------+
+|                            INTERNAL (IN-PROCESS BUS)                              |
+|                                                                                   |
+|  [ Fallout4.exe ] ---> [ C++ Probe / F4SE ] ---> [ Shared Memory / Pipe ]         |
++------------------------------------------------------------------|----------------+
+                                                                   | Fast Binary Bus
+                                                                   v
++-----------------------------------------------------------------------------------+
+|                            EXTERNAL (HUB / BROKER)                                |
+|                                                                                   |
+|                       [ Local IPC Broker / Native Sockets ]                       |
+|                                 /                 \                               |
+|                                /                   \                              |
+|  [ LIGHTWEIGHT OUTSIDE MONITOR ]                   [ MAIN WORKSPACE UI ]          |
+|  - Micro TUI / System Tray HUD                     - Actionable Error List        |
+|  - High-level telemetry                            - FormID Inspector             |
+|  - Low CPU/VRAM footprint                          - AI Agent Pipeline            |
++-----------------------------------------------------------------------------------+
+
+DUAL-MODE EVENT BUS ARCHITECTURE SPECIFICATION
+
+1. THE INSIDE HUB (In-Process Data Producer)
+   - Execution Space: Runs inside Fallout4.exe space via C++ probe / F4SE DLL plugin.
+   - Responsibility: Captures Papyrus logs, hook hits, and engine status events.
+   - Transport: Writes directly to a fast, non-blocking lockless ring buffer in Shared Memory (mmap) or a Named Pipe (\\.\pipe\Fallout4DebugBus).
+   - Performance Rule: Never parses strings or formats UI components—simply dumps raw binary structs/events onto the bus and returns immediately.
+
+2. THE OUTSIDE BUS & LIGHTWEIGHT MONITORING MODE (Gameplay)
+   - Usage: Used during active gameplay or stress-testing without running the full IDE multi-panel setup.
+   - Micro-Monitor HUD: A lightweight external listener (built in Rust/TUI or a native borderless transparent overlay) connects to the Hub.
+   - Low Footprint: Reads high-level health stats, FPS, active cell IDs, and simple error counts.
+   - Resource Usage: Uses near 0% CPU and 0 MB VRAM, preventing micro-stutters or frame drops while the game engine is under load.
+
+3. THE EMBEDDED ACTIONABLE MODE (Debugging / Iteration)
+   - Usage: Used when dropping out of full-screen test mode back into the development UI.
+   - Full Listener Activation: The main workspace application connects to the same Hub.
+   - Event Reconstruction: Pulls the raw event stream from the bus, parses multi-line stack traces, converts them into Atomic Data Items with checkboxes, and prepares payloads for the AI agent.
+
+BENEFITS OF THIS SETUP
+1. Decoupled Crash Protection: If the game crashes (CTD), the internal probe dies, but the Outside Hub and Monitor stay alive—capturing the exact final stack trace or AOB offset hit right up to the millisecond of the crash.
+2. Selective Subscriber Rate: The outside light monitor can listen at 1 Hz for basic status, while the main editor subscribes to full-verbosity logs only when focused.
+3. Multi-Client Flexibility: Multiple external tools can attach to the same bus simultaneously (light HUD, file logger, AI terminal pipeline) without modifying any game-side code.

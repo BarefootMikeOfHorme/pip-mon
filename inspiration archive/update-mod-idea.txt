@@ -1,0 +1,81 @@
+===================================================================================
+     INTEGRATED RESEARCH & ARCHITECTURAL REFINEMENTS (BETHESDA / UNITY / MODDING)
+===================================================================================
+
+1. NOMENCLATURE & PARALLELS (Creation Engine vs. Unity)
+-----------------------------------------------------------------------------------
+Bethesda (Creation Engine)      Unity Engine Paradigm           System Feature Equivalent
+--------------------------      ---------------------           -------------------------
+Papyrus Stack Dump              Stack Overflow Exception        Multi-line Stack Grouping
+Previs / Precombine (PRKC)      Static Occlusion Culling        Previs/Precomb Violation Scan
+FormID Overrides / Masters      Prefab Instantiation / Prefabs  Master FormID Dependency Re-aligner
+Cloak Script / OnUpdate Poll    Coroutines / Update() Loop      Script Polling & Event Profiler
+xEdit ITM (Identical Master)    Redundant Asset Overrides       Dirty Record Auto-Scrubber
+F4SE Native Hook / AOB          Native C++ Plugins (P/Invoke)   C++ Probe & AOB Delta Scanner
+
+
+2. ENHANCEMENT & REFINEMENT ADDITIONS
+-----------------------------------------------------------------------------------
+[A] Papyrus Log / Event Parsing Optimization:
+  - "Suspended Stack" Early Warning: In Creation Engine, before a crash occurs,
+    the engine outputs "Suspended stack count is over our warning threshold".
+    * Enhancement: Parse this specific warning string in the bus stream to trigger 
+      a high-priority alert BEFORE a Hard CTD occurs.
+  - Cloak Script & Polling Detector: Flag scripts using rapid OnUpdate() loops 
+    or high-frequency distance-check spatial scans (cloak scripts) that create 
+    script latency without throwing fatal syntax errors.
+
+[B] Previs/Precombine (PRKC/Previsibine) Conflict Inspector:
+  - Cause of In-Game "Invisible Walls / Geometry Glitches": Occurs when a mod alters
+    a CELL record (e.g., removing a wall or light) without regenerating Previs data,
+    causing the engine to perform invalid occlusion culling.
+  - Enhancement: Cross-reference CELL record overrides in the upper tree view with 
+    active BA2/loose asset previs files. Flag high-risk cell mismatches automatically.
+
+[C] Unity-Style Contextual Logging & Filtering:
+  - Adopt Unity's "Debug.LogFormat" pattern where log objects store:
+    1) Raw Error String  2) Script/Source Path  3) Line/Column Index  4) Target FormID.
+  - Allows one-click jumping directly from the Actionable Error List item in the 
+    bottom terminal right to the exact script line in the Upper Modular Workspace.
+
+
+3. ISSUES WE MIGHT CAUSE (System Pitfalls & Safeguards)
+-----------------------------------------------------------------------------------
+[!] ISSUE 1: In-Process Bus Overhead & Micro-Stutters
+  - Risk: If the C++ Probe / F4SE plugin does heavy string formatting or file I/O 
+    inside the game process, it will cause frame drops or engine thread starvation.
+  - Safeguard: Keep the internal producer thread completely asynchronous. Use a 
+    lockless ring buffer in shared memory (mmap) and write raw binary structs. 
+    Defer ALL string parsing, line grouping, and UI generation to the external host.
+
+[!] ISSUE 2: Papyrus Log Buffer Flooding (Log Spam Lockup)
+  - Risk: An infinite loop or stack dump in Papyrus can output 40MB+ text files in 
+    seconds, causing the UI watcher to freeze or exhaust system RAM.
+  - Safeguard: Implement a rate-limiter & hash deduplication filter in the bus. 
+    If the same error hash fires >50 times/sec, collapse it into a single atomic 
+    item with a live counter badge (e.g., "Error X [x1450]") without allocating 
+    new UI list entries.
+
+[!] ISSUE 3: Unsafe Memory Reads During Live AOB Scanning
+  - Risk: Scanning memory sections of Fallout4.exe while the game is running or 
+    updating can trigger Access Violations (0xC0000005) or crash the process.
+  - Safeguard: Ensure AOB pattern scanners run under SEH (__try / __except) or 
+    `VirtualQuery` page-attribute checks to verify `PAGE_EXECUTE_READ` permissions 
+    before reading pointer addresses.
+
+[!] ISSUE 4: AI Context Window Over-Saturations
+  - Risk: Sending raw, un-filtered 500-line stack dumps to the AI agent wastes 
+    tokens and confuses the LLM with repetitive engine noise.
+  - Safeguard: The "Send to AI" action button should extract ONLY the deduplicated 
+    atomic stack object, associated script source code snippet, and target version 
+    deltas before formatting the prompt payload.
+
+
+4. IMPLEMENTATION ROADMAP (Next Steps)
+-----------------------------------------------------------------------------------
+Step 1: Finalize C++ Probe / F4SE Hook and verify memory-mapped ring buffer.
+Step 2: Build the native C++ test harness to test AOB signatures against binary dumps.
+Step 3: Connect the external lightweight TUI / Rust bus listener.
+Step 4: Implement atomic list grouping & deduplication in the lower terminal UI.
+Step 5: Wire the "Send Selected to AI" payload builder into the main workspace.
+===================================================================================

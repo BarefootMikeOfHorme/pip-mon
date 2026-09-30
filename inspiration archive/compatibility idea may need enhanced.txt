@@ -1,0 +1,72 @@
+===================================================================================
+  NON-SCRIPT / RECORD-LEVEL MOD COMPATIBILITY & ISOLATION SPECIFICATION
+===================================================================================
+
+This specification analyzes compatibility risks with external static/data mods 
+(mesh/texture replacements, worldspace overhaul plugins, cell record overrides, 
+and archive modifications) that do NOT directly modify our C++ probe or Papyrus 
+codebase, ensuring our workspace tools and engine-bus run safely alongside them.
+
+-----------------------------------------------------------------------------------
+1. STATIC DATA MOD CONFLICT TAXONOMY
+-----------------------------------------------------------------------------------
+[A] Previs / Precombine (PRP) Breaking & Geometry Occlusion
+    - Mechanism: Worldspace mods (e.g., cell overhauls, scrap mods) alter static 
+      references without updating Precombines (`.prkc`) or Visibility (`.vis`).
+    - Impact on Our Setup: The game renders invisible geometry or massive draw-call 
+      spikes. Does not crash our C++ probe, but produces severe frame drops.
+    - System Response: Our workspace flags overridden `CELL` records missing 
+      previs data and excludes false-positive memory alerts caused by rendering lag.
+
+[B] FormID Record Overrides (Master Conflicts)
+    - Mechanism: Weather, lighting, or item balance mods override base `.esm` FormIDs.
+    - Impact on Our Setup: Zero impact on runtime probes. However, if our tool inspects 
+      FormIDs via xEdit/xFramework, it must resolve the winning record in the load 
+      order rather than assuming base vanilla values.
+    - System Response: The FormID Inspector reads the final winning override record 
+      from the active load order stack.
+
+[C] Loose File Asset Invalidation (BA2 vs. Loose Files)
+    - Mechanism: HD texture or mesh replacement mods load via loose `Data/` folders, 
+      bypassing `.ba2` archives.
+    - Impact on Our Setup: Loose files can increase disk I/O and memory usage.
+    - System Response: High-frequency disk reads are isolated so they do not starve 
+      our memory-mapped IPC pipe (`mmap`).
+
+[D] FaceGen / Tint Mask Record Stutters
+    - Mechanism: NPC overhaul mods altering `NPC_` records without matching pre-baked 
+      FaceGen geometry files (`.nif`/`.dds`).
+    - Impact on Our Setup: Causes severe engine micro-stutters upon NPC spawning.
+    - System Response: Telemetry detects NPC spawn frame-spikes and tags them as 
+      "FaceGen Mismatch" rather than C++ hook latency.
+
+-----------------------------------------------------------------------------------
+2. SAFEGUARD & ISOLATION PARADIGMS
+-----------------------------------------------------------------------------------
+[1] Read-Only Shared Memory Protocol:
+    - Our C++ probe operates strictly in read-only mode relative to external mod 
+      records. It reads engine pointers and logs without attempting to mutate 
+      third-party plugin structures in memory.
+
+[2] Game State / Event Filtering (Noise Suppression):
+    - When third-party texture or mesh errors flood `Papyrus.0.log` or engine logs 
+      (e.g., missing texture warnings), our deduplication pipeline hashes and 
+      collapses these entries so they do not pollute the Actionable Error List.
+
+[3] Non-Intrusive Overlay & Input Isolation:
+    - The detachable/pinned debugging HUD uses OS-level transparent overlay windows 
+      (`WS_EX_TOPMOST` / `WS_EX_TRANSPARENT`). It never intercepts direct game input 
+      or hooks DX11/DX12 swapchains directly, preventing conflicts with ENB, 
+      Reshade, or HUD mods.
+
+-----------------------------------------------------------------------------------
+3. MOD COMPATIBILITY MATRIX
+-----------------------------------------------------------------------------------
+Mod Category             Conflict Risk     Handling & Safeguard Action
+------------             -------------     ---------------------------
+Texture & Mesh Packs     VERY LOW          Deduplicate missing file warnings in bus.
+Worldspace & Cell Mods   MEDIUM            Flag Previs/Precombine cell mismatches.
+Lighting & Weather Mods  LOW               Resolve winning FormID overrides.
+UI / HUD Overlays        LOW               Use borderless OS overlay (no DX hook clash).
+Body / NPC Overhauls     LOW               Isolate FaceGen stutter telemetry from C++ metrics.
+===================================================================================

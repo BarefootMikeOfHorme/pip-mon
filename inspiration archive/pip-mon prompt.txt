@@ -1,0 +1,83 @@
+Act as a Principal Systems Engineer, Reverse Engineering Lead, and Terminal UI Architect.
+
+We are building PIP-MON (Pip-Boy Monitoring & Diagnostics Suite), a unified, version-agnostic runtime telemetry and troubleshooting ecosystem for Fallout 4. It supports both Old Gen (1.10.163) and Next Gen (1.10.980+) executable versions.
+
+### SYSTEM ARCHITECTURE OVERVIEW
+The suite is composed of three decoupled sub-projects:
+1. V-Probe (vprobe.dll): In-process C++ F4SE probe plugin.
+2. OverseerCLI (overseer-cli.exe): Out-of-process Rust or Python 3.12 Terminal UI dashboard.
+3. PipMon_TestLab (PipMon_TestLab.esp): Quarantined sandbox cell for deterministic testing & debug.
+
+---
+
+### DIRECTORY LAYOUT TO SCAFFOLD
+pip-mon/
+├── vprobe/                         # Component 1: Native C++ F4SE Probe Plugin
+│   ├── CMakeLists.txt
+│   ├── include/
+│   │   ├── DynamicScanner.hpp     # Dynamic AOB (Array of Bytes) pattern scanning
+│   │   ├── IPCServer.hpp          # Win32 Named Pipe non-blocking server interface
+│   │   ├── PapyrusHooks.hpp       # Papyrus VM thread execution & stack hooks
+│   │   └── VersionConfig.hpp      # Version-agnostic Address Library abstractions
+│   └── src/
+│       ├── DynamicScanner.cpp
+│       ├── IPCServer.cpp
+│       ├── PapyrusHooks.cpp
+│       └── main.cpp               # F4SE entry points (F4SEPlugin_Query / F4SEPlugin_Load)
+│
+├── overseer_cli/                   # Component 2: External Terminal TUI Application
+│   ├── Cargo.toml / pyproject.toml # Dependencies (Ratatui/Crossterm OR Textual/Rich)
+│   ├── src/ / overseer_cli/
+│   │   ├── main.rs / main.py      # Main application loop & TUI layout rendering
+│   │   ├── ipc_client.rs / .py    # Async Win32 Named Pipe client (`\\.\pipe\vlink_telemetry`)
+│   │   ├── profiler.rs / .py      # Rolling thread stack analysis & frequency tracking
+│   │   ├── detector.rs / .py      # Heuristic anomaly detector (runaway loop / handle leaks)
+│   │   └── ui/                    # Render widgets (Stack Panel, Anomaly List, Logs)
+│   └── tests/                     # Unit tests for log parsing & heuristic rules
+│
+├── pip_mon_testlab/                # Component 3: Quarantined Test & Debug Sandbox
+│   ├── PipMon_TestLab.esp         # Standalone interior cell mod
+│   └── Scripts/
+│       └── Source/
+│           ├── PipMon_LoopTest.psc      # Synthetic infinite loop & stack stress generator
+│           ├── PipMon_LeakTest.psc      # Handle leak & array inflation simulator
+│           └── PipMon_TerminalTest.psc  # Interactive in-game test bench controller
+│
+├── docs/                           # Documentation & Specs
+│   ├── IPC_PROTOCOL.md            # JSONC / CBOR schema specifications for V-Link
+│   └── ANOMALY_RULES.md           # Heuristic rule definitions for anomaly detector
+│
+└── README.md
+
+---
+
+### TECHNICAL SPECIFICATIONS & GUIDELINES
+
+1. COMPONENT 1: V-PROBE (C++ Native Plugin)
+   - Engine: Modern C++20 compiled with CommonLibF4-NG / CommonLibF4 and spdlog.
+   - Dynamic Address Resolution: Implement dynamic AOB (Array of Bytes) pattern matching fallback routines. If Address Library resolution fails on an unmapped runtime patch, perform an AOB scan with wildcard support. If both fail, gracefully disable affected hooks without crashing Fallout4.exe.
+   - Non-Blocking IPC (V-Link): Expose a Win32 Named Pipe (`\\.\pipe\vlink_telemetry`).
+   - Zero Main-Thread Overhead: Do NOT execute string formatting, disk I/O, or regex on the game's main thread. Push VM event pointers into a lock-free queue and flush binary CBOR or serialized JSON payloads via a background I/O thread.
+
+2. COMPONENT 2: OVERSEERCLI (Out-of-Process TUI)
+   - Runtime: Rust (Ratatui / Crossterm / Tokio) OR Python 3.12 (Textual / Rich / PyWin32 / msgspec).
+   - Async IPC Consumer: Connect to `\\.\pipe\vlink_telemetry` without blocking the UI event loop.
+   - Real-Time Profiler & Anomaly Detector:
+     * Profile Papyrus thread frequencies over a rolling 5-second window.
+     * Flag infinite loops (threads running >500 ops/sec or holding open >1,000 handles).
+     * Output flags with exact Mod Name, Script Name, and FormID.
+   - Command Dispatcher: Send thread control commands back to V-Probe. Note: V-Probe must queue incoming commands through F4SE's TaskInterface to execute safely on the next main-thread frame tick.
+
+3. COMPONENT 3: PIPMON_TESTLAB (Quarantined Sandbox Environment)
+   - Purpose: Provide a clean interior cell (`coc PipMonTestLabCell`) with baseline active thread counts (~5-10 threads) for deterministic testing.
+   - Fixtures: Include a Workshop bench, 2 NPC spawn markers (Friendly / Hostile), and a Script Test Bench terminal.
+   - Synthetic Test Scripts:
+     * `PipMon_LoopTest.psc`: Executes an endless `Utility.Wait(0.01)` loop to test OverseerCLI's runaway thread flag.
+     * `PipMon_LeakTest.psc`: Spawns unmanaged object references to trigger handle leak heuristics.
+
+---
+
+### INITIAL IMPLEMENTATION TASK
+1. Provide the C++ header and source files for `IPCServer.hpp` and `IPCServer.cpp` using Win32 Named Pipes with asynchronous non-blocking I/O inside `vprobe`.
+2. Provide the Python or Rust client implementation for `ipc_client` inside `overseer_cli` that connects to `\\.\pipe\vlink_telemetry` and reads event streams asynchronously.
+3. Outline the Papyrus source code (`.psc`) for `PipMon_LoopTest.psc` and `PipMon_LeakTest.psc`.

@@ -1,0 +1,66 @@
+===================================================================================
+     ARCHITECTURAL AUDIT: REPLACING F4SE & CREATION KIT RUNTIMES WITH 
+                       OUR CUSTOM PIP-MON EXTENSION PIPELINE
+===================================================================================
+
+This document confirms our architectural alignment: our system is designed to completely 
+bypass and replace legacy tooling (F4SE, traditional script extenders, and manual Creation 
+Kit script injection methods) by establishing a high-performance, out-of-process 
+Rust/C++ telemetry and control supervisor.
+
+-----------------------------------------------------------------------------------
+1. THE CONFLICT OF IN-PROCESS OVERLAPPING EXTENDERS
+-----------------------------------------------------------------------------------
+
+A. The Danger of Multiple In-Process Hooks
+   - Issue: If F4SE, traditional Papyrus script extenders (`po3`), and custom third-party 
+     plugin frameworks all attempt to hook `Fallout4.exe` and inject native function 
+     tables into the same process memory simultaneously, they step on each other's 
+     vtable pointers.
+   - Result: Undefined behavior, memory corruption, unpredictable runtime thread 
+     contention, and instant Crash-to-Desktop (CTD).
+
+B. Our Replacement Strategy
+   - Design Rule: **We do not co-exist with or rely on F4SE.** 
+   - Execution Model: Our custom native module (`vprobe.dll`) acts as the sole, unified 
+     low-level interface. It takes full control of the required memory probes, bypasses 
+     legacy script-extender dependency chains, and offloads heavy processing to our 
+     out-of-process Rust daemon via lockless shared memory (`mmap`).
+
+-----------------------------------------------------------------------------------
+2. HOW OUR PIPELINE SURPASSES F4SE & CREATION KIT LIMITATIONS
+-----------------------------------------------------------------------------------
+
+A. Out-of-Process Execution vs. In-Game Script Bloat
+   - F4SE Plugins: Run entirely inside the game process threads, meaning complex data 
+     processing or logging causes direct frame rate micro-stutters.
+   - Our System: `vprobe.dll` captures raw engine memory states with zero-allocation 
+     operations and instantly pushes them to a lockless ring buffer (`rtrb`). Heavy 
+     analysis (such as KaDag load-order graphing and telemetry rendering) executes 
+     entirely out-of-process in our Rust application and Ratatui TUI dashboard (PIP-MON).
+
+B. Memory Safety & Crash Isolation
+   - Legacy Extenders: Written in raw C++ without modern safety bounds, making memory 
+     leaks and null-pointer dereferences common crash vectors.
+   - Our System: Leverages Rust's strict memory-safety guarantees for all heavy data 
+     handling, restricting `unsafe` code strictly to isolated memory probes. If an 
+     external analysis tool hiccups, the game process remains 100% stable and untouched.
+
+C. Automated Save-Health & Queue Control (Canary Redux Integration)
+   - Bypassing Manual Script Fixes: Instead of relying on mod scripts to manually clean 
+     up their own variable garbage, our pre-save native hook intercepts `SaveGame()`, 
+     polls the VM queue state directly from engine structs, holds execution until 
+     queues drain to zero, and validates handle integrity before writing clean binary chunks.
+
+-----------------------------------------------------------------------------------
+3. SUMMARY: THE UNIFIED ARCHITECTURAL STACK
+-----------------------------------------------------------------------------------
+
+Component              Role in Replacement Architecture
+---------              --------------------------------
+`vprobe.dll`           Unified native C++ memory hook (replaces F4SE injection layers)
+`mmap` Ring Buffer     Zero-allocation, lockless IPC bridge out of the game process
+Rust Daemon / KaDag    External DAG analysis, mod validation, and dependency resolution
+PIP-MON                Out-of-process Ratatui TUI dashboard (zero in-game UI overhead)
+Canary Redux           Native pre-save validation catch & Papyrus queue drain valve
+===================================================================================

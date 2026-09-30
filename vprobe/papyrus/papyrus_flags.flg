@@ -1,0 +1,118 @@
+// List of flags for PIP-MON - see papyrus_flags.flg.md for the full rationale.
+//
+// The FO4 Papyrus compiler parses this file with an ANTLR grammar that accepts
+// `//` comments and a `Flag <Name> <index> { <types> }` structure. A bare word
+// per line is NOT valid, and `;` comments are NOT valid. The index is
+// arbitrary; the type block scopes where the flag may appear. We declare the
+// flags referenced by the base game sources under Data\Scripts\Source so that
+// compiling our surface against them succeeds without needing Bethesda's
+// unshipped Institute_Papyrus_Flags.flg.
+
+Flag Hidden 0
+{
+Script
+Property
+StructVar
+Function
+Variable
+}
+
+Flag Quest 1
+{
+Script
+}
+
+Flag JValue 2
+{
+Script
+Property
+StructVar
+Function
+Variable
+}
+
+Flag JString 3
+{
+Script
+Property
+StructVar
+Function
+Variable
+}
+
+Flag JMap 4
+{
+Script
+Property
+StructVar
+Function
+Variable
+}
+
+Flag JLua 5
+{
+Script
+Property
+StructVar
+Function
+Variable
+}
+
+Flag JIntMap 6
+{
+Script
+Property
+StructVar
+Function
+Variable
+}
+
+Flag JFormMap 7
+{
+Script
+Property
+StructVar
+Function
+Variable
+}
+
+Flag JFormDB 8
+{
+Script
+Property
+StructVar
+Function
+Variable
+}
+
+Flag JDB 9
+{
+Script
+Property
+StructVar
+Function
+Variable
+}
+
+Flag JContainers 10
+{
+Script
+}
+
+Flag JAtomic 11
+{
+Script
+Property
+StructVar
+Function
+Variable
+}
+
+Flag JArray 12
+{
+Script
+Property
+StructVar
+Function
+Variable
+}

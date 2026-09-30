@@ -1,0 +1,82 @@
+/* OverseerCLI dashboard styling.
+ *
+ * Colours are chosen for legibility on both dark and light terminals, so every
+ * foreground is paired with an explicit contrast rather than relying on the
+ * theme default. Severity colours are the load-bearing ones: red must stay
+ * readable on a projector when someone is sharing this screen to explain a bug.
+ */
+
+Screen {
+    layout: vertical;
+    background: $surface;
+}
+
+#panels {
+    height: 3fr;
+    min-height: 12;
+}
+
+#panel-stack    { width: 2fr; min-width: 40; }
+#panel-memory   { width: 1fr; min-width: 26; }
+#panel-anomaly  { width: 2fr; min-width: 40; }
+
+.panel-title {
+    height: 1;
+    padding: 0 1;
+    text-style: bold;
+    color: $accent;
+    background: $panel;
+}
+
+#thread-summary, #mem-summary {
+    height: auto;
+    padding: 0 1;
+}
+
+DataTable {
+    height: 1fr;
+    scrollbar-size-vertical: 1;
+}
+
+#thread-table {
+    border: round $primary-darken-2;
+}
+
+#anomaly-table {
+    border: round $primary-darken-2;
+}
+
+.detail {
+    height: 3;
+    padding: 0 1;
+    border-top: solid $primary-darken-2;
+    overflow-y: auto;
+}
+
+#spark-row {
+    height: 5;
+    padding: 0 1;
+}
+
+#spark-mem    { width: 1fr; }
+#spark-events { width: 1fr; margin-left: 1; }
+
+#diag-wrap {
+    height: 0;
+    border-top: solid $primary-darken-2;
+}
+
+#diag-log {
+    padding: 0 1;
+}
+
+.status {
+    height: 1;
+    padding: 0 1;
+    background: $panel;
+    color: $text;
+}
+
+Footer {
+    dock: bottom;
+}

@@ -1,0 +1,17 @@
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ TOP PANE: RESIZABLE INTERACTIVE CONSOLE                                                │
+│                                                                                        │
+│ OverseerCLI > help                                                                     │
+│ Available commands:                                                                    │
+│   kill <ThreadID>   - Soft-cancel or force-purge a Papyrus thread                     │
+│   exec <cmd>        - Send raw console command back into Fallout 4 engine              │
+│   compile <file>    - Trigger parallel Caprica build pipeline                          │
+│   sort              - Run DAG topological sort on load order                           │
+│                                                                                        │
+│ OverseerCLI > exec tgm                                                                 │
+│ [V-LINK OUT] Sent command to Fallout 4 main thread: "tgm" (God Mode toggled)           │
+├────────────────────────────────────────────────────────────────────────────────────────┤
+│ BOTTOM PANE: FIXED DEDICATED TELEMETRY DASHBOARD (Always Visible)                      │
+│ CPU Core 0: [||||||||||....] 52% | RAM: 4.8GB | FPS: 59.9 | Active VM Threads: 12      │
+│ [WARN] PipMon_LoopTest.psc (FormID: 0x0004A23F) running @ 820 ops/sec                  │
+└────────────────────────────────────────────────────────────────────────────────────────┘
