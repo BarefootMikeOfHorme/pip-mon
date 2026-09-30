@@ -387,6 +387,273 @@ Function ClearTestCharacter()
 EndFunction
 
 ; ===========================================================================
+;  THE ROSTER
+; ===========================================================================
+;  10 NPCs, 2 robots, 2 synths, 1 merchant. Named properties rather than an
+;  array, and that is a forced choice with a benefit.
+;
+;  WHY NOT AN ARRAY
+;    FO4's Papyrus has no array length intrinsic. `GetLength()`, `GetSize()`,
+;    `Count()` and `Size()` were each probed against the real compiler: the
+;    first is "not a function or does not exist" and the rest fail to parse at
+;    all. Without a length there is no way to iterate an editor-filled array
+;    from script, so `ObjectReference[] property Roster` would be writable in
+;    the CK and unreadable here. Individual properties sidestep the question
+;    entirely.
+;
+;    The benefit is real rather than merely acceptable: fifteen named slots are
+;    visible at a glance in the CK's property list, so "which one is the synth"
+;    is answered by looking instead of by counting array indices. For something
+;    whose whole job is to be inspected, that is worth more than the tidiness of
+;    a loop.
+;
+;  NATIVE BEHAVIOUR, NOT SCRIPTED BEHAVIOUR
+;    Each actor is placed and then handed straight back to the game's own AI:
+;
+;        EvaluatePackage(true)
+;
+;    tells the actor to run the package the CK assigned it, with a reset. That
+;    is the whole mechanism -- these NPCs walk, idle, and interact because the
+;    game's systems do it, not because this script animates them. Which is
+;    both what was asked for and the more useful thing to be testing: a
+;    hand-scripted patrol would prove our scripting works, while native
+;    packages prove the VM is actually executing, which is the S0 question.
+;
+;    It also means the roster looks right with vanilla ActorBases. Enhancement
+;    mod NPCs work identically, since it is the same package mechanism -- so
+;    the roster can be dressed up later without touching this file.
+;
+;  NO CreateObjectAtForm
+;    There is no such native in FO4. A form reference has to exist before it
+;    can be placed, which is the whole reason every reference here is CK-
+;    assigned. Runtime spawning from a form ID is not available.
+
+; NPCs
+ObjectReference property Npc01 Auto
+ObjectReference property Npc02 Auto
+ObjectReference property Npc03 Auto
+ObjectReference property Npc04 Auto
+ObjectReference property Npc05 Auto
+ObjectReference property Npc06 Auto
+ObjectReference property Npc07 Auto
+ObjectReference property Npc08 Auto
+ObjectReference property Npc09 Auto
+ObjectReference property Npc10 Auto
+; robots
+ObjectReference property Robot01 Auto
+ObjectReference property Robot02 Auto
+; synths
+ObjectReference property Synth01 Auto
+ObjectReference property Synth02 Auto
+; merchant -- its trade inventory is CK-side (a vendor script plus container),
+; not built here, because a merchant without stock is just an NPC.
+ObjectReference property MerchantRef Auto
+; where they all appear
+ObjectReference property SpawnHub Auto
+
+int property rosterPlaced = 0 auto readonly
+
+; --- the actors we actually placed -------------------------------------------
+; These are the SCRIPT'S record of what it created, and they are what makes
+; teardown possible at all.
+;
+; Why this exists: the roster properties above hold ActorBase templates, but
+; PlaceAtMe returns a NEW Actor, and Papyrus has no way to enumerate a cell or
+; look an actor up by its base. Without somewhere to put the returned actor,
+; ClearRoster has nothing to delete and would silently do nothing -- which is
+; the worst failure shape available: a teardown that reports success and leaves
+; the previous cast standing.
+;
+; Auto, not AutoReadOnly: AutoReadOnly is READ-ONLY to the script, which is
+; precisely the wrong direction here -- these fields exist so the script can
+; record what it placed. They also persist with the save, so a reloaded save
+; can still be cleaned up. The cost is that the CK will also offer them for
+; editing, which is untidy but harmless; leaving them empty is correct.
+;
+; Two compiler rules this line depends on, both found the hard way: a bare
+; `ObjectReference property x` is not valid at all, and an Auto property with
+; no initial value is rejected -- it must be `= none Auto`.
+ObjectReference property placedN01 = none Auto
+ObjectReference property placedN02 = none Auto
+ObjectReference property placedN03 = none Auto
+ObjectReference property placedN04 = none Auto
+ObjectReference property placedN05 = none Auto
+ObjectReference property placedN06 = none Auto
+ObjectReference property placedN07 = none Auto
+ObjectReference property placedN08 = none Auto
+ObjectReference property placedN09 = none Auto
+ObjectReference property placedN10 = none Auto
+ObjectReference property placedRobot01 = none Auto
+ObjectReference property placedRobot02 = none Auto
+ObjectReference property placedSynth01 = none Auto
+ObjectReference property placedSynth02 = none Auto
+ObjectReference property placedMerchant = none Auto
+
+; Places one actor at the hub, hands it to the game's AI, and returns it.
+; Returns none if the slot is unassigned or the hub is missing.
+Actor Function SpawnOne(ObjectReference akBase)
+    Actor a = none
+    If akBase == none
+        Return none
+    EndIf
+    If SpawnHub == none
+        Return none
+    EndIf
+
+    a = akBase.PlaceAtMe(SpawnHub, 0, 0) as Actor
+    If a == none
+        Return none
+    EndIf
+
+    ; The reset flag matters. Without it an actor that has already run its
+    ; package to completion will not pick the package up again, so a re-run of
+    ; the facility leaves the previous cast standing still.
+    a.EvaluatePackage(true)
+    a.EnableAI(true)
+    Return a
+EndFunction
+
+; Returns how many were actually placed. Expected 15 on a fully assigned
+; facility; anything less means CK properties are unassigned, and the gap is
+; deliberately visible rather than smoothed over.
+Int Function PopulateRoster()
+    Int i = 0
+
+    placedN01 = SpawnOne(Npc01)
+    placedN02 = SpawnOne(Npc02)
+    placedN03 = SpawnOne(Npc03)
+    placedN04 = SpawnOne(Npc04)
+    placedN05 = SpawnOne(Npc05)
+    placedN06 = SpawnOne(Npc06)
+    placedN07 = SpawnOne(Npc07)
+    placedN08 = SpawnOne(Npc08)
+    placedN09 = SpawnOne(Npc09)
+    placedN10 = SpawnOne(Npc10)
+    placedRobot01 = SpawnOne(Robot01)
+    placedRobot02 = SpawnOne(Robot02)
+    placedSynth01 = SpawnOne(Synth01)
+    placedSynth02 = SpawnOne(Synth02)
+    placedMerchant = SpawnOne(MerchantRef)
+
+    If placedN01 != none
+        i = i + 1
+    EndIf
+    If placedN02 != none
+        i = i + 1
+    EndIf
+    If placedN03 != none
+        i = i + 1
+    EndIf
+    If placedN04 != none
+        i = i + 1
+    EndIf
+    If placedN05 != none
+        i = i + 1
+    EndIf
+    If placedN06 != none
+        i = i + 1
+    EndIf
+    If placedN07 != none
+        i = i + 1
+    EndIf
+    If placedN08 != none
+        i = i + 1
+    EndIf
+    If placedN09 != none
+        i = i + 1
+    EndIf
+    If placedN10 != none
+        i = i + 1
+    EndIf
+    If placedRobot01 != none
+        i = i + 1
+    EndIf
+    If placedRobot02 != none
+        i = i + 1
+    EndIf
+    If placedSynth01 != none
+        i = i + 1
+    EndIf
+    If placedSynth02 != none
+        i = i + 1
+    EndIf
+    If placedMerchant != none
+        i = i + 1
+    EndIf
+
+    rosterPlaced = i
+    Return i
+EndFunction
+
+; Removes only what PopulateRoster created. A roster that scrubbed the cell
+; would take out anything the player placed themselves, which is the fastest
+; way to make a test environment untrustworthy -- and there is no way to tell
+; the difference from script, so the record in placed* is the only safe basis.
+Function ClearRoster()
+    If placedN01 != none
+        placedN01.Delete()
+        placedN01 = none
+    EndIf
+    If placedN02 != none
+        placedN02.Delete()
+        placedN02 = none
+    EndIf
+    If placedN03 != none
+        placedN03.Delete()
+        placedN03 = none
+    EndIf
+    If placedN04 != none
+        placedN04.Delete()
+        placedN04 = none
+    EndIf
+    If placedN05 != none
+        placedN05.Delete()
+        placedN05 = none
+    EndIf
+    If placedN06 != none
+        placedN06.Delete()
+        placedN06 = none
+    EndIf
+    If placedN07 != none
+        placedN07.Delete()
+        placedN07 = none
+    EndIf
+    If placedN08 != none
+        placedN08.Delete()
+        placedN08 = none
+    EndIf
+    If placedN09 != none
+        placedN09.Delete()
+        placedN09 = none
+    EndIf
+    If placedN10 != none
+        placedN10.Delete()
+        placedN10 = none
+    EndIf
+    If placedRobot01 != none
+        placedRobot01.Delete()
+        placedRobot01 = none
+    EndIf
+    If placedRobot02 != none
+        placedRobot02.Delete()
+        placedRobot02 = none
+    EndIf
+    If placedSynth01 != none
+        placedSynth01.Delete()
+        placedSynth01 = none
+    EndIf
+    If placedSynth02 != none
+        placedSynth02.Delete()
+        placedSynth02 = none
+    EndIf
+    If placedMerchant != none
+        placedMerchant.Delete()
+        placedMerchant = none
+    EndIf
+    rosterPlaced = 0
+EndFunction
+
+; ===========================================================================
 ;  LIFECYCLE
 ;  OnInit is the ONLY event this script can declare. See the header: every
 ;  other FO4 event we want requires a Native script, and a Native script may

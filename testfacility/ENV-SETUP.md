@@ -17,15 +17,55 @@ Checked, not assumed:
 | Creation Kit | `CreationKit.exe` **1.11.240.0** — exact build match |
 | F4SE | `f4se_loader.exe` **0.7.9** |
 | HUDFramework | installed (Transfer Settlements requires it) |
-| **CKPE** | **NOT installed** — see §1 |
-| Transfer Settlements | **NOT installed** — see §1 |
+| **CKPE** | **NOT installed** — see section 1 |
+| Transfer Settlements | **NOT installed** — see section 1 |
 | `Data\Mods\` | empty; no plugin has ever been built here |
-| Mod manager | **Vortex manages this install** — see §5, this matters |
+| Second Steam library | `D:\SteamLibrary` — 5.5 TB free |
 
-There is also a large existing mod load (SimSettlements 2, snap'n build,
-WorkshopFramework, several power-armour overhauls). That is mostly useful: parts
-and snapping are already there. The exception is SimSettlements 2 — see §6,
-it is the single biggest risk to this build.
+### 0.1 The main install is NOT the test environment
+
+The existing FO4 install carries **200+ mods**: SimSettlements 2, snap'n build,
+WorkshopFramework, three separate power-armour overhauls, Seasons, and a wall of
+texture packs. **Do not test PIP-MON in it.**
+
+This is not tidiness. It is whether the S0 result means anything.
+
+- If the hook **succeeds** there, there is no way to tell a robust
+  implementation from one that happened to survive that particular load order.
+- If it **fails**, there is no way to tell a PIP-MON defect from SimSettlements
+  2 fighting it for the workshop hooks.
+
+A minimal environment turns "it works" into a claim that can be checked, and
+"it broke" into a diagnosis rather than a shrug.
+
+**Recommended:** a separate FO4 install on `D:\SteamLibrary`, vanilla plus the
+two mods below and nothing else. It costs disk, resets in seconds, and cannot
+disturb the main save.
+
+### 0.2 The intended mod set — deliberately three things
+
+| Mod | Why it is here |
+|---|---|
+| **Scrap Everything** | Clearing a space to bare bones is step 2 of the build, and it is the slowest step by hand. This is the reason it earns its place. |
+| **Whispers** (power armour) | The facility needs a power armour frame and a station. PAO is also present on the main install; either works, but only one. |
+| *one more, TBD* | Left open deliberately rather than filled in. |
+
+Everything else stays out. In particular the settlement frameworks —
+SimSettlements 2, snap'n build, WorkshopFramework — are **excluded on purpose**,
+not by oversight; see §6.
+
+### 0.3 Considered and not used
+
+Nexus 46399 ("Everyday People") was raised as a character-creation template. It
+is a pack of 18 LooksMenu face presets from 2020 with seven hard dependencies,
+three of which replace face and body rendering globally. It is recorded here as
+an **idea and a resource reference, not a dependency** — nothing in this guide
+requires it, and nothing should be installed for it.
+
+The underlying thought was sound, though: in FO4 an NPC and a character preset
+are both `ActorBase` records, so "one source for both" is nearly right. The
+player is the exception — CharGen runs once at character creation and no mod can
+re-trigger it. See section 4.
 
 ---
 
@@ -58,11 +98,11 @@ Install notes that are not optional:
 
 Known gotcha: export requires a workbench nearby, and the common failure is
 "no workshops found". That is usually the settlement not being wired as a
-workshop — which is exactly what §3 fixes.
+workshop — which is exactly what section 3 fixes.
 
 ---
 
-## 2. Blueprint → ESP: the tool is not what the guides say
+## 2. Blueprint to ESP: the tool is not what the guides say
 
 The common walkthrough says "run a Blueprint to ESP Converter". The real
 tooling is:
@@ -153,37 +193,37 @@ PipMon_GetVersion()        WRONG — "not a function or does not exist"
 
 ---
 
-## 5. Vortex
+## 5. SimSettlements 2 - excluded, not deferred
 
-`Data\` is full of `__folder_managed_by_vortex` markers and there is a
-`vortex.deployment.json`. **Files written straight into `Data\` will be flagged
-as externally modified and can be reverted.**
+**SimSettlements 2 is on the main install and is deliberately NOT in the test
+environment.** section 3 wires a *vanilla* workshop settlement, which is exactly the
+mechanic SS2 intercepts, so including it would put the two in direct conflict
+over the same hooks.
 
-Develop in a Vortex staging mod (`Vortex\mods\staging\<name>\`) and deploy from
-there. Teardown becomes one click, and Vortex's bookkeeping stays honest.
+This was flagged as the largest unresolved risk on this page. Keeping the test
+environment minimal (section 0.2) **resolves it** rather than deferring it, and it is
+worth being clear that it is resolved by exclusion and not by compatibility
+testing — nobody has run the two together to see what happens.
 
-This is the same class of mistake as the three divergent copies already sitting
-in `stage/` — a deployment path nobody owns. One canonical layout with a hash
-manifest is the fix, and it is on the list.
+If a shipped version of this area later needs to work on SS2 installs, that is a
+separate piece of work and needs its own test, on an SS2 install.
 
 ---
 
-## 6. SimSettlements 2 — the biggest risk on this page
+## 6. Vortex
 
-**SimSettlements 2 is installed.** It is a large framework that replaces
-vanilla workshop/settlement mechanics. §3 wires a *vanilla* workshop
-settlement, which is precisely the area SS2 intercepts.
+The main install is Vortex-managed, so files written straight into its `Data\`
+get flagged as externally modified and can be reverted. That is one more reason
+section 0.1 recommends a separate install: a clean directory on `D:\` has no mod
+manager to disagree with, so the deployment question disappears rather than
+being solved.
 
-Decide before building, not after:
+If the main install is used anyway, develop in a Vortex staging mod
+(`Vortex\mods\staging\<name>\`) and deploy from there.
 
-- **Option A — test against vanilla mechanics.** Disable SS2 for the test save.
-  Cleanest match to §3, and it is the configuration a plain user is most likely
-  to be in.
-- **Option B — embrace SS2.** Build inside SS2's city-planning flow instead.
-  Better looking results, but then the test area only works on installs that
-  have SS2, which is a poor default for something that may ship.
-
-For a test bench, **Option A**. For a shipped area later, revisit.
+This is the same class of mistake as the three divergent copies already sitting
+in `stage/` — a deployment path nobody owns. One canonical layout with a hash
+manifest is the fix, and it is still on the list.
 
 ---
 
@@ -194,7 +234,7 @@ CK involvement is deliberately tangential: most of the work happens in-engine.
 **A. In-engine (no CK).**
 Launch via `f4se_loader.exe`. Enter the target cell. Hold `V`, clear it, place
 the workbench, trigger volume, power armour station and a terminal. Wire the
-settlement per §3. Verify Workshop mode works before going further.
+settlement per section 3. Verify Workshop mode works before going further.
 
 **B. Export.**
 Use the Transfer Settlements holotape → *Export this settlement to a
@@ -234,12 +274,11 @@ python tools\vlink_probe.py --summary-only
 **Verified here:** the installed tool versions and build numbers; that
 Transfer Settlements publishes a build for exactly 1.11.240 + F4SE 0.7.9; that
 the blueprint→ESP tooling is an xEdit script rather than a standalone app; the
-Papyrus constraints in §4, by compile probe.
+Papyrus constraints in section 4, by compile probe.
 
 **Not verified:** that any of this has been run. No game has been launched, no
 blueprint exported, no `.esp` produced, and `RunNativeProbe()` has never been
-called. CKPE compatibility with 1.11.240 is unconfirmed. The §6 SimSettlements
-conflict is predicted from how the two systems overlap, not observed.
+called. CKPE compatibility with 1.11.240 is unconfirmed. The section 5 SimSettlements conflict is resolved by exclusion rather than by compatibility testing; nobody has run the two together.
 
 Treat this document as a build plan with a verified parts list, not a report of
 something that works.
