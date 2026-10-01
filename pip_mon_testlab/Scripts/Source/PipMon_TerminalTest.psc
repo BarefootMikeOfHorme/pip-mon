@@ -87,43 +87,43 @@ EndFunction
 ; Bench actions
 ; ---------------------------------------------------------------------------
 
-Function Bench_Baseline() ;
+Function Bench_Baseline()
     Debug.Notification("BASELINE: no test running. Expect " + ExpectedFor("baseline"))
     Debug.Notification("If findings appear now, they are from the ambient load order, not the test.")
 EndFunction
 
-Function Bench_RunawaySingle() ;
+Function Bench_RunawaySingle()
     Debug.Notification("Runaway x1 armed. Expect: " + ExpectedFor("runaway_1"))
     Debug.Notification("Open the PipMon_LoopTest terminal, or run 'tq_run 1' in the console.")
     Utility.Wait(0.1)
 EndFunction
 
-Function Bench_RunawayEight() ;
+Function Bench_RunawayEight()
     Debug.Notification("Runaway x8 armed. Expect: " + ExpectedFor("runaway_8"))
     Debug.Notification("Open PipMon_LoopTest, or run 'tq_run 8'.")
 EndFunction
 
-Function Bench_LeakSlow() ;
+Function Bench_LeakSlow()
     Debug.Notification("Slow leak armed. Expect: " + ExpectedFor("leak_slow"))
     Debug.Notification("Open the PipMon_LeakTest terminal, or run 'lk_run 20' in the console.")
 EndFunction
 
-Function Bench_LeakFast() ;
+Function Bench_LeakFast()
     Debug.Notification("Fast leak armed. Expect: " + ExpectedFor("leak_fast"))
     Debug.Notification("Open PipMon_LeakTest, or run 'lk_run 100' in the console.")
 EndFunction
 
-Function Bench_Combined() ;
+Function Bench_Combined()
     Debug.Notification("Combined test. Expect: " + ExpectedFor("combined"))
     Debug.Notification("Run BOTH terminals: leak for growth, loop for the op cost.")
 EndFunction
 
-Function Bench_Memory() ;
+Function Bench_Memory()
     Debug.Notification("Memory test armed. Expect working-set growth with NO op spike.")
     Debug.Notification("That combination is the point: growth without a loop is a different finding.")
 EndFunction
 
-Function Bench_CleanupAll() ;
+Function Bench_CleanupAll()
     Debug.Notification("Releasing all test references. Watch the handle count fall.")
     Debug.Notification("Also run 'tq_stop' to clear any runaway threads.")
     ; A CustomEvent carries no declared parameters; the payload goes in the Var[]
@@ -167,5 +167,6 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
             Bench_CleanupAll()
         else
             Debug.Notification("BenchAction " + BenchAction + " is not a known action. See the property list.")
-        endif    endif
+        endif
+    endif
 EndEvent

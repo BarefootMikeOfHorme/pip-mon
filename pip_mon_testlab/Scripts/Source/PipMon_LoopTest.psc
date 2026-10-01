@@ -74,7 +74,7 @@ EndEvent
 ; ---------------------------------------------------------------------------
 ; StartLoop - the main test entry
 ; ---------------------------------------------------------------------------
-Function StartLoop(int aThreads) ;
+Function StartLoop(int aThreads)
     if aThreads < 1
         Debug.Notification("LoopTest: thread count must be >= 1")
         return
@@ -139,7 +139,7 @@ EndEvent
 ; reports ~4000 ops/s and OverseerCLI did not raise a runaway_loop finding,
 ; the detector is broken -- not the script. That turns "does the tool work?"
 ; into a question with a printed answer.
-Function StartSelfCheck() ;
+Function StartSelfCheck()
     if Running
         Debug.Notification("LoopTest: still running, stop it first")
         return
@@ -175,7 +175,7 @@ Function StartSelfCheck() ;
     endif
 EndFunction
 
-Function StopLoop() ;
+Function StopLoop()
     if PIPMON_ABORT == 0
         ; SetGlobalFlag writes a global, which every thread reads. Cheap, and it
         ; means one call stops all spawned threads.
@@ -219,7 +219,8 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
             StartSelfCheck()
         elseif LoopAction == 3
             StopLoop()
-        endif    endif
+        endif
+    endif
 EndEvent
 
 

@@ -80,7 +80,7 @@ EndEvent
 ; Spawn one settler and one raider, so combat/AI script hooks and reference
 ; cleanup have something to exercise.
 ; ---------------------------------------------------------------------------
-Function SpawnFixtures() ;
+Function SpawnFixtures()
     if IsValidRef(LeakTracker) == 0
         ; nothing to do
     endif
@@ -100,7 +100,7 @@ EndFunction
 ; ---------------------------------------------------------------------------
 ; StartLeak - the main test entry
 ; ---------------------------------------------------------------------------
-Function StartLeak(int aPerTick) ;
+Function StartLeak(int aPerTick)
     if Running
         Debug.Notification("LeakTest: already running. Use lk_stop first.")
         return
@@ -163,7 +163,7 @@ EndFunction
 ; ---------------------------------------------------------------------------
 ; Cleanup - always reachable, and idempotent
 ; ---------------------------------------------------------------------------
-Function Cleanup() ;
+Function Cleanup()
     if CleanedUp
         Debug.Notification("LeakTest: already clean.")
         return
@@ -200,7 +200,7 @@ EndFunction
 ; time and the dashboard should raise save_bloat in addition to runaway_loop
 ; and handle_leak. Neither test alone can produce that finding, which is the
 ; point of having them as separate components.
-Function StartCombinedTest() ;
+Function StartCombinedTest()
     Debug.Notification("Starting combined leak + loop test. Watch for save_bloat.")
     StartLeak(ReferencesPerTick)
 
@@ -243,7 +243,8 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
             StartCombinedTest()
         elseif LeakAction == 4
             Cleanup()
-        endif    endif
+        endif
+    endif
 EndEvent
 
 

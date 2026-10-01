@@ -72,7 +72,7 @@ EndEvent
 ; The native half pings this on a timer. A missed ping means either the bridge
 ; died or the game froze, and OverseerCLI surfaces that rather than continuing
 ; to show a frozen dashboard as if it were live.
-Function Ping() ;
+Function Ping()
     LastPingTime = Utility.GetCurrentRealTime()
     PingCount += 1
     SendCustomEvent("OverseerPing")
@@ -88,7 +88,7 @@ EndFunction
 ; first action: Script.Cancel() unwinds the script, releasing its locals and
 ; letting it run any cleanup. Force-kill skips that and can leave quest state
 ; half-written (see pitfall 4 in docs/ENGINEERING_RULES.md).
-Function RequestTerminate(int aThreadId, bool aForce) ;
+Function RequestTerminate(int aThreadId, bool aForce)
     if aForce
         ; Recorded, not performed. The native runner is the only thing allowed
         ; to touch VM thread structures, and only from the main thread.
@@ -110,7 +110,7 @@ Function RequestTerminate(int aThreadId, bool aForce) ;
     endif
 EndFunction
 
-Function ConsumeTerminationRequests() ;
+Function ConsumeTerminationRequests()
     ; Drained by the main-thread runner. Returns the count and resets, so a
     ; request can never be executed twice.
     int n = TerminationRequests
@@ -125,13 +125,13 @@ EndFunction
 ; re-reads the VM stack ON THE MAIN THREAD and answers with a StackDump frame.
 ; It cannot be answered from the IPC thread: walking a live VM stack while the
 ; VM is mid-transition is the deadlock described in pitfall 1.
-Function RequestStackDump(int aThreadId) ;
+Function RequestStackDump(int aThreadId)
     StackDumpRequests += 1
     SendCustomEvent("OverseerRequestStackDump")
     Utility.Wait(0.0)
 EndFunction
 
-Function ConsumeStackDumpRequests() ;
+Function ConsumeStackDumpRequests()
     int n = StackDumpRequests
     StackDumpRequests = 0
     return n
@@ -215,7 +215,8 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
             ; force-kill instead.
             SendCustomEvent("OverseerStatusChanged")
             self.Cancel()
-        endif    endif
+        endif
+    endif
 EndEvent
 
 

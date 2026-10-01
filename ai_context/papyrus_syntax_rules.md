@@ -45,6 +45,34 @@ recalling documentation.
 | `CreateObjectAtForm` | No runtime spawn from a form ID. A reference must exist before it can be placed. | "not a function or does not exist" |
 | `Start()` / `Stop()` | Skyrim timer API. FO4 uses `StartTimer`/`CancelTimer`. | "Start is not a function or does not exist" |
 | `Event OnTimer(float)` | Wrong signature. FO4's takes the timer **ID**. | parameter types do not match ScriptObject |
+| `GetOwningObjectOfThread` | Skyrim/SKSE. FO4 has no way for a script to ask a thread for its owning object. | "GetOwningObjectOfThread is not a function or does not exist" |
+| `self.Cancel()` / `ObjectReference.Cancel` | No `Cancel` method on ScriptObject. It looks like the Skyrim idiom for stopping a self-run script; nothing in this build declares it. | "Cancel is not a function or does not exist" |
+
+### 1a. Two traps that produce *misleading* error text
+
+Both of the following were found on 2026-10-01 by compiling, not by reading. Each
+one made the compiler blame the wrong line, so the reported position was not the
+fault.
+
+**A `;` after a function or event signature.** `Function Ping() ;` is not valid.
+The parser derails from that point, and the errors it then reports are
+attributed to *later*, innocent lines — in our case to a `while` block two
+hundred lines further down, as `required (...)+ loop did not match anything at
+input '('` and `,`. Twenty such signatures across four files produced a cascade
+of five unrelated-looking errors. A stray `;` on a declaration is worth reading
+the whole error list for.
+
+**A doubled `endif`.** `endif    endif` on one line is not one terminator too
+many in an if/elseif/else chain — it is two, and the second closes the *enclosing*
+`if`. So `if abOpening` wrapping an action chain legitimately needs two, on
+separate lines, at different indents. Compiled as one line they read as a single
+malformed terminator and the error lands on the chain's last branch instead.
+
+Practical consequence: when this compiler reports a **loop** error, check the
+loop before believing it. In both cases above the loop was correct and the
+`endwhile` was fine. Verify the line the compiler named, then keep reading
+backwards for the first genuine fault.
+
 
 The array-length gap is a structural constraint, not a missing convenience:
 without a length there is no way to iterate an editor-filled array from script,
@@ -160,6 +188,16 @@ makes the dot form the single most likely mistake when extending the surface.
 than a missing artefact. See `vprobe/papyrus/build_papyrus.bat`.
 
 ## 6. Verified natives used by this project
+
+**No semicolon after a signature.** `Function Name(args)` and
+`Event OnSomething(type arg)` take no trailing `;`. The same is true of the
+`end...` keywords: one terminator per line, never two. A stray `;` on a
+declaration does not error where it is — the parser loses its place and reports
+the damage somewhere else entirely, usually as a loop or a type error hundreds of
+lines downstream. This is the single most expensive typo in this codebase and it
+has now been made twenty times across four files. If the compiler blames a line
+that looks obviously correct, look for a `;` or a doubled terminator *earlier* in
+the same file.
 
 `Game.GetPlayer()` returns an Actor.
 `ObjectReference.PlaceAtMe(akOrigin, aiCount, aiOverrideBehavior)` returns a
