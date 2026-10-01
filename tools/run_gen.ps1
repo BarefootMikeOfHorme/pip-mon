@@ -21,8 +21,21 @@
 #
 #  MEASURED (2026-09-30 20:33, the validator run this was modelled on)
 #    A full load of the curated core takes ~10s of loader time and ~1m42s of
-#    script time over 2,287,300 records. Budget 420s is generous.
+#    script time over 2,287,300 records.
 #
+#  BUDGET -- was 420s, now 1800s. The 420s figure came from the validator's
+#    1m42s walk and was "generous" for that. It was NOT generous for this
+#    script: on 2026-10-01 00:02 the generator was killed at 200,000 of 2,287,300
+#    records and the log shows "[EAbort] Operation aborted" in unit UserScript
+#    line 200 -- which is the synchronous path's $proc.Kill() firing at the
+#    deadline, not a script fault. The Process walk is byte-for-byte the same
+#    shape as the validator's, which completes, so the abort was the budget and
+#    nothing else. It aborted DURING the walk, so Finalize, Add and the save
+#    never executed -- which is why no generator report and no scratch .esp were
+#    ever produced, and why the three-argument FileWriteToStream looked untested.
+#    It was never reached. 1800s leaves headroom over the measured walk without
+#    hanging forever; a run that exceeds it is a real failure, not a slow one.
+
 #  EXIT CODES (the project's standard vocabulary)
 #    0  PASS    -- the generator ran and wrote its report
 #    1  FAIL    -- it ran to exit without writing one
@@ -35,7 +48,7 @@
 param(
     [string]$Plugin = 'PipMonTestFacility.esp',
     [string]$XEditDir = "$env:LOCALAPPDATA\Temp\opencode\xedit\x",
-    [int]$TimeoutSec = 420,
+    [int]$TimeoutSec = 1800,
     [switch]$Async,
     [switch]$Collect,
     [switch]$GenOnly
@@ -189,20 +202,42 @@ if (-not (Test-Path $Template)) { Write-Output 'SKIP: gen_facility.pas missing';
 
 # ---------------------------------------------------------------- SUBSTITUTE
 foreach ($p in @($ReportOut, $StdoutLog, $StderrLog)) { if (Test-Path $p) { Remove-Item -LiteralPath $p -Force } }
-# The scratch path is the ONLY file the generator is permitted to write a plugin
-# to. It lives beside the source, not in the game Data folder, so an experiment
-# that turns out to write malformed records is still throwaway. Adding this as a
-# placeholder rather than hardcoding it inside the .pas keeps the script free of
-# machine paths and keeps the guarantee in one place.
-$ScratchDir = Join-Path (Split-Path -Parent $Template) 'out'
-if (-not (Test-Path -LiteralPath $ScratchDir)) {
-    New-Item -ItemType Directory -Path $ScratchDir -Force | Out-Null
+$gameData = 'C:\Program Files (x86)\Steam\steamapps\common\Fallout 4\Data'
+$target = Join-Path $gameData $Plugin
+
+# ---------------------------------------------------------------- WRITE TARGET
+# The generator writes back to the plugin it was handed, i.e. the real one in the
+# game Data folder. That is the whole point of the testfacility: it is a named,
+# loadable plugin that must work both in-game and in-engine, not a throwaway.
+#
+# It used to write to a scratch 'PipMonTestFacility.probe.esp' beside the source,
+# on the reasoning that an experiment which wrote malformed records should be
+# disposable. That was wrong twice over, and the second run proved it:
+#   1. The CELL was created on the LOADED plugin in memory, then serialised to a
+#      file that is not in the load order. The record group was never populated
+#      by the loader, so the output was a bare 66-byte TE header with no CELL in
+#      it -- and validating that file reports "empty", which reads as a generator
+#      failure when the generator actually succeeded.
+#   2. A 'probe' suffix on the artifact is exactly the misnaming this project is
+#      not supposed to leave behind: a file called probe that the game cannot load
+#      and the validator cannot meaningfully read.
+# So the write target is the plugin itself. The safety that mattered is kept by
+# snapshotting the original before every run, which is a real rollback rather than
+# a rename.
+if (Test-Path -LiteralPath $target) {
+    $snapDir = Join-Path $Repo 'runs\tasks\facility-v0\snapshots'
+    New-Item -ItemType Directory -Path $snapDir -Force | Out-Null
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $snap = Join-Path $snapDir ("$([IO.Path]::GetFileNameWithoutExtension($Plugin))-$stamp$([IO.Path]::GetExtension($Plugin))")
+    Copy-Item -LiteralPath $target -Destination $snap -Force
+    Write-Output "snapshot: $snap ($((Get-Item -LiteralPath $snap).Length) B)"
+    Write-Output "restorable with: Copy-Item -LiteralPath '$snap' -Destination '$target' -Force"
 }
-$ScratchEsp = Join-Path $ScratchDir 'PipMonTestFacility.probe.esp'
-foreach ($p in @($ScratchEsp)) { if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force } }
+$WriteEsp = $target
+foreach ($p in @($WriteEsp)) { if ((Test-Path -LiteralPath $p) -and ((Get-Item -LiteralPath $p).Length -gt 4096)) { Remove-Item -LiteralPath $p -Force } }
 
 $src = Get-Content -LiteralPath $Template -Raw
-$src = $src.Replace('%%OUTPATH%%', $ReportOut).Replace('%%PLUGIN%%', $Plugin).Replace('%%SCRATCH%%', $ScratchEsp)
+$src = $src.Replace('%%OUTPATH%%', $ReportOut).Replace('%%PLUGIN%%', $Plugin).Replace('%%SCRATCH%%', $WriteEsp)
 if ($src -match '%%') {
     Write-Output 'FAIL: template still has unsubstituted placeholders'
     Write-Report 'FAIL' 'gen_facility.pas has unresolved placeholders' @{ template = $Template }
@@ -211,14 +246,13 @@ if ($src -match '%%') {
 Set-Content -LiteralPath $GenScript -Value $src -Encoding utf8
 Write-Output "script: $GenScript"
 
-$gameData = 'C:\Program Files (x86)\Steam\steamapps\common\Fallout 4\Data'
-$target = Join-Path $gameData $Plugin
 if (-not (Test-Path $target)) {
     Write-Output "SKIP: target plugin not found at $target"
     Write-Report 'SKIP' 'the target plugin does not exist in the game Data folder' @{ expected = $target }
     exit 3
 }
 Write-Output "target: $target"
+Write-Output "writes to: $WriteEsp"
 
 $argList = @("`"$target`"", '-auto', '-quickexit', "-script:`"$GenScript`"")
 

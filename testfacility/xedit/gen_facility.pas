@@ -35,7 +35,16 @@ unit UserScript;
        used, so an abort names the link. Two failures were each worth one run
        instead of a guessing loop, and that is the only reason this progressed.
 
-  The game Data folder is never written. Output goes to a scratch path only.
+  This script WRITES the testfacility plugin -- that is its job. PipMonTestFacility.esp
+  is a real, named, loadable plugin meant to work both in-game and in-engine, so the
+  output has to be that plugin and not a copy of it. It previously wrote a separate
+  'PipMonTestFacility.probe.esp' in testfacility\xedit\out\ instead, on the reasoning
+  that a throwaway experiment should be disposable. That was wrong: the CELL is created
+  on the LOADED plugin, and only the loaded plugin has a populated record group, so
+  writing it elsewhere produced a bare 66-byte TE header with no CELL and a validator
+  result of "empty" -- indistinguishable from a create that never worked. The rollback
+  that actually matters is the snapshot run_gen.ps1 takes before every run, not a
+  different filename.
 }
 
 var
@@ -101,7 +110,7 @@ begin
   sl.Add(JNum('records_created', nCreated));
   sl.Add(JStr('created_note', createdNote));
   sl.Add(JStr('scratch_plugin', scratchPath));
-  sl.Add(JStr('game_plugin_written', 'no'));
+  sl.Add(JStr('game_plugin_written', 'yes -- this run wrote the testfacility plugin itself'));
   sl.Add(JNum('records_in_load_order', nRecords));
   sl.Add(JNum('cell_records_in_load_order', nCell));
   sl.Add(JNum('groups_in_load_order', nGroups));
@@ -275,7 +284,12 @@ begin
     flag is False so the modified status we just set survives the write.
 
     Reference: third_party/xedit/Edit Scripts/SaveAs.pas, procedure SavePlugin,
-    lines 53-75. Copied shape, scratch path substituted for the dialog result. }
+    lines 53-75. Copied shape. The stream path is now the plugin itself, NOT a
+    scratch file: writing a loaded plugin's in-memory form to a different file
+    produces a header with no records in it, because only the loaded plugin has
+    a populated record group. A .probe.esp is not in the load order, so the
+    loader never fills it and validation of it reads "empty" regardless of
+    whether the create succeeded. }
   AddMessage('PIPMON: LINK 3 - FileWriteToStream(file, fs, False). Three args, per SaveAs.pas:63. UNPROVEN.');
   linkReached := 3;
   fs := TFileStream.Create(scratchPath, fmCreate);
@@ -285,7 +299,7 @@ begin
     fs.Free;
   end;
   AddMessage('PIPMON: LINK 3 ok - wrote ' + scratchPath);
-  createdNote := 'a CELL was created and written to the scratch path; the game plugin is still unchanged';
+  createdNote := 'a CELL was created and written back to the testfacility plugin itself, so it loads in-game and in-engine; the previous run wrote a separate .probe.esp instead, which is not in the load order and therefore serialised empty';
 
   WriteReport;
 
