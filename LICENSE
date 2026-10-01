@@ -1,120 +1,49 @@
-PIP-MON
-Personal Use Licence
-================================================================================
+PolyForm Noncommercial License 1.0.0
 
-Copyright (c) 2026 PIP-MON contributors.
-All rights reserved.
+This is a source-available licence, not an OSI-approved open source licence.
+Use is granted. Modification and redistribution are not.
 
-NOTICE: This is not an open-source licence. The source is provided so you can
-read it, run it, and change it for your own use. It is not provided so that
-anyone may publish, redistribute, or build a competing product from it.
+Acceptance
+----------
+By using this software, you agree to the terms below.
 
-This licence is written in plain language on purpose. It is short because the
-permission being granted is narrow.
+Grant of Use
+------------
+You may run, execute, and use this software for any noncommercial purpose.
 
---------------------------------------------------------------------------------
- 1. WHAT YOU MAY DO
---------------------------------------------------------------------------------
+Limitations
+-----------
+You may not:
+  * modify, adapt, translate, or create derivative works of this software;
+  * redistribute, sublicense, sell, or publish this software, modified or
+    unmodified, except as expressly permitted in writing by the licensor;
+  * remove or obscure any copyright, licence, or attribution notice.
 
- a) Use PIP-MON, and anything built from it, for your own personal use.
+The above restrictions do not apply to output produced by using the software.
+Output is yours and is not a derivative work of the software.
 
- b) Run it alongside your own mods, on your own machine, for your own play.
+Attribution
+-----------
+Notice of this licence must be retained in any copy of the software you
+distribute with the licensor's permission.
 
- c) Read the source code, in full, for any purpose.
+No Warranty
+-----------
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. THE LICENSOR IS NOT LIABLE
+FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM, OUT OF, OR IN CONNECTION
+WITH THE SOFTWARE OR ITS USE.
 
- d) Modify the source code for your own personal use, including changing it so
-    it works better on your system, your load order, or your hardware.
+Why this licence
+----------------
+The intent is that this tool gets USED rather than forked. A permissive
+licence would let anyone take it, rename it, and redistribute a worse copy.
+This one lets people run it and forbids that.
 
- e) Share the COMPILED program with other people for their personal,
-    non-commercial use. "Compiled program" means the built binary and its
-    required data files -- not the source code, and not the build scripts.
+Contact the licensor for commercial use, for a negotiated licence, or to request
+a different arrangement.
 
- f) Contribute changes back to the project.
-
---------------------------------------------------------------------------------
- 2. WHAT YOU MAY NOT DO
---------------------------------------------------------------------------------
-
- a) You may not publish, post, or otherwise make the SOURCE CODE publicly
-    available -- on GitHub, GitLab, a mod page, a Discord server, a paste site,
-    a zip you attach to a mod release, or anywhere else others can obtain it.
-
- b) You may not redistribute the source code, modified or unmodified, including
-    as part of a mod, a collection, a tutorial, or a "here's my fork" package.
-
- c) You may not sell, licence, rent, or otherwise receive payment for PIP-MON
-    or anything derived from it, in source or compiled form.
-
- d) You may not use PIP-MON, or anything derived from it, for commercial
-    purposes. That includes monetised mods, paid tiers, advertising-supported
-    distributions, and Patreon-style subscriptions that grant access to it.
-
- e) You may not remove or obscure the copyright notices, this licence, or the
-    author's name from any copy you distribute.
-
- f) You may not present yourself, or any third party, as the author or
-    originator of PIP-MON. You may say you modified it; you may not say you
-    made it.
-
- g) You may not use the names "PIP-MON" or "V-Probe" for your own product or
-    distribution in a way that suggests it is this project.
-
---------------------------------------------------------------------------------
- 3. DEPENDENCIES
---------------------------------------------------------------------------------
-
- PIP-MON depends on, or is designed to work alongside, third-party components
- that carry their own licences, including but not limited to:
-
-   - Zydis                 (MIT)   -- disassembly, used by the in-process runtime
-   - CommonLibF4           (MIT)   -- data reference only; nothing links it
-   - Bethesda Fallout 4            -- proprietary; NOT included or distributed
-   - F4SE / Script Extender         -- proprietary; optional, NOT required, and
-                                     NOT included or distributed
-   - the Creation Kit                -- proprietary; used as a compiler, and NOT
-                                     included or redistributed here
-
- Those components remain under their own terms. Nothing in this licence grants
- you any right over them, and nothing here redistributes them.
-
- No game asset, Bethesda file, or extender binary is included in this project
- or in its source distribution. If you find one, that is a bug -- please
- report it.
-
---------------------------------------------------------------------------------
- 4. NO WARRANTY
---------------------------------------------------------------------------------
-
- PIP-MON is provided "as is", without warranty of any kind, express or implied,
- including but not limited to the warranties of merchantability, fitness for a
- particular purpose, and non-infringement.
-
- In no event shall the authors be liable for any claim, damages, or other
- liability, whether in an action of contract, tort, or otherwise, arising from,
- out of, or in connection with the software or its use.
-
- YOU USE THIS SOFTWARE AT YOUR OWN RISK. It attaches to, reads the memory of,
- and instruments a running game process. That can crash the game, corrupt a
- save, or lose unsaved work. Back up your saves. The authors are not responsible
- for what happens to your game or your data.
-
---------------------------------------------------------------------------------
- 5. TERMINATION
---------------------------------------------------------------------------------
-
- This licence terminates automatically if you breach any of its terms. On
- termination you must stop using PIP-MON and delete all copies of it, compiled
- or otherwise, in your possession or control.
-
- Contributions you make to the project are accepted under this same licence.
-
---------------------------------------------------------------------------------
- 6. HONOURING THIS LICENCE
---------------------------------------------------------------------------------
-
- This licence is deliberately restrictive. If you want to use PIP-MON for
- something this does not allow -- commercially, or by publishing the source --
- you need explicit permission from the copyright holder. Ask. The answer might
- be yes. The default is no.
-
-================================================================================
+Licensor: BarefootMikeOfHorme
+Full text of the canonical licence:
+https://polyformproject.org/licenses/noncommercial/1.0.0/
