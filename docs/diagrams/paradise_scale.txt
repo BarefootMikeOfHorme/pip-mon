@@ -1,0 +1,96 @@
+paradise scale, as text
+========================
+
+All figures at the working scale of 70 units = 1 metre. One cell = 4096 units = 58.5 m.
+
+
+THE NUMBER THAT CHANGED
+-----------------------
+    your original      r = 60 units     ->  1.7 m across    a closet
+    scaled to default  r = 4096 units   ->  117 m across    a small valley
+
+    the whole original idea was 34x smaller than ONE CELL. r=60 is a door-prompt
+    radius, not an environment. It works as the trigger that fires the load door.
+
+
+THE LADDER, AND WHY EACH STEP IS OR IS NOT ENOUGH
+--------------------------------------------------
+    r (units)  across   metres   what fits
+    --------   ------   ------   ------------------------------------------
+          60     120     1.7 m   a door prompt. not a place.
+         700   1,400    20.0 m   a yard. no Vertibird, no storm reading.
+       2,048   4,096    58.5 m   exactly one cell. a room, tight.
+       4,096   8,192   117.0 m   VALLEY. Vertibird fits, weather crosses, works.
+       8,192  16,384   234.0 m   approaching the loaded edge. no headroom left.
+
+
+TWO BUBBLES, NOT ONE  (uGridsToLoad=5, verified on this machine)
+---------------------------------------------------------------
+    +---------------------------------------------------+  <- loaded edge, 293 m
+    |                                                   |
+    |          88 m  MARGIN  -  streamed, rendered,      |
+    |          loaded-but-unreachable.  weather and      |
+    |          birds live here.  no navmesh, so the      |
+    |          player simply cannot get to it.           |
+    |                                                   |
+    |        .-------------------------------.          |
+    |       .'                                 '.         |
+    |      /        PLAYABLE BOUNDARY            \        |
+    |     |          r = 4096 u = 117 m            |       |
+    |     |          navmesh, interactive,          |       |
+    |      \          buildable, the "crate"       /        |
+    |       '.                                 .'         |
+    |        '-------------------------------'          |
+    |                                                   |
+    +---------------------------------------------------+
+
+    This is the part that makes the design work. The fog ring goes at the INNER
+    circle, not the outer one. The player can never reach the loading seam, so
+    the seam is never visible. No invisible wall, no kill volume, no cvar edit,
+    no "You cannot go that way" message.
+
+
+SECTION: the oblate spheroid
+----------------------------
+    sky
+      |
+      |        ,-------------------------.
+      |      .'    fog ring (DBLOCK)      '.        <- r_z = 1200 u = 17 m
+      |     /   ~~~~~~~~~~~~~~~~~~~~~~~~~~  \
+    0 +----+-----------------------------------+-------  land, Z = 0
+           |              |                            |
+     lake + plunge pool  |                            |
+      (the "paradise")   |                            |
+                        |  XTEL LOAD DOOR             |
+                        |  RotX = RotY = 0 on landing |
+                        v                            |
+              +----------------------------------+     |
+              |   SUBTERRANEAN BUNKER            |     |
+              |   separate interior CELL          |     |
+              |   own light / navmesh / water     |     |
+              +----------------------------------+     |
+
+    r_x = r_y = 4096 u = 117 m      r_z = 1200 u = 17 m   (oblate = flattened)
+
+
+THE ONE THING THAT DOES NOT WORK
+--------------------------------
+    Z-shift straight down into a "subterranean interior". It stays in the same
+    CELL, and a cell is one streaming unit with one lighting set, one navmesh
+    and one weather state. A separate interior with its own water table and its
+    own ambient sound is unreachable that way, at any distance.
+
+    It has to be a load door. That is why the bunker mod needed an elevator, blast
+    doors and a breaker switch: those are the cost of a real instance change.
+
+
+UNIT SCALE IS STILL UNVERIFIED
+------------------------------
+    the source document said 64 units = 1 m. the CK wiki says 4096 units = 58.5 m,
+    which is 70. a 9.4% spread, and every dimension above is in units.
+
+    we use 70. to settle it: measure a known-length NIF. a Vertibird is a known
+    real-world length, so its scale in the CK gives the actual conversion.
+
+    at 64 instead of 70, the valley above becomes 128 m across. nothing structural
+    changes, but every real-world number quoted is 9% optimistic.

@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="1180" viewBox="0 0 960 1180" font-family="Consolas, 'Courier New', monospace">
+  <rect width="960" height="1180" fill="#0d0f12"/>
+
+  <text x="40" y="42" fill="#e8eaed" font-size="20" font-weight="bold">PARADISE — the two bubbles, and where the fog ring goes</text>
+  <text x="40" y="64" fill="#8b949e" font-size="13">Creation Engine 1.11.240 · uGridsToLoad=5 (verified on this machine) · 70 units/m working scale</text>
+
+  <!-- ============ PLAN VIEW : plan to scale ============ -->
+  <text x="40" y="104" fill="#58a6ff" font-size="15" font-weight="bold">PLAN VIEW — top down, all three radii to the same scale</text>
+
+  <!-- scale bar -->
+  <g>
+    <rect x="40" y="120" width="120" height="14" fill="#30363d" stroke="#8b949e" stroke-width="1"/>
+    <text x="40" y="152" fill="#8b949e" font-size="12">0</text>
+    <text x="150" y="152" fill="#8b949e" font-size="12">58.5 m (one cell)</text>
+  </g>
+
+  <!-- concentric circles: center 320,300 -->
+  <!-- loaded block: 5 cells = 293m across -> radius 146.5m -> 300px  (1.02 px per m) -->
+  <!-- r = 4096u playable: 117m across -> radius 58.5m -> 120px -->
+  <!-- r = 60u original: 1.7m across -> radius 0.86m -> ~1.8px -->
+
+  <!-- loaded block square: 5 cells, 5*117.6 = 588 px wide, half=294 -->
+  <rect x="320-294" y="300-294" width="588" height="588" fill="none" stroke="#d29922" stroke-width="2" stroke-dasharray="10 8"/>
+  <text x="320-294" y="300-294-10" fill="#d29922" font-size="12">STREAMING EDGE — 5 cells, 293 m across, already works</text>
+
+  <!-- playable boundary circle r=120px -->
+  <circle cx="320" cy="300" r="120" fill="#1f6feb22" stroke="#58a6ff" stroke-width="3"/>
+  <text x="320" y="180" fill="#58a6ff" font-size="13" text-anchor="middle" font-weight="bold">PLAYABLE BOUNDARY</text>
+  <text x="320" y="196" fill="#58a6ff" font-size="12" text-anchor="middle">r = 4096 units = 117 m across</text>
+
+  <!-- original r=60 dot, exaggerated with a callout -->
+  <circle cx="320" cy="300" r="4" fill="#f85149"/>
+  <line x1="330" y1="300" x2="470" y2="252" stroke="#f85149" stroke-width="1.5"/>
+  <text x="478" y="246" fill="#f85149" font-size="12">your original r = 60 units</text>
+  <text x="478" y="262" fill="#f85149" font-size="12">= 1.7 m — smaller than a person</text>
+
+  <!-- margin annotation -->
+  <line x1="320+120" y1="300" x2="320+294" y2="300" stroke="#3fb950" stroke-width="2"/>
+  <line x1="320+120" y1="292" x2="320+120" y2="308" stroke="#3fb950" stroke-width="2"/>
+  <line x1="320+294" y1="292" x2="320+294" y2="308" stroke="#3fb950" stroke-width="2"/>
+  <text x="320+207" y="288" fill="#3fb950" font-size="12" text-anchor="middle">88 m margin</text>
+  <text x="320+207" y="322" fill="#3fb950" font-size="11" text-anchor="middle">loaded, rendered,</text>
+  <text x="320+207" y="336" fill="#3fb950" font-size="11" text-anchor="middle">unreachable</text>
+
+  <!-- zones legend in plan -->
+  <g transform="translate(700,150)">
+    <text x="0" y="0" fill="#e8eaed" font-size="14" font-weight="bold">ZONES</text>
+    <rect x="0" y="14" width="18" height="18" fill="#1f6feb33" stroke="#58a6ff" stroke-width="2"/>
+    <text x="26" y="28" fill="#c9d1d9" font-size="12">INSIDE r — playable</text>
+    <text x="26" y="44" fill="#8b949e" font-size="11">navmesh, interactive, buildable</text>
+
+    <rect x="0" y="58" width="18" height="18" fill="none" stroke="#d29922" stroke-width="2" stroke-dasharray="5 4"/>
+    <text x="26" y="72" fill="#c9d1d9" font-size="12">BETWEEN — observable</text>
+    <text x="26" y="88" fill="#8b949e" font-size="11">streamed, rendered, weather</text>
+    <text x="26" y="102" fill="#8b949e" font-size="11">NO navmesh — cannot reach</text>
+
+    <rect x="0" y="116" width="18" height="18" fill="none" stroke="#484f58" stroke-width="2" stroke-dasharray="2 3"/>
+    <text x="26" y="130" fill="#c9d1d9" font-size="12">BEYOND — unloaded</text>
+    <text x="26" y="146" fill="#8b949e" font-size="11">never seen: fog hides it</text>
+  </g>
+
+  <!-- ============ SECTION VIEW ============ -->
+  <text x="40" y="650" fill="#58a6ff" font-size="15" font-weight="bold">SECTION VIEW — the oblate spheroid, r_z flattened</text>
+
+  <!-- ground -->
+  <line x1="60" y1="900" x2="900" y2="900" stroke="#3fb950" stroke-width="3"/>
+  <text x="66" y="922" fill="#3fb950" font-size="12">land level, Z = 0</text>
+
+  <!-- oblate spheroid: half-width 117m -> 470px at ~4px/m ; rz = 1200u = 17m -> 68px -->
+  <ellipse cx="420" cy="900" rx="470" ry="68" fill="#1f6feb22" stroke="#58a6ff" stroke-width="3"/>
+  <text x="420" y="1000" fill="#58a6ff" font-size="13" text-anchor="middle">r_x = r_y = 4096 units = 117 m    ·    r_z = 1200 units = 17 m  (oblate)</text>
+
+  <!-- fog ring at playable edge -->
+  <ellipse cx="420" cy="900" rx="470" ry="68" fill="none" stroke="#d29922" stroke-width="6" stroke-dasharray="4 6" opacity="0.85"/>
+  <text x="420" y="806" fill="#d29922" font-size="12" text-anchor="middle" font-weight="bold">DBLOCK fog ring sits HERE — at the playable edge, not the loaded edge</text>
+  <line x1="890" y1="900" x2="890" y2="832" stroke="#d29922" stroke-width="1.5"/>
+  <text x="700" y="822" fill="#d29922" font-size="11">you never reach the</text>
+  <text x="700" y="836" fill="#d29922" font-size="11">loading seam</text>
+
+  <!-- lake + waterfall -->
+  <ellipse cx="300" cy="884" rx="120" ry="14" fill="#1f6feb66" stroke="#58a6ff" stroke-width="1.5"/>
+  <text x="300" y="862" fill="#58a6ff" font-size="11" text-anchor="middle">lake / plunge pool</text>
+  <line x1="300" y1="866" x2="300" y2="806" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="3 3"/>
+  <text x="312" y="800" fill="#58a6ff" font-size="11">waterfall</text>
+
+  <!-- bunker BELOW, cross-cell -->
+  <rect x="250" y="1010" width="340" height="96" fill="#21262d" stroke="#a371f7" stroke-width="2.5"/>
+  <text x="420" y="1050" fill="#a371f7" font-size="13" text-anchor="middle" font-weight="bold">SUBTERRANEAN BUNKER</text>
+  <text x="420" y="1070" fill="#a371f7" font-size="11" text-anchor="middle">separate interior CELL — own light, navmesh, water, weather</text>
+  <text x="420" y="1090" fill="#8b949e" font-size="11" text-anchor="middle">reached by XTEL load door, NOT a Z-shift</text>
+
+  <!-- the load door link, drawn correctly -->
+  <line x1="300" y1="900" x2="300" y2="1010" stroke="#a371f7" stroke-width="3" stroke-dasharray="8 5"/>
+  <rect x="278" y="938" width="44" height="34" fill="#0d0f12" stroke="#a371f7" stroke-width="2"/>
+  <text x="340" y="952" fill="#a371f7" font-size="11">XTEL load door</text>
+  <text x="340" y="966" fill="#8b949e" font-size="10">load screen + new cell</text>
+  <text x="340" y="980" fill="#8b949e" font-size="10">RotX = RotY = 0 on landing</text>
+
+  <!-- the rejected one, struck through -->
+  <line x1="640" y1="900" x2="640" y2="1010" stroke="#f85149" stroke-width="2" stroke-dasharray="4 6" opacity="0.8"/>
+  <line x1="628" y1="900" x2="652" y2="1010" stroke="#f85149" stroke-width="2.5"/>
+  <line x1="652" y1="900" x2="628" y2="1010" stroke="#f85149" stroke-width="2.5"/>
+  <text x="668" y="948" fill="#f85149" font-size="11">Z-shift: IMPOSSIBLE</text>
+  <text x="668" y="964" fill="#f85149" font-size="10">same cell = same light,</text>
+  <text x="668" y="978" fill="#f85149" font-size="10">navmesh, weather, stream</text>
+
+  <!-- footer -->
+  <text x="40" y="1140" fill="#8b949e" font-size="11">Bunker shown at 17 m depth for legibility. Real depth is a separate decision; the Z-shift shortcut is what is being rejected.</text>
+  <text x="40" y="1158" fill="#8b949e" font-size="11">Sources: CK wiki (Cell, WorldSpace, Door, Climate), xEditAPI.pas, Fallout4.ini on this machine. Unit scale 70/m is the working assumption, not measured.</text>
+</svg>
