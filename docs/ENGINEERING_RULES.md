@@ -225,6 +225,27 @@ quest progression breaks in a way that looks like a mod bug.
 
 ---
 
+## Rule 6 - Version control cadence
+
+**Commit locally, often. Push to the remote once a day.**
+
+- Commit as soon as a unit of work is verified, not at the end of a session.
+  A commit is the rollback point; batching a day's work into one commit means a
+  bad hour costs the whole day.
+- One logical change per commit. Do not mix a bug fix with a reformat, and do
+  not batch unrelated fixes.
+- Push to `origin` daily. Local history is the working record; the remote is
+  the daily checkpoint.
+- A commit message states what changed and **why**. Where a belief was wrong,
+  say so and give the measurement that corrected it — that is the part worth
+  reading later.
+- Never `git checkout` over uncommitted work, and never force-push shared
+  history without saying so first.
+- Redo nothing. Repair in place, and keep a dated `.bak-*` beside the file when
+  a repair is large enough to be worth comparing against.
+- Before claiming something works, the gate that proves it must actually pass.
+  A gate that cannot pass is a wall, not a gate.
+
 ## Change review checklist
 
 Any change touching V-Probe must answer these before merge:
