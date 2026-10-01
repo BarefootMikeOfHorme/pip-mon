@@ -47,10 +47,20 @@ float property BytesAtStart = 0.0 auto readonly
 bool property Running = false auto readonly
 bool property CleanedUp = true auto readonly
 
-; THE LEAK ITSELF. This array is the object of the test: it is a global, so it
+; THE LEAK ITSELF. This list is the object of the test: it is a property, so it
 ; survives function calls, terminal closes, and cell transitions. Every element
 ; is a live reference the engine cannot reclaim.
-int[] property LeakTracker auto readonly
+;
+; FormList, not int[]. It was int[] and every use treated an element as a
+; reference, which is a type error at each site: an int[] element is a FormID,
+; not an ObjectReference, so `ref.Delete()` was never going to resolve. FormList
+; is the container that carries its own size (GetSize/GetAt/AddForm), which is
+; exactly what a plain array lacks -- there is no array length intrinsic in FO4
+; Papyrus, so an int[] tracker could be appended to but never iterated. AddForm
+; also takes a Form, so the cast at the call site is required, not optional.
+; Verified by compiling this shape against 2.8.0.4 on 2026-10-01; the signatures
+; are from FormList.psc. See ai_context/papyrus_syntax_rules.md section 1.
+FormList property LeakTracker auto readonly
 
 ; --- spawnables, placed in the test cell ------------------------------------
 ObjectReference property ActorSettler auto readonly
@@ -81,19 +91,29 @@ EndEvent
 ; cleanup have something to exercise.
 ; ---------------------------------------------------------------------------
 Function SpawnFixtures()
-    if IsValidRef(LeakTracker) == 0
+    ; IsValidRef is an SKSE function, absent from every FO4 base script
+    ; (compile-verified 2026-10-01). The FO4 test for an unset reference is a
+    ; comparison against `None`, which is a real value in this build -- not 0,
+    ; which does not compare against an ObjectReference at all ("cannot compare
+    ; a objectreference to a int").
+    if LeakTracker != None
         ; nothing to do
     endif
 
-    if ActorSettler == 0 || ActorRaider == 0
+    if ActorSettler == None || ActorRaider == None
         Debug.Notification("LeakTest: fixtures not placed. Place a settler and a raider in the cell.")
         return
     endif
 
     ; Duplicate the placed markers, so each round gets a fresh pair whose
     ; references can be tracked and released individually.
-    ActorSettler.PlaceAtMe()
-    ActorRaider.PlaceAtMe()
+    ; PlaceAtMe's first argument is the Form to place and has NO default --
+    ; ObjectReference.psc declares it `Form akFormToPlace` with no default,
+    ; while aiCount onwards do default. So the marker is passed as the form, and
+    ; the placed Actor is cast: PlaceAtMe returns ObjectReference.
+    ObjectReference settlerCopy = ActorSettler.PlaceAtMe(ActorSettler) as Actor
+    ObjectReference raiderCopy = ActorRaider.PlaceAtMe(ActorRaider) as Actor
+    Debug.Notification("LeakTest: fixtures spawned.")
     Debug.Notification("LeakTest: fixtures spawned.")
 EndFunction
 
@@ -114,9 +134,21 @@ Function StartLeak(int aPerTick)
     CleanedUp = 0
     Debug.Notification("LeakTest: creating " + aPerTick + " references per tick, cap " + MaxReferences)
     SendCustomEvent("LeakTestStarted")
+    RunLeakLoop()
 EndFunction
 
-Event OnLeakTick()
+; The leak loop, driven by Utility.Wait rather than by a custom-named event.
+;
+; `Event OnLeakTick()` was a custom event, and a non-Native script cannot declare
+; one: "new event onleaktick cannot be defined because the script is not flagged as
+; native" -- compile-verified 2026-10-01, and StartTimer does not change it, the
+; name is the problem. This script must stay non-Native or it gives up the
+; compiler's checking, so the tick becomes a Wait-driven loop instead. That is
+; the same shape LoopTest already uses, and it is also the more honest one: the
+; loop re-checks its own exit condition every iteration, so a cap or a stop
+; request is honoured on the next pass rather than whenever the event system
+; gets round to it.
+Function RunLeakLoop()
     ; Bounded. A test that can allocate without limit will eventually OOM the
     ; game, and an OOM is a much worse diagnostic failure than a clean refusal.
     if LeakedCount >= MaxReferences
@@ -127,37 +159,69 @@ Event OnLeakTick()
 
     int created = 0
     while created < ReferencesPerTick
-        ; Spawn a lightweight object. Form 000B15A2 is a metal crafter's bench
-        ; placeholder in the TestLab cell; if it is absent, fall back to the
-        ; bench, and if that is absent too, fall back to the actors. Any
-        ; non-none reference exercises the same handle path.
-        ObjectReference spawned = 0
+        ; Spawn a lightweight object. The Workbench property is the template; if
+        ; it is unassigned, fall back to a settler and then a raider. Any non-none
+        ; reference exercises the same handle path, which is all this test needs.
+        ;
+        ; PlaceAtMe's shape is the Skyrim one, and the coordinate floats are the
+        ; tell: the last variant here passed
+        ;   PlaceAtMe(Workbench, 64.0, 32.0, 16.0, asObjectReference)
+        ; which is six arguments including three coordinate floats and a bare
+        ; `asObjectReference` token. FO4's is, from ObjectReference.psc:
+        ;   ObjectReference Function PlaceAtMe(Form akFormToPlace, int aiCount = 1,
+        ;       bool abForcePersist = false, bool abInitiallyDisabled = false,
+        ;       bool abDeleteWhenAble = true) native
+        ; So: form first, then the two zeros, then cast the result. The 0 for
+        ; abForcePersist is deliberate -- a leaked reference that the engine is
+        ; free to persist would be reclaimed differently from one it may not.
+        ; PipMonTestFacility.psc line 504 uses exactly this call and compiles.
+        ObjectReference spawned = none
 
-        if Workbench != 0
-            spawned = Workbench.PlaceAtMe(Workbench, 64.0, 32.0, 16.0, asObjectReference)
+        if Workbench != none
+            spawned = Workbench.PlaceAtMe(Workbench, 0, 0)
         endif
-        if spawned == 0 && ActorSettler != 0
-            spawned = ActorSettler.PlaceAtMe()
+        if spawned == none && ActorSettler != none
+            spawned = ActorSettler.PlaceAtMe(ActorSettler, 0, 0)
         endif
-        if spawned == 0 && ActorRaider != 0
-            spawned = ActorRaider.PlaceAtMe()
+        if spawned == none && ActorRaider != none
+            spawned = ActorRaider.PlaceAtMe(ActorRaider, 0, 0)
         endif
 
-        if spawned != 0
-            ; THE LEAK. Appending to a global array keeps the reference alive
-            ; past this function's scope, so the engine never reclaims it. The
-            ; array is the handle; removing it is the release.
-            LeakTracker.Insert(spawned)
+        if spawned != none
+            ; THE LEAK. Retaining the reference in a property keeps it alive past
+            ; this function's scope, so the engine never reclaims it. The list is
+            ; the handle; removing from it is the release. AddForm takes a Form,
+            ; hence the cast.
+            LeakTracker.AddForm(spawned as Form)
             LeakedCount += 1
         endif
 
         created += 1
     endwhile
 
-    ; Inserting to a global array is itself an op, so the thread is not silent --
+    ; Adding to a property list is itself an op, so the loop is not silent --
     ; but the op cost is low compared to the reference churn, which is what
     ; distinguishes a leak from a runaway on the dashboard.
+
+    ; The Wait is what yields the thread back to the VM. It goes at the END of the
+    ; body, not the start, so the first tick allocates before yielding.
     Utility.Wait(1.0 / TicksPerSecond)
+    SendCustomEvent("LeakTestTick")
+
+    ; Two exits, checked each pass. Running is set false by StopLeak or by a cap
+    ; hit, so a stop request is honoured on the next tick rather than whenever
+    ; the event system gets to it. Without a second exit this is an infinite
+    ; loop in the caller's thread, which is the exact failure LoopTest exists to
+    ; provoke.
+    if Running == false
+        Debug.Notification("LeakTest: stopped after " + LeakedCount + " references.")
+        return
+    endif
+    if LeakedCount >= MaxReferences
+        Debug.Notification("LeakTest: cap reached (" + MaxReferences + "). Run lk_clean to release.")
+        Running = false
+        return
+    endif
 EndFunction
 
 ; ---------------------------------------------------------------------------
@@ -172,19 +236,30 @@ Function Cleanup()
     int released = 0
 
     ; Delete the objects first, then drop the references. Doing it in this order
-    ; means the array shrink does not try to release handles for objects that
+    ; means the list shrink does not try to release handles for objects that
     ; are already gone.
-    int i = LeakTracker.length - 1
-    while i >= 0
-        ObjectReference ref = LeakTracker[i]
-        if IsValidRef(ref)
+    ;
+    ; The old form was LeakTracker.length - 1, and there is no array length
+    ; intrinsic in FO4 Papyrus, so it never resolved. FormList carries its own
+    ; size, which is the entire reason for the change.
+    ; Walking forward and dropping each entry is also safer than walking backward
+    ; through a list that is being emptied: RemoveAddedForm shifts the tail down,
+    ; so a backward index would skip an element.
+    int n = LeakTracker.GetSize()
+    int i = 0
+    while i < n
+        Form f = LeakTracker.GetAt(i)
+        ObjectReference ref = f as ObjectReference
+        ; Not IsValidRef, which is SKSE. `none` is the value a collected or unset
+        ; reference reads as; 0 does not compare against an ObjectReference.
+        if ref != none
             ref.Delete()
             released += 1
         endif
-        i -= 1
+        LeakTracker.RemoveAddedForm(f)
+        i += 1
     endwhile
 
-    LeakTracker.Clear()
     LeakedCount = 0
     CleanedUp = 1
     Running = 0

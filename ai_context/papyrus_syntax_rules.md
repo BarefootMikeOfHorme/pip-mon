@@ -47,6 +47,14 @@ recalling documentation.
 | `Event OnTimer(float)` | Wrong signature. FO4's takes the timer **ID**. | parameter types do not match ScriptObject |
 | `GetOwningObjectOfThread` | Skyrim/SKSE. FO4 has no way for a script to ask a thread for its owning object. | "GetOwningObjectOfThread is not a function or does not exist" |
 | `self.Cancel()` / `ObjectReference.Cancel` | No `Cancel` method on ScriptObject. It looks like the Skyrim idiom for stopping a self-run script; nothing in this build declares it. | "Cancel is not a function or does not exist" |
+| `SpawnThreadFromCustomEvent` | Skyrim/SKSE. **No script in FO4 can start a second thread.** Not a missing wrapper — a missing capability. | "unknown type spawnthreadfromcustomevent", or "no viable alternative at input '('" |
+| `IsValidRef(x)` | Skyrim/SKSE. Compare against `None` instead: `if x != none`. | "IsValidRef is not a function or does not exist" |
+| `SetGlobalFlag(n, v)` / `GetLocalFlag(n)` | SKSE global/local flag access. FO4's replacement is a script `property`, which is per-placed-instance. | "SetGlobalFlag is not a function or does not exist" |
+| `GetFormIDFromEvent` | Not in this build. `Form.GetFormID()` on the reference is what exists. | "GetFormIDFromEvent is not a function or does not exist" |
+| `obj == 0` for a reference | Does not compare. `None` is the value — it is a real token in this build, and an unset property reads as it. | "cannot compare a objectreference to a int" |
+
+`SpawnThreadFromCustomEvent` deserves its weight: the errors it produces name a
+**loop**. See section 1a.
 
 ### 1a. Two traps that produce *misleading* error text
 
@@ -76,10 +84,45 @@ backwards for the first genuine fault.
 
 The array-length gap is a structural constraint, not a missing convenience:
 without a length there is no way to iterate an editor-filled array from script,
-so `ObjectReference[] property Roster` would be writable in the CK and
-unreadable at runtime. Use individual named properties instead. The benefit is
-real: fifteen named slots are visible at a glance in the CK property list, so
-"which one is the synth" is answered by looking rather than by counting indices.
+so an `ObjectReference[]` property that the CK fills in would be writable in the
+editor and unreadable at runtime. For a **fixed roster**, use individual named
+properties instead — `PipMonTestFacility.psc` places fifteen actors into fifteen
+`ObjectReference property placedN01 = none` slots, so "which one is the synth" is
+answered by looking rather than by counting indices.
+
+**For a list the script itself fills, `FormList` is the container.** It carries
+its own size, which is exactly what the plain array lacks. Verified by compiling
+against 2.8.0.4 on 2026-10-01, from `FormList.psc`:
+
+```papyrus
+Function AddForm(Form apForm) native
+int Function GetSize() native
+Form Function GetAt(int aiIndex) native
+Function RemoveAddedForm(Form apForm) native
+```
+
+The loop shape that compiles, for retaining a spawn so the engine cannot reclaim
+it and later releasing it:
+
+```papyrus
+FormList property Tracker auto readonly
+
+Tracker.AddForm(made as Form)            ; retain -- this is the leak under test
+int n = Tracker.GetSize()                ; the length you do not get from []
+Form f = Tracker.GetAt(i)
+ObjectReference o = f as ObjectReference
+if o != none
+    o.Delete()
+endif
+```
+
+Two traps in that shape. `AddForm` takes a **`Form`**, not an `ObjectReference`,
+so the cast is mandatory. And `ObjectReference[]` is a real property type and
+compiles, but `Insert` on it is the *location* form — `Insert(akLocation)`,
+one argument — so `array.Insert(element, 0)` does not work on it. Shipped
+scripts such as `DN070_TurretHallManagerScript.psc` call `lasers.Insert(linkLasers, 0)`
+on a different kind of array, which is where that two-argument habit comes from;
+it does not transfer. Use `FormList` when you need the length.
 
 ## 2. The timer API, verbatim from the CK base script
 

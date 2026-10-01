@@ -112,18 +112,50 @@
       ]
     },
     {
-      "name": "array length intrinsic (GetSize, Count, Size)",
+      "name": "array length intrinsic (GetSize)",
       "exists_in_fo4": false,
       "evidence": "compile",
-      "error_text": "parse error",
+      "error_text": "not a function or does not exist",
       "provenance": [
         "compile"
       ],
+      "consequence": "A plain array property has no length in FO4 Papyrus, which is what makes an editor-filled array unreadable at runtime. Structural, not a missing convenience. Use FormList, which carries its own size.",
       "detect": [
-        "GetSize",
-        "array.Count",
-        ".Size("
-      ]
+        "GetSize"
+      ],
+      "detect_exceptions": [
+        "FormList"
+      ],
+      "detect_note": "The one member of the old combined entry that is legal SOMEWHERE. FormList.psc declares 'int Function GetSize() native', alongside GetAt/AddForm/RemoveAddedForm, and the whole shape compiles against 2.8.0.4 (verified 2026-10-01). A plain array has no GetSize. So the ban is real but receiver-dependent, and a token ban cannot tell the two apart -- hence the single exception in this entry. FormList is the ONLY type in the staged base scripts that declares it: grepping all 2428 staged .psc files for 'Function GetSize' returns FormList.psc alone. BGSKeywordList does not declare it and is not an exception here. The stem is the bare identifier 'GetSize'; see the Count entry's detect_note for why a dot-prefixed stem would never fire.",
+      "exception_note": "Scoped, not omitted. artifact_gate.py collects the property names declared with the exception type and exempts only a call whose receiver is one of them, so 'MyList.GetSize()' is exempt while 'MyArray.GetSize()' still fails. GetSize stays in the detect list: an earlier attempt removed the token outright and silently stopped catching the plain-array case, which is the case the gate exists for."
+    },
+    {
+      "name": "count member (.Count)",
+      "exists_in_fo4": false,
+      "evidence": "compile",
+      "error_text": "not a function or does not exist / not a known user-defined script type",
+      "provenance": [
+        "compile"
+      ],
+      "consequence": "No length by that name on any container. Use FormList.GetSize(), which is the one that exists.",
+      "detect": [
+        "Count"
+      ],
+      "detect_note": "UNCONDITIONAL -- no exceptions, deliberately. Split out of the old combined 'array length intrinsic (GetSize, Count, Size)' entry because these three members do NOT share a rule, and lumping them hid that. GetSize is legal on a FormList; Count is not legal anywhere, FormList included. Compiled 2026-10-01 against 2.8.0.4: 'Listed.Count()' on a FormList gives 'Count is not a function or does not exist', the same as on a plain array. So an entry-level exception would have wrongly exempted it. TWO SPELLINGS, TWO ERRORS: 'Roster.Count()' gives 'Count is not a function or does not exist', while bare 'Roster.Count' is worse and gives 'int[] is not a known user-defined script type' -- the compiler reads Count as a TYPE NAME there, so the error points at the property DECLARATION rather than the call, which is a genuinely misleading diagnostic. STEM IS THE BARE IDENTIFIER 'Count', and that is not a detail. The old stem was the two-token string 'array.Count', which word_hit() matches literally, so it fired only on a variable actually NAMED 'array' and let Roster.Count and myList.Count through untouched. The obvious fix -- prefix with a dot so it matches any receiver -- DOES NOT WORK HERE, and that was tried and measured: word_hit() wraps the stem in (?<![A-Za-z0-9_]) and the character before the dot in 'Plain.Count' is 'n', a word character, so the lookbehind rejects the match and the stem never fires on anything. Every dot-prefixed stem is dead on arrival against this matcher. Bare 'Count' matches both the call and the property spelling."
+    },
+    {
+      "name": "size member (.Size)",
+      "exists_in_fo4": false,
+      "evidence": "compile",
+      "error_text": "not a function or does not exist",
+      "provenance": [
+        "compile"
+      ],
+      "consequence": "No length by that name on any container. Use FormList.GetSize().",
+      "detect": [
+        "Size"
+      ],
+      "detect_note": "Unconditional, for the same reason as Count: no container in this build has a Size member, FormList included. Separate entry so a future exception for one member cannot leak onto another. The old stem was '.Size(' WITH the open paren, and word_hit() re-escapes the stem, so it only matched a receiver whose call literally opened there after the name; the bare property spelling 'Roster.Size' slipped past. Stem is now the bare identifier 'Size', catching both the call and the property form, exactly like Count and GetSize. NOT '.Size' with a leading dot -- see the Count entry's detect_note for why a dot-prefixed stem never fires against this matcher. The Count probe is the evidence for both spellings being worth catching: authors and LLMs reach for the parenthesised form and the bare form interchangeably, and the bare form produces the more misleading error."
     },
     {
       "name": "CreateObjectAtForm",

@@ -98,9 +98,33 @@ def word_hit(line, stem):
     return re.search(r"(?<![A-Za-z0-9_])" + re.escape(stem) + r"(?![A-Za-z0-9_])", line) is not None
 
 
+def declared_property_names(text, type_names):
+    """Property names declared with one of `type_names`, e.g. FormList.
+
+    Used to scope a banned construct to a named exception type. Resolving this
+    per file rather than per line is the whole point: the legal call site is
+    `MyList.GetSize()`, which never mentions the type.
+    """
+    pat = re.compile(
+        r"^\s*(?:" + "|".join(re.escape(t) for t in type_names) + r")"
+        r"(?:\s*\[\s*\])?\s+property\s+(\w+)",
+        re.M | re.I,
+    )
+    return {m.group(1).lower() for m in pat.finditer(text)}
+
+
+def receiver_in(line, names):
+    """True if any `name.method(` receiver on this line is in `names`."""
+    for m in re.finditer(r"([A-Za-z_]\w*)\s*\.\s*\w+\s*\(", line):
+        if m.group(1).lower() in names:
+            return True
+    return False
+
+
 def scan_tokens(path, entries, key_exists, label):
     """Yield (line_no, line, entry) for every banned token found in real code."""
-    text = strip_noise(path.read_text(encoding="utf-8", errors="replace"), path.suffix.lower())
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    text = strip_noise(raw, path.suffix.lower())
     for i, line in enumerate(text.splitlines(), 1):
         low = line.lower()
         if low.lstrip().startswith(";") or low.lstrip().startswith("//"):
@@ -108,8 +132,28 @@ def scan_tokens(path, entries, key_exists, label):
         for e in entries:
             if e.get(key_exists) is not False:
                 continue
+            # A construct may be banned for the common case and legal on a
+            # named exception. 'GetSize' does not exist on a plain array
+            # property, which is why it is banned, but FormList.psc declares
+            # its own 'int Function GetSize() native' and that shape compiles.
+            #
+            # The receiver decides, not the presence of the type name: a legal
+            # call reads 'LeakTracker.GetSize()' where LeakTracker is the
+            # FormList, so grepping for the word 'FormList' on the call line
+            # matches nothing and exempts nothing. So the exception is resolved
+            # per FILE: collect the property names declared with the exception
+            # type, and exempt a call only when the name it is called on is one
+            # of them. GetSize stays in the detect list, so a plain-array GetSize
+            # is still an error -- an earlier attempt removed the token outright
+            # and silently stopped catching that.
+            exc_types = [x for x in (e.get("detect_exceptions") or []) if x]
+            exc_names = set()
+            if exc_types:
+                exc_names = declared_property_names(raw, exc_types)
             for stem in e.get("detect", []):
                 if stem.startswith("__"):
+                    continue
+                if exc_names and receiver_in(line, exc_names):
                     continue
                 if word_hit(line, stem):
                     yield i, line.strip(), e
