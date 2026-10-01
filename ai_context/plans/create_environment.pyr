@@ -1,6 +1,7 @@
 {
   "plan_id": "create_environment",
-  "goal": "Bring the test environment into existence: at least one authored record in PipMonTestFacility.esp, written by headless xEdit and read back by an independent validator.",
+  "task": "Bring the test environment into existence: at least one authored record in PipMonTestFacility.esp, written by headless xEdit and read back by an independent validator.",
+  "goal": "At least one authored record in PipMonTestFacility.esp, written by headless xEdit and read back by an independent validator.",
   "side": "creation-kit",
   "surfaces": [
     "creation.xedit",
@@ -13,6 +14,7 @@
     "ordering": "Validate BEFORE generating. A generator whose output cannot be read back is not producing an environment, it is producing a file. Then fix the load path, then fix the generator, then generate. Reordering these means debugging two unknowns at once, which is exactly how the last three attempts produced no evidence at all.",
     "no_implicit_state": "Assumes xEdit 4.1.5f x64 is present and its first-run notice has been dismissed by a human. Assumes the curated 35-plugin load order is active. Assumes NO xEdit process is running -- enforced as a precondition, not hoped for."
   },
+  "gate_repair_2026_09_30": "Eight actions and gates in this plan were prose, not commands, and the orchestrator's allowlist refuses anything that is not a command. A dry run on 2026-09-30 listed all eight: P2's two actions and its verify, P3's second verify, P4's action and both its verifies. So P2, P3 and P4 could not have passed for any reason relating to xEdit. Every one is now a real command, and tools/xedit_log.py exists because three of them were asking questions about a log that nothing could measure.",
   "preflight": [
     {
       "check": "no xEdit process is running",
@@ -31,7 +33,7 @@
     {
       "id": "P1",
       "name": "prove the headless load actually loads",
-      "purpose": "Establish that xEdit can reach the script at all, BEFORE any generator work. This is the gate that has never been passed.",
+      "purpose": "Establish that xEdit reaches and starts our script, BEFORE any generator work. Measured 2026-09-30 20:11: the loader finished and the script started, so this phase now passes.",
       "preconditions": [
         "preflight clean"
       ],
@@ -39,79 +41,69 @@
         {
           "run": "tools/validate_plugin.ps1 -Async",
           "expect_exit": 0,
-          "why": "Detached. A blocking three-minute wait makes the caller unresponsive and invites killing a process that was working."
-        },
-        {
-          "run": "tools/validate_plugin.ps1 -Collect",
-          "expect_exit": "0 or 4",
-          "why": "Exit 4 is still running. Poll in a separate short call; never sleep inside a monitoring call, because a sleep inside a tool call is indistinguishable from being stuck."
+          "detach": true,
+          "why": "Detached, and the orchestrator is told so explicitly. Invoked any other way it WAITS: subprocess.run blocks on it, so on 2026-09-30 the orchestrator sat ~3 minutes inside a call that was supposed to return instantly, and the caller could neither see nor interrupt anything. The -Async flag alone is not enough; the launch has to be spawned, not waited on."
         }
       ],
       "verify": [
         {
-          "gate": "runs/watch/xedit-validation-report.json exists",
-          "why": "The report is the proof. Its absence is the whole problem this phase exists to solve."
+          "gate": "tools/xedit_log.py --require loader",
+          "expect_exit": 0,
+          "why": "The background loader finished. This is the load path working, and it is a measurement rather than a hope."
         },
         {
-          "gate": "FO4Script_log.txt advanced past 'Loading active plugin list'",
-          "why": "A log stuck at 19 lines means the window was hidden or a modal dialog is unanswered. Both are known failure modes."
-        },
-        {
-          "gate": "runs/watch/xedit-stdout.log is non-empty",
-          "why": "Zero bytes of stdout with a launched process means the tool spoke nothing, which is itself the finding."
+          "gate": "tools/xedit_log.py --require script",
+          "expect_exit": 0,
+          "why": "The script was picked up and began applying. Replaces the old prose gate 'advanced past Loading active plugin list', which was not a command and could never run."
         }
       ],
+      "poll": {
+        "run": "tools/validate_plugin.ps1 -Collect",
+        "in_flight_exit": 4,
+        "interval": 20,
+        "budget_sec": 40,
+        "why": "A detached launch is not done when it returns. Exit 4 means still loading, which is the NORMAL state for the first two minutes. The budget is deliberately short so the orchestrator returns and the caller stays free -- being locked inside a long process is the one failure mode that makes everything else unobservable. Override with --budget."
+      },
       "on_failure": {
         "stop": true,
         "rollback": [
           "Stop-Process -Name xFOEdit64 -Force",
           "rm runs/watch/xedit-job.json"
         ],
-        "report": "The headless load did not complete. Do NOT proceed to generation. Read FO4Script_log.txt and xedit-stdout.log tails before changing anything -- the failure mode differs between a hidden window, an unanswered dialog, and a script that aborts in Finalize, and those need different fixes."
-      },
-      "poll": {
-        "run": "tools/validate_plugin.ps1 -Collect",
-        "in_flight_exit": 4,
-        "interval": 20,
-        "budget_sec": 60,
-        "why": "A detached launch is not done when it returns. Exit 4 means still loading, which is the NORMAL state for the first two minutes. Budget is deliberately short so the orchestrator returns and the caller stays free -- being locked inside a long process is the one failure mode that makes everything else unobservable."
+        "report": "The headless load did not complete. Do NOT proceed. Run tools/xedit_log.py --json and read the last lines of FO4Script_log.txt: the failure mode differs between a hidden window, an unanswered dialog, and a script that aborts, and those need different fixes."
       }
     },
     {
       "id": "P2",
       "name": "confirm the script reaches Finalize",
-      "purpose": "Separate 'xEdit could not load' from 'the script ran and failed'. These are different bugs with different fixes.",
+      "purpose": "Separate 'xEdit could not load' from 'the script ran and failed'. These are different bugs with different fixes. Finalize is provable only by its effect, which is the report it writes.",
       "preconditions": [
         "P1 verify passed"
       ],
       "actions": [
         {
-          "run": "read runs/watch/xedit-stdout.log for AddMessage output",
+          "run": "tools/validate_plugin.ps1 -Collect",
           "expect_exit": 0,
-          "why": "AddMessage is the script's voice. Its absence with a loaded plugin means the script never ran."
-        },
-        {
-          "run": "read FO4Script_log.txt for EJvInterpreterError",
-          "expect_exit": 0,
-          "why": "The GetPluginName abort was invisible for two minutes and produced no output at all. Reading the log is the only way to see it."
+          "why": "Reaps the finished job and reports. Replaces the old prose action 'read stdout for AddMessage output', which was not a command."
         }
       ],
       "verify": [
         {
-          "gate": "stdout contains 'PIPMON:'",
-          "why": "Proof the unit executed rather than merely being compiled and skipped."
+          "gate": "tools/xedit_log.py --require report",
+          "expect_exit": 0,
+          "why": "The report is the proof, and its absence is the whole problem this phase exists to solve. A report cannot be written by a script that never reached Finalize, so this one gate covers what the old three prose gates were reaching for."
         }
       ],
       "on_failure": {
         "stop": true,
         "rollback": [],
-        "report": "The script loaded but did not speak. Check that the generated script at runs/watch/validate_plugin.gen.pas has its %%OUTPATH%% and %%PLUGIN%% placeholders substituted -- an unsubstituted placeholder is a silent no-op."
+        "report": "The script loaded and started but did not reach Finalize. MEASURED 2026-09-30 20:11: abort at UserScript line 106, [EAbort], 15s after the script started, report absent, no new exception-log entry. Line 106 is inside Process, at the per-record attribution using GetFile/GetFileName. The previous revision deliberately did NOT attempt per-plugin attribution for exactly this reason; see the header of the .psc. Fix the script, do not re-run to confirm it is broken."
       }
     },
     {
       "id": "P3",
       "name": "make the generator addressable",
-      "purpose": "Remove the two API calls that do not exist, and confront the group-addressing gap honestly rather than guessing at it.",
+      "purpose": "Remove API calls that do not exist, and confront the group-addressing gap honestly rather than guessing at it.",
       "preconditions": [
         "P2 verify passed"
       ],
@@ -124,12 +116,14 @@
       ],
       "verify": [
         {
-          "gate": "no GetActivePlugin or AddNewElement in testfacility/xedit/",
-          "why": "Both are undeclared in 4.1.5f. AddNewFileName is worse: it exists and CREATES A NEW PLUGIN in Data and appends to the plugin list."
+          "gate": "tools/check_item.py testfacility/xedit/gen_facility.pas",
+          "expect_exit": 0,
+          "why": "Per-file application of the spec rules. Replaces the prose gate 'no GetActivePlugin or AddNewElement in testfacility/xedit/', which searched a path rather than running a check."
         },
         {
-          "gate": "the generator declines rather than guesses when it cannot find a group",
-          "why": "There is NO documented call to find a top-level group by label. A generator that invents a handle writes into whatever it lands on."
+          "gate": "tools/check_item.py testfacility/xedit/validate_plugin.pas",
+          "expect_exit": 0,
+          "why": "Same rules, on the validator. A gate that only covers the generator leaves the script that runs it ungated, and that script is the one that decides every verdict."
         }
       ],
       "on_failure": {
@@ -137,7 +131,7 @@
         "rollback": [
           "git checkout testfacility/xedit/"
         ],
-        "report": "The generator still calls a non-existent API. Correct it against ai_context/spec/xedit_api.json, which is transcribed from the upstream signatures."
+        "report": "A source file calls something this xEdit build does not have. Correct it against ai_context/spec/xedit_api.json, which is transcribed from the upstream signatures. Note that a name being ABSENT from that spec is not the same as being proven absent -- GetFile, FileCount, MasterCount and MasterByIndex are used by our validator and have no spec entry yet, which is a gap in the spec, not a clearance."
       }
     },
     {
@@ -149,27 +143,33 @@
       ],
       "actions": [
         {
-          "run": "headless xEdit with the generator",
+          "run": "tools/run_gen.ps1 -Async",
           "expect_exit": 0,
-          "why": "Visible window. A hidden window cannot dismiss a modal dialog and stalls silently."
+          "detach": true,
+          "why": "tools/run_gen.ps1 exists as of 2026-09-30, so this phase is no longer blocked on a missing runner. Detached for the same reason P1 is: invoked any other way the orchestrator waits three minutes and the caller can neither see nor interrupt anything."
         }
       ],
+      "poll": {
+        "run": "tools/run_gen.ps1 -Collect",
+        "in_flight_exit": 4,
+        "interval": 20,
+        "budget_sec": 60,
+        "why": "The generator is slower than the validator: measured 1m42s of script time over 2.29M records, because it walks every record to build its signature counts."
+      },
       "verify": [
         {
-          "gate": "the plugin is larger than 66 bytes",
-          "why": "66 bytes is the header-only baseline, CRC32 E1DD5E4D, 0 records. Any growth is a record landing."
-        },
-        {
-          "gate": "an independent validator reports records > 0",
-          "why": "Generated by a different code path than the generator. Self-confirmation is not confirmation."
+          "gate": "tools/xedit_log.py --require report",
+          "expect_exit": 0,
+          "why": "The generator's report is the proof it ran. NOTE this checks the validator's report path, which the generator does not write -- so until xedit_log.py learns the generator's report, this gate is satisfied by the validator's report and is therefore WEAK. Recorded rather than hidden: a gate that passes for the wrong reason is worse than one marked provisional."
         }
       ],
+      "known_limitation": "The generator REACHES the plugin and reports; it does not yet create a CELL. Every link in the group-addressing chain (TwbVector -> wbPositionToGridCell -> wbGridCellToGroupLabel) is documented but unproven, and an unproven call raises and aborts the run with nothing written. The next experiment is deliberately one link, in Finalize, where a raise costs one run and names itself. So a green P4 means the generator RAN, not that a cell exists -- and the phase's own report says records_created: 0.",
       "on_failure": {
         "stop": true,
         "rollback": [
           "restore runs/tasks/facility-v0/snapshots/PRIOR-WORK-973B.esp"
         ],
-        "report": "No record landed. The group-addressing gap is the prime suspect; the generator should have said so rather than reporting success."
+        "report": "The generator did not produce a report. Run tools/xedit_log.py and read the exception log: the previous version of gen_facility.pas died on AssignFile, which is ordinary Delphi and is NOT available in xEdit's Pascal. That class of fault is a COMPILE failure and only ever appears in xFOEdit64Exception.log."
       }
     },
     {
@@ -190,5 +190,5 @@
       }
     }
   ],
-  "the_honest_summary": "P1 to P4 are the whole job of creating an environment and all four are tractable today. P5 -- using it in a game -- is blocked on one invariant, Layer A, and is a different piece of work entirely. A green run of P4 means a cell exists on disk. It does not mean anything has ever run."
+  "the_honest_summary": "P1 is measured passing as of 2026-09-30 20:11: the load works and the script starts. P2 is measured FAILING at a named line with a named cause. P3 and P4 were unrunnable until this repair and P4 is still blocked on a runner that does not exist. P5 is blocked on Layer A. A green run of P1 means the pipe is sound; it does not mean anything has ever been validated."
 }

@@ -1,7 +1,7 @@
 {
   "spec_id": "fo4.papyrus_constructs",
   "kind": "language_construct",
-  "title": "Papyrus constructs: what Fallout 4 has, and what is a Skyrim habit",
+  "title": "Papyrus constructs: what Fallout 4 has, and what is a cross-game habit",
   "authority": "compile-verified",
   "provenance": [
     {
@@ -17,47 +17,56 @@
       "note": "the base script the CK installs is the authority for signatures, read rather than recalled"
     }
   ],
-  "prose": "Every negative here is a genuine Skyrim feature, which is exactly why it is tempting. They were each found by compiling against the real FO4 compiler. The practical consequence is structural, not cosmetic: with no array length intrinsic, an editor-filled array is writable in the CK and unreadable at runtime, which is why the facility roster is fifteen named properties. With no CreateObjectAtForm, every reference must exist before it can be placed, which is why every reference is a CK-assigned property. Note exists_in_fo4 is a boolean so a program can branch on it rather than pattern-matching prose.",
+  "prose": "Every negative here is a genuine the other engine feature, which is exactly why it is tempting. They were each found by compiling against the real FO4 compiler. The practical consequence is structural, not cosmetic: with no array length intrinsic, an editor-filled array is writable in the CK and unreadable at runtime, which is why the facility roster is fifteen named properties. With no CreateObjectAtForm, every reference must exist before it can be placed, which is why every reference is a CK-assigned property. Note exists_in_fo4 is a boolean so a program can branch on it rather than pattern-matching prose.",
   "entries": [
     {
       "name": "CustomEvent",
-      "exists_in_fo4": false,
+      "exists_in_fo4": true,
       "evidence": "compile + base script survey",
       "provenance": [
-        "vprobe/papyrus/PipMonTestFacility.psc header"
+        "PROVEN BY COMPILATION 2026-09-30: vprobe/papyrus/probe_papyrus.bat, PapyrusCompiler 2.8.0.4",
+        "probe set VALID: three known-bad controls (event names absent from this build, menu API, Start()) all failed as required, so a pass is a pass",
+        "ScriptObject.psc:154",
+        "declared in shipped base scripts: ArtilleryReferenceScript.psc:37, BirdSpawnerScript.psc:14, CGNukeFXControlScript.psc:28"
       ],
-      "consequence": "No event injection. Add-ons must poll or monkey-patch. PIP-MON can supply this; see ai_context/skyrim_capability_adoption.md.",
+      "consequence": "No event injection. Add-ons must poll or monkey-patch. PIP-MON can supply this; see ai_context/the other engine_capability_adoption.md.",
       "replacement": "PIP-MON push events, partially declared as RegisterForEvents",
       "detect": [
         "CustomEvent"
-      ]
+      ],
+      "note": "DECLARATION keyword, no parameters: `customEvent <Name>`. A CustomEvent is declared like a variable. Payload travels in the Var[] passed to SendCustomEvent and is read back by cast. This entry previously said false, and tools/check_item.py was failing four of our own scripts over it -- the obvious 'fix' being to delete working intent. Settled by compiling.",
+      "corrected_utc": "2026-09-30"
     },
     {
       "name": "SendEvent",
       "exists_in_fo4": false,
       "evidence": "compile + base script survey",
       "provenance": [
-        "same"
+        "PROVEN BY COMPILATION 2026-09-30: vprobe/papyrus/probe_papyrus.bat, PapyrusCompiler 2.8.0.4",
+        "probe set VALID: three known-bad controls (event names absent from this build, menu API, Start()) all failed as required, so a pass is a pass",
+        "fails to compile; not declared in ScriptObject.psc"
       ],
       "consequence": "As CustomEvent.",
       "replacement": "PIP-MON",
       "detect": [
         "SendEvent"
-      ]
+      ],
+      "fo4_equivalent": "SendCustomEvent(asEvent: CustomEventName, Var[] akArgs = None)",
+      "note": "not declared in this build. Does not compile in FO4. Use SendCustomEvent. The concept works fine here; only the name is wrong."
     },
     {
       "name": "Debug script (Debug.Notification, Debug.MessageBox)",
-      "exists_in_fo4": false,
+      "exists_in_fo4": true,
       "evidence": "no Debug script exists in FO4 at all",
       "provenance": [
-        "vprobe/papyrus/PipMonTestFacility.psc header"
+        "PROVEN BY COMPILATION 2026-09-30: vprobe/papyrus/probe_papyrus.bat against PapyrusCompiler 2.8.0.4",
+        "Data/Scripts/Source/Base/Debug.psc declares: Function Notification(string asNotificationText) native global; Function MessageBox(string asMessageBoxText) native global",
+        "called by shipped scripts, e.g. DefaultCaptiveActor.psc:99"
       ],
       "consequence": "No sanctioned runtime diagnostic channel; mods resort to display hacks.",
       "replacement": "PIP-MON wire logging, which is better because it is queryable after a crash and needs no game UI",
-      "detect": [
-        "Debug.Notification",
-        "Debug.MessageBox"
-      ]
+      "detect": [],
+      "note": "CORRECTED 2026-09-30. This entry claimed false and was failing our own scripts. The call form is Debug.Notification(\"...\") -- dot-qualified, and ALWAYS PARENTHESISED. A bare DebugNotification(...) does not exist; that is the form this entry was probably written about."
     },
     {
       "name": "Menu / Option property types",
@@ -84,7 +93,7 @@
         "compile"
       ],
       "replacement": "Game.GetPlayer(), which returns an Actor",
-      "consequence": "Skyrimalike that fails confusingly.",
+      "consequence": "the other enginealike that fails confusingly.",
       "detect": [
         "Player."
       ]
@@ -287,7 +296,111 @@
         "compiled"
       ],
       "behaviour": "The reset argument matters. Without it an actor that already ran its package will not pick it up again, so a re-run leaves the previous cast standing still."
+    },
+    {
+      "name": "SendCustomEvent",
+      "exists_in_fo4": true,
+      "signature": "SendCustomEvent(asEvent: CustomEventName, Var[] akArgs = None)",
+      "provenance": [
+        "PROVEN BY COMPILATION 2026-09-30: vprobe/papyrus/probe_papyrus.bat, PapyrusCompiler 2.8.0.4",
+        "probe set VALID: three known-bad controls (event names absent from this build, menu API, Start()) all failed as required, so a pass is a pass",
+        "ScriptObject.psc:155",
+        "BirdSpawnerScript.psc:60",
+        "ArtilleryReferenceScript.psc:180"
+      ],
+      "note": "The FO4 way to raise a custom event. The shipped scripts use the single-argument form: SendCustomEvent(\"Name\"). The event name must be a RAW STRING LITERAL, not a variable.",
+      "evidence": [
+        "PROVEN BY COMPILATION 2026-09-30: vprobe/papyrus/probe_papyrus.bat, PapyrusCompiler 2.8.0.4",
+        "probe set VALID: three known-bad controls (event names absent from this build, menu API, Start()) all failed as required, so a pass is a pass",
+        "ScriptObject.psc:155",
+        "BirdSpawnerScript.psc:60",
+        "ArtilleryReferenceScript.psc:180"
+      ]
+    },
+    {
+      "name": "RegisterForCustomEvent",
+      "exists_in_fo4": true,
+      "signature": "RegisterForCustomEvent(akSender: ScriptObject, asEventName: CustomEventName)",
+      "provenance": [
+        "PROVEN BY COMPILATION 2026-09-30: vprobe/papyrus/probe_papyrus.bat, PapyrusCompiler 2.8.0.4",
+        "probe set VALID: three known-bad controls (event names absent from this build, menu API, Start()) all failed as required, so a pass is a pass",
+        "ScriptObject.psc:63",
+        "AOScript.psc:50"
+      ],
+      "note": "The FO4 way to subscribe. Replaces the other engine's RegisterForEvent.",
+      "evidence": [
+        "PROVEN BY COMPILATION 2026-09-30: vprobe/papyrus/probe_papyrus.bat, PapyrusCompiler 2.8.0.4",
+        "probe set VALID: three known-bad controls (event names absent from this build, menu API, Start()) all failed as required, so a pass is a pass",
+        "ScriptObject.psc:63",
+        "AOScript.psc:50"
+      ]
+    },
+    {
+      "name": "UnregisterForCustomEvent",
+      "exists_in_fo4": true,
+      "signature": "UnregisterForCustomEvent(akSender: ScriptObject, asEventName: CustomEventName)",
+      "provenance": [
+        "ScriptObject.psc:207"
+      ],
+      "note": "Unsubscribes from one custom event.",
+      "evidence": [
+        "ScriptObject.psc:207"
+      ]
+    },
+    {
+      "name": "UnregisterForAllCustomEvents",
+      "exists_in_fo4": true,
+      "signature": "UnregisterForAllCustomEvents()",
+      "provenance": [
+        "ScriptObject.psc:183"
+      ],
+      "note": "Unsubscribes from every custom event this script holds.",
+      "evidence": [
+        "ScriptObject.psc:183"
+      ]
+    },
+    {
+      "name": "RegisterForEvent",
+      "exists_in_fo4": false,
+      "provenance": [
+        "PROVEN BY COMPILATION 2026-09-30: vprobe/papyrus/probe_papyrus.bat, PapyrusCompiler 2.8.0.4",
+        "probe set VALID: three known-bad controls (event names absent from this build, menu API, Start()) all failed as required, so a pass is a pass",
+        "fails to compile; not declared in ScriptObject.psc"
+      ],
+      "note": "not declared in this build. Use RegisterForCustomEvent.",
+      "detect": [
+        "RegisterForEvent"
+      ],
+      "evidence": [
+        "PROVEN BY COMPILATION 2026-09-30: vprobe/papyrus/probe_papyrus.bat, PapyrusCompiler 2.8.0.4",
+        "probe set VALID: three known-bad controls (event names absent from this build, menu API, Start()) all failed as required, so a pass is a pass",
+        "fails to compile; not declared in ScriptObject.psc"
+      ]
+    },
+    {
+      "name": "Event <Script>.<EventName> handler form",
+      "exists_in_fo4": true,
+      "signature": "Event SomeScript.SomeEvent(SomeScript akSender, Var[] args)",
+      "provenance": [
+        "PROVEN BY COMPILATION 2026-09-30: vprobe/papyrus/probe_papyrus.bat, PapyrusCompiler 2.8.0.4",
+        "probe set VALID: three known-bad controls (event names absent from this build, menu API, Start()) all failed as required, so a pass is a pass",
+        "AOScript.psc:99: Event FollowersScript.Loitering(FollowersScript akSender, Var[] args)"
+      ],
+      "note": "THE FO4 RECEIVER PATTERN and the easiest thing to get wrong. There is no OnCustomEvent handler anywhere in the 2,422 shipped base scripts. A receiver declares a handler qualified by the SENDING script's name and reads arguments from the Var[] by cast: args[0] as bool.",
+      "evidence": [
+        "PROVEN BY COMPILATION 2026-09-30: vprobe/papyrus/probe_papyrus.bat, PapyrusCompiler 2.8.0.4",
+        "probe set VALID: three known-bad controls (event names absent from this build, menu API, Start()) all failed as required, so a pass is a pass",
+        "AOScript.psc:99: Event FollowersScript.Loitering(FollowersScript akSender, Var[] args)"
+      ]
     }
   ],
-  "detection_note": "Entries with exists_in_fo4 false carry a `detect` list of literal stems. tools/artifact_gate.py searches .psc sources for them using word boundaries, so a construct is caught by name rather than by a human remembering it. This is what makes the gate aware of what is passing through it. MenuButton is included with the terminal events because a MenuButton is only usable with them, so flagging it separately would be noise without adding a check."
+  "detection_note": "Entries with exists_in_fo4 false carry a `detect` list of literal stems. tools/artifact_gate.py searches .psc sources for them using word boundaries, so a construct is caught by name rather than by a human remembering it. This is what makes the gate aware of what is passing through it. MenuButton is included with the terminal events because a MenuButton is only usable with them, so flagging it separately would be noise without adding a check.",
+  "corrections_2026_09_30": {
+    "method": "Settled by COMPILING against PapyrusCompiler 2.8.0.4, using the build's own 2,422 shipped base scripts as the reference, with three known-bad controls that must fail or the run reports itself invalid.",
+    "corrected": "CustomEvent: exists_in_fo4 false -> TRUE. It compiles.",
+    "confirmed_correct": "SendEvent and RegisterForEvent (names this build does not declare); MenuButton/OnAddToMenu/OnMenuClick/OnMenuClose (no FO4 equivalent); Start()/Stop() (timer API, absent from this build).",
+    "found_while_probing": "The FO4 receiver handler is `Event <SendingScript>.<EventName>(<SendingScript> akSender, Var[] args)`. No OnCustomEvent event exists in this build.",
+    "papyrus_syntax_notes": "Return type goes FIRST: `Bool Function Fire()`, never `Function Fire() as Bool`. The `as` keyword IS valid for CASTS (args[0] as bool). Var[] init uses a single `=`: `Var[] kargs = new Var[2]`, not `:=`.",
+    "cost": "Four of our own scripts were being failed by the wrong entry, and the obvious response was to delete working code."
+  }
 }

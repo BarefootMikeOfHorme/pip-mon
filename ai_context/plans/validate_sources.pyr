@@ -1,0 +1,49 @@
+{
+  "plan_id": "validate_sources",
+  "task": "Static-gate every Papyrus and xEdit source we own, one file at a time, and report the ones that need a human.",
+  "goal": "Know which of our own sources carry a construct the engine or this xEdit build cannot run, without a build failing on the first one.",
+  "side": "in-house",
+  "surfaces": [
+    "cross.knowledge_to_code",
+    "creation.xedit"
+  ],
+  "requires": [],
+  "determinism": {
+    "idempotent": true,
+    "ordering": "One phase. There is nothing to sequence: every item is independent, and independence is the point -- an ordered stage would stop at the first failure and tell us nothing about the rest.",
+    "no_implicit_state": "Reads only the working tree and ai_context/spec/*.json. Runs no engine, no editor, and no game, so it is safe to run at any time."
+  },
+  "preflight": [],
+  "phases": [
+    {
+      "id": "S1",
+      "name": "gate every source against the spec",
+      "purpose": "Turn 'the build is green' into 'each file was actually checked', which is the distinction the build gate does not make.",
+      "preconditions": [],
+      "sweep": {
+        "check": "tools/check_item.py",
+        "items": [
+          "overseer_event_bridge/Scripts/Source/OverseerBridge.psc",
+          "pip_mon_testlab/Scripts/Source/PipMon_LeakTest.psc",
+          "pip_mon_testlab/Scripts/Source/PipMon_LoopTest.psc",
+          "pip_mon_testlab/Scripts/Source/PipMon_TerminalTest.psc",
+          "testfacility/xedit/dump_fixtures.pas",
+          "testfacility/xedit/gen_facility.pas",
+          "testfacility/xedit/list_cells.pas",
+          "testfacility/xedit/validate_plugin.pas",
+          "vprobe/papyrus/PipMon.psc",
+          "vprobe/papyrus/PipMonTestFacility.psc"
+        ],
+        "why": "A sweep, not a gate. tools/check_item.py applies the same spec rules artifact_gate.py applies, but to one file and with three outcomes instead of one, so a bad file is recorded and the sweep continues. Ten files where nine are fine is a fact worth having; stopping at the first failure throws that away and makes the fix-and-rerun loop the only way to learn anything."
+      },
+      "actions": [],
+      "verify": [],
+      "on_failure": {
+        "stop": false,
+        "rollback": [],
+        "report": "A failed item does not stop this plan. The sweep block names every file that needs action and the ledger at runs/watch/ledger.json holds the detail. Re-run to re-check only what is not already settled; pass --force to re-check everything."
+      }
+    }
+  ],
+  "the_honest_summary": "This proves a file is free of constructs the spec marks unavailable. It does not prove the file compiles, does not prove an xEdit API behaves as documented, and does not prove any of it runs. A clean sweep is the floor, not the ceiling."
+}

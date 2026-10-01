@@ -1,0 +1,81 @@
+{
+  "schema_id": "pipmon.surface.requirements/1",
+  "spec_id": "in_game_surface_requirements",
+  "title": "What the in-game front end has to do, and how FO4 lets us do each thing",
+  "authority": "measured",
+  "provenance": [
+    {
+      "source": "PapyrusCompiler 2.8.0.4, via vprobe/papyrus/probe_papyrus.bat, 2026-09-30",
+      "note": "Each row's 'compiles' column is a real compile against the build's own 2,422 shipped base scripts, with three known-bad controls in the same probe set that must fail. Without those controls a broken harness and a missing feature look identical."
+    },
+    {
+      "source": "Data/Scripts/Source/Base/ScriptObject.psc",
+      "note": "The declaration authority for this exact build. 19,380 B, shipped with the game."
+    }
+  ],
+  "prose": "Three the other engine idioms were sitting in our source tree as if they were code. They are not code and were never going to compile: two are FO4 by a different name, and the third has no FO4 equivalent at all. They are a REQUIREMENTS LIST -- a statement of what the in-game surface must be able to do -- and keeping them in .psc files does two bad things. It fails the gate on files that were never meant to run, and the obvious response to a gate failure is to delete working intent. So they live here instead, as capabilities with a named mechanism each, and the one that has no native mechanism is marked as work rather than as a missing import.",
+  "why_these_three": "They came from the pre-port drafts of the in-game surface: overseer_event_bridge/Scripts/Source/OverseerBridge.psc and the three pip_mon_testlab/Scripts/Source/PipMon_*.psc. Those drafts were written against the other engine's Papyrus and were never compiled here. What survives of them is the intent, not the syntax.",
+  "summary": "Of the three the other engine idioms, TWO have a native FO4 mechanism under a different name, and ONE -- the in-game menu -- has no equivalent in the language at all. So the honest position is that the in-game surface has no menu and never did, and the only open question is whether to build one or to keep the terminal as a trigger with the interface out of process. The other two cost nothing but using the right names.",
+  "what_this_file_is_for": "So that nobody reads a failing gate on a pre-port draft and concludes a working capability is missing. The gate was right that the code does not compile. It was answering the wrong question, because the code was never the deliverable.",
+  "kind": "registry",
+  "collection_field": "entries",
+  "entries": [
+    {
+      "id": "raise-and-observe-an-event",
+      "want": "One part of the mod signals another part, out of band, without a property round-trip and without either side polling.",
+      "compiles_in_fo4": false,
+      "measured": "probe_papyrus.bat Probethe other engineNames FAILS to compile: RegisterForEvent and SendEvent are not declared in ScriptObject.psc for this build.",
+      "fo4_mechanism": "SendCustomEvent / RegisterForCustomEvent, plus a `customEvent <Name>` declaration keyword.",
+      "mechanism_status": "EXISTS NATIVELY",
+      "measured_evidence": "ProbeFo4CustomEvent COMPILES. Declaration, raise and subscribe all present. Receiver handler form is `Event <SendingScript>.<EventName>(<SendingScript> akSender, Var[] args)` -- there is no OnCustomEvent event anywhere in this build, and the arguments arrive in a Var[] that is read by cast (args[0] as bool).",
+      "cost": "none. Use the FO4 names.",
+      "spec_correction_owed": "ai_context/spec/papyrus_constructs.json still records CustomEvent as exists_in_fo4: false. That is WRONG and it fails valid code. It is corrected in a separate, deliberate edit so the change is reviewable on its own rather than arriving inside a refactor.",
+      "absent_form": "SendEvent / RegisterForEvent",
+      "status": "MET",
+      "provenance": [
+        "Data/Scripts/Source/Base/ScriptObject.psc and Debug.psc -- this build's own declarations",
+        "vprobe/papyrus/probe_papyrus.bat, PapyrusCompiler 2.8.0.4, 2026-09-30",
+        "ai_context/engine/papyrus_surface/FO4_Papyrus_Reference.part*.md -- generated from the shipped .psc sources",
+        "P"
+      ]
+    },
+    {
+      "id": "in-game-menu",
+      "want": "The player can stand at a terminal and drive the diagnostics themselves -- pick what to watch, read a verdict, trigger a probe.",
+      "compiles_in_fo4": false,
+      "measured": "probe_papyrus.bat ProbeMenu FAILS to compile: no viable alternative at input '\"\"'. ScriptObject.psc for this build declares no MenuButton at all.",
+      "fo4_mechanism": "NONE. Fallout 4 Papyrus has no menu system. This is not a naming difference; the capability is absent from the language.",
+      "mechanism_status": "MUST BE BUILT",
+      "current_substitute": "Terminal Activate runs a fixed script; the verdict returns over the telemetry channel to the out-of-process dashboard rather than to an in-game panel.",
+      "cost": "This is the one real piece of design work in this file. The substitute above works and is honest -- it puts the UI outside the game, where the project's own Rule 4 wants it -- but it is not what a player expects from a terminal.",
+      "constraint": "A Native script may not hold properties, and OnMenuClose-style events would require exactly that. So a menu built on a Native script is not available either. Any in-game surface must be an ordinary script.",
+      "decision_owed": "Whether to build a real in-game surface, or to keep the terminal as a trigger and the UI out of process. The second is what everything currently does.",
+      "absent_form": "MenuButton / OnAddToMenu / OnMenuClick / OnMenuClose",
+      "status": "NOT_MET",
+      "provenance": [
+        "Data/Scripts/Source/Base/ScriptObject.psc and Debug.psc -- this build's own declarations",
+        "vprobe/papyrus/probe_papyrus.bat, PapyrusCompiler 2.8.0.4, 2026-09-30",
+        "ai_context/engine/papyrus_surface/FO4_Papyrus_Reference.part*.md -- generated from the shipped .psc sources"
+      ]
+    },
+    {
+      "id": "timed-repeat",
+      "want": "Run something again on an interval, and cancel it.",
+      "compiles_in_fo4": false,
+      "measured": "probe_papyrus.bat ProbeTimer FAILS to compile: 'Start is not a function or does not exist'.",
+      "fo4_mechanism": "StartTimer(float afInterval, int aiTimerID = 0) and CancelTimer(int aiTimerID = 0), with `Event OnTimer(int aiTimerID)`.",
+      "mechanism_status": "EXISTS NATIVELY",
+      "measured_evidence": "Read from the CK base script, which ai_context/papyrus_syntax_rules.md calls the authority. aiTimerID is an IDENTIFIER, not an elapsed time, and the event signature must match ScriptObject's declaration exactly or the compile is rejected.",
+      "cost": "none. PipMonTestFacility.psc already uses the FO4 form.",
+      "trap": "FO4's OnTimer takes an INT. `Event OnTimer(float)` is the the other engine signature and is rejected with 'the parameter types of function ontimer do not match the original script scriptobject'.",
+      "absent_form": "Start() / Stop()",
+      "status": "MET",
+      "provenance": [
+        "Data/Scripts/Source/Base/ScriptObject.psc and Debug.psc -- this build's own declarations",
+        "vprobe/papyrus/probe_papyrus.bat, PapyrusCompiler 2.8.0.4, 2026-09-30",
+        "ai_context/engine/papyrus_surface/FO4_Papyrus_Reference.part*.md -- generated from the shipped .psc sources",
+        "R"
+      ]
+    }
+  ]
+}

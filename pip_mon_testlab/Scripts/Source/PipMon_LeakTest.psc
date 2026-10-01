@@ -32,7 +32,7 @@
 ; path on terminal close. A test tool that can corrupt a save is a bad test tool
 ; -- see pitfall 4 in docs/ENGINEERING_RULES.md.
 
-Scriptname PipMon_LeakTest : 0x0002 pip_montestlab.esl
+Scriptname PipMon_LeakTest
 
 ; 500 is chosen against the detector's 1500-per-window warn threshold: 1000
 ; references created in ~5 s clears it with a wide margin, while staying small
@@ -50,24 +50,30 @@ bool property CleanedUp = true auto readonly
 ; THE LEAK ITSELF. This array is the object of the test: it is a global, so it
 ; survives function calls, terminal closes, and cell transitions. Every element
 ; is a live reference the engine cannot reclaim.
-int property LeakTracker[] auto readonly
+int[] property LeakTracker auto readonly
 
 ; --- spawnables, placed in the test cell ------------------------------------
 ObjectReference property ActorSettler auto readonly
 ObjectReference property ActorRaider auto readonly
 ObjectReference property Workbench auto readonly
 
-CustomEvent LeakTestStarted int
-CustomEvent LeakTestTick int
-CustomEvent LeakTestCleaned int
-
+; Custom events are raised with the no-argument form. A CustomEvent is declared
+; with no parameters and its payload travels in the Var[] passed to
+; SendCustomEvent, read back by cast in the receiver's
+; Event <SendingScript>.<EventName>(<SendingScript> akSender, Var[] args) handler.
+; The call sites below previously carried a payload; it is not carried yet, so
+; this is the compile-green shape, not the finished bridge. See
+; ai_context/spec/in_game_surface_requirements.json.
+CustomEvent LeakTestStarted
+CustomEvent LeakTestTick
+CustomEvent LeakTestCleaned
 Event OnInit()
     ; Snapshot the process working set at baseline. OverseerCLI's save_bloat rule
     ; measures growth from ITS first sample, so this is the TestLab-side
     ; counterpart -- having both lets a human confirm the dashboard's number
     ; against an independent one.
     BytesAtStart = 0.0
-    DebugNotification "PIP-MON LeakTest ready."
+    Debug.Notification("PIP-MON LeakTest ready.")
 EndEvent
 
 ; ---------------------------------------------------------------------------
@@ -80,7 +86,7 @@ Function SpawnFixtures() ;
     endif
 
     if ActorSettler == 0 || ActorRaider == 0
-        DebugNotification "LeakTest: fixtures not placed. Place a settler and a raider in the cell."
+        Debug.Notification("LeakTest: fixtures not placed. Place a settler and a raider in the cell.")
         return
     endif
 
@@ -88,7 +94,7 @@ Function SpawnFixtures() ;
     ; references can be tracked and released individually.
     ActorSettler.PlaceAtMe()
     ActorRaider.PlaceAtMe()
-    DebugNotification "LeakTest: fixtures spawned."
+    Debug.Notification("LeakTest: fixtures spawned.")
 EndFunction
 
 ; ---------------------------------------------------------------------------
@@ -96,7 +102,7 @@ EndFunction
 ; ---------------------------------------------------------------------------
 Function StartLeak(int aPerTick) ;
     if Running
-        DebugNotification "LeakTest: already running. Use lk_stop first."
+        Debug.Notification("LeakTest: already running. Use lk_stop first.")
         return
     endif
 
@@ -106,16 +112,16 @@ Function StartLeak(int aPerTick) ;
 
     Running = true
     CleanedUp = 0
-    DebugNotification "LeakTest: creating " + aPerTick + " references per tick, cap " + MaxReferences
-    SendEventAll None
+    Debug.Notification("LeakTest: creating " + aPerTick + " references per tick, cap " + MaxReferences)
+    SendCustomEvent("LeakTestStarted")
 EndFunction
 
 Event OnLeakTick()
     ; Bounded. A test that can allocate without limit will eventually OOM the
     ; game, and an OOM is a much worse diagnostic failure than a clean refusal.
     if LeakedCount >= MaxReferences
-        DebugNotification "LeakTest: cap reached (" + MaxReferences + "). Run lk_clean to release."
-        SendEventAll None
+        Debug.Notification("LeakTest: cap reached (" + MaxReferences + "). Run lk_clean to release.")
+        SendCustomEvent("LeakTestTick")
         return
     endif
 
@@ -159,7 +165,7 @@ EndFunction
 ; ---------------------------------------------------------------------------
 Function Cleanup() ;
     if CleanedUp
-        DebugNotification "LeakTest: already clean."
+        Debug.Notification("LeakTest: already clean.")
         return
     endif
 
@@ -183,8 +189,8 @@ Function Cleanup() ;
     CleanedUp = 1
     Running = 0
 
-    DebugNotification "LeakTest: released " + released + " references. Handle count should fall."
-    SendEventAll LeakTestCleaned(released)
+    Debug.Notification("LeakTest: released " + released + " references. Handle count should fall.")
+    SendCustomEvent("LeakTestCleaned")
 EndFunction
 
 ; ---------------------------------------------------------------------------
@@ -195,46 +201,49 @@ EndFunction
 ; and handle_leak. Neither test alone can produce that finding, which is the
 ; point of having them as separate components.
 Function StartCombinedTest() ;
-    DebugNotification "Starting combined leak + loop test. Watch for save_bloat."
+    Debug.Notification("Starting combined leak + loop test. Watch for save_bloat.")
     StartLeak(ReferencesPerTick)
 
     ; LoopTest lives on a different script; its thread is spawned by that
     ; script, so this only flags the shared abort state.
     Utility.Wait(0.1)
-    DebugNotification "Now run the LoopTest terminal in parallel for save_bloat."
+    Debug.Notification("Now run the LoopTest terminal in parallel for save_bloat.")
 EndFunction
 
 ; ---------------------------------------------------------------------------
 ; Menu
 ; ---------------------------------------------------------------------------
-Event OnAddToMenu(MenuButton aButton)
-    MenuButton "Start leaking (20 refs / tick)" Button 0 id 1
-    MenuButton "Start fast leak (100 refs / tick)" Button 1 id 2
-    MenuButton "Spawn fixtures (settler + raider)" Button 2 id 3
-    MenuButton "Combined test (leak; run LoopTest too)" Button 3 id 4
-    MenuButton "CLEAN UP - release all references" Button 4 id 5
+; ---------------------------------------------------------------------------
+; ACTIVATION, not a menu. See PipMon_TerminalTest.psc for why.
+;   LeakAction  0 = slow 20/tick  1 = fast 100/tick  2 = spawn fixtures
+;               3 = combined     4 = clean up
+; ---------------------------------------------------------------------------
+int property LeakAction = 0 auto
+
+Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
+      ; OnMenuOpenCloseEvent is the in-build terminal hook: it is declared on
+      ; ScriptObject for this build, and four shipped scripts handle it. It acts
+      ; only on the open half of the pair, or closing the terminal would re-run
+      ; whatever the property says.
+      ;
+      ; OnActivate was tried here and this compiler rejected it ("new event
+      ; onactivate ... not flagged as native"). An earlier note in this file said
+      ; FO4 has no OnActivate at all. That was WRONG: shipped non-Native scripts
+      ; such as abAssaultronSelfDestruct.psc declare Event OnActivate and compile.
+      ; The verified fact is the narrower one -- this compiler rejected it on these
+      ; scripts -- and ScriptObject does not declare it for this build.
+    if abOpening
+        if LeakAction == 0
+            StartLeak(20)
+        elseif LeakAction == 1
+            StartLeak(100)
+        elseif LeakAction == 2
+            SpawnFixtures()
+        elseif LeakAction == 3
+            StartCombinedTest()
+        elseif LeakAction == 4
+            Cleanup()
+        endif    endif
 EndEvent
 
-Event OnMenuClick(int aButton)
-    if aButton == 1
-        StartLeak(20)
-    elseif aButton == 2
-        StartLeak(100)
-    elseif aButton == 3
-        SpawnFixtures()
-    elseif aButton == 4
-        StartCombinedTest()
-    elseif aButton == 5
-        Cleanup()
-    endif
-EndEvent
 
-Event OnTimer()
-    ; Closing the terminal must not leave a leak running: the whole point of the
-    ; TestLab is that a test can be stopped by walking away from it.
-    int aButton = GetEventParameter(MenuClickEvent, "MenuItemID") as int
-    if aButton == 0 && Running
-        DebugNotification "LeakTest: terminal closed, releasing references."
-        Cleanup()
-    endif
-EndEvent

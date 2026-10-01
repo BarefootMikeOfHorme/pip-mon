@@ -1,133 +1,203 @@
 unit UserScript;
 
 {
-  PIP-MON: create a CELL in a plugin, headlessly, with FO4Edit 4.1.5f.
+  PIP-MON: reach a loaded plugin and report on it, headlessly, with FO4Edit 4.1.5f.
 
-    WHY THIS FILE WAS REWRITTEN
-      The first version called GetActivePlugin and AddNewElement. Neither exists
-      in FO4Edit 4.1.5f -- both were guesses, and the artifact_gate finds them
-      here now. The rewrite uses only calls documented in the Tome of xEdit
-      section 13 and recorded in ai_context/spec/xedit_api.json:
+  ---------------------------------------------------------------------------
+  WHAT CHANGED IN THIS REVISION, and why each was fatal
+  ---------------------------------------------------------------------------
+  1. AssignFile / Rewrite / WriteLn / CloseFile  -- REMOVED.
+     The previous version wrote its report with them. They are ordinary Delphi,
+     they are NOT available in xEdit's Pascal, and a real run on 2026-09-30
+     aborted at 02:17 with [EJvInterpreterError] Undeclared Identifier
+     'AssignFile' after the loader had finished. The report is now written with
+     TStringList.SaveToFile, which is proven -- it wrote a 3,704 byte report
+     across 163 lines on 2026-09-30 20:33.
 
-        GetActivePlugin     DOES NOT EXIST. Not in any documented class.
-        AddNewElement       DOES NOT EXIST. The real calls are AddElement,
-                            Add and InsertElement.
-        AddNewFileName      EXISTS, and is a TRAP. It CREATES A NEW EMPTY PLUGIN
-                            in the game Data folder and appends it to the plugin
-                            list. It does not register an existing plugin. Using
-                            it to "activate" ours would write a spurious file
-                            into the game folder and mutate plugins.txt.
-        AddNewFile          Same trap, same reason.
+  2. StringReplace  -- REMOVED.
+     Needed only to escape quotes for hand-built JSON. Unproven, and the report
+     format does not need it: lines are emitted through the same JStr helpers
+     the validator uses, which are plain string concatenation and are proven.
 
-      So the loaded plugin is REACHED, never created: FileByIndex walks the
-      loaded files and GetFileName identifies ours.
+  3. The `for i := 0 to 99 do if not Assigned(FileByIndex(i))` probe -- REPLACED
+     with a loop bounded by FileCount.
+     The old probe walked off the end of the loaded-file list on purpose and
+     relied on Assigned() catching it. FileCount is now PROVEN by execution
+     (2026-09-30 20:33: it bounded a loop that ran to completion over the load
+     order and located our plugin at index 54), so there is no reason to ask the
+     interpreter to survive an out-of-range call.
 
-    THE ONE THING THIS STILL CANNOT DO, AND SAYS SO
-      Creating the CELL needs a top-level group to put it in. A cell's group is
-      identified by a LABEL derived from its grid position, and there is NO
-      DOCUMENTED xEdit call to find a top-level group by label:
-      IwbFile.GroupBySignature is signature-only, and cell groups are not
-      addressed by signature.
+  ---------------------------------------------------------------------------
+  WHAT THIS DELIBERATELY DOES NOT DO
+  ---------------------------------------------------------------------------
+  It does not create a CELL yet, and that is a decision rather than an omission.
 
-      wbPositionToGridCell would compute the position, but its argument is a
-      TwbVector and no documented constructor for one was found, so it may be
-      unreachable from script.
+  Creating a record needs a top-level group to put it in, and a cell's group is
+  addressed by a LABEL derived from its grid position. The chain that would get
+  there is visible in the spec:
 
-      Therefore this unit does NOT guess. It enumerates the top-level groups it
-      can actually reach, reports them, and creates a CELL only in a group it can
-      genuinely address. If it cannot, it says so in its report and exits
-      cleanly. A generator that invents a group handle and writes into whatever
-      it lands on is worse than one that declines.
+      TwbVector  ->  wbPositionToGridCell  ->  wbGridCellToGroupLabel  ->  the group
 
-    WHAT A CELL NEEDS ON DISK, PER fopdoc AND OUR OWN MEASUREMENT
-      A record header is 24 bytes: type[4], dataSize u32, flags u32, formid u32,
-      revision u32, version u16, unknown u16. dataSize counts the body only. Our
-      installed PipMonTestFacility.esp measures 66 bytes with dataSize 42, and
-      24 + 42 = 66 exactly, which is what confirms the header size here.
+  All four are listed as existing in ai_context/spec/xedit_api.json, and none is
+  proven by execution here. In particular there is no proven way to construct a
+  TwbVector from script, and an unproven call does not fail politely in this
+  dialect -- it raises, and the whole run aborts with nothing written. So
+  calling it blind would trade a known, reported state for an unknown one.
 
-      Cell coordinates are XCLR / XCLL / XCLW (ints) and XCEL is the cell flag
-      byte; UNAM is the editor id.
-  }
+  The next experiment is deliberately narrow: prove ONE link (a TwbVector
+  construction, or wbGridCellToGroupLabel on a literal) in isolation, in
+  Finalize, where a raise costs one run and says exactly where. Then the chain
+  gets built one proven link at a time. Until then this unit reaches, reports,
+  and declines -- and says that it declined, so the report cannot be mistaken
+  for a generator that quietly did nothing.
 
-  var
-    sl: TStringList;
-    reportPath: string;
-    targetName: string;
-    found: Integer;
-    created: Integer;
+  A generator that guesses a group handle writes into whatever it lands on. That
+  is worse than one that declines, and it is worse here specifically because the
+  target is a plugin someone will load into a real save.
+}
 
-  function Initialize: Integer;
+var
+  sl: TStringList;
+  sigs: TStringList;
+  cnt: TStringList;
+  reportPath: string;
+  targetName: string;
+  targetLower: string;
+  q: string;
+  comma: string;
+  sig: string;
+  loaded: Boolean;
+  found: Integer;
+  nFiles: Integer;
+  nRecords: Integer;
+  nCell: Integer;
+  i: Integer;
+  k: Integer;
+  idx: Integer;
+
+function JStr(key, val: string): string;
+begin
+  Result := '  ' + q + key + q + ': ' + q + val + q + ',';
+end;
+
+function JNum(key: string; n: Integer): string;
+begin
+  Result := '  ' + q + key + q + ': ' + IntToStr(n) + ',';
+end;
+
+function JBool(key: string; b: Boolean): string;
+begin
+  if b then
+    Result := '  ' + q + key + q + ': true,'
+  else
+    Result := '  ' + q + key + q + ': false,';
+end;
+
+function Initialize: Integer;
+begin
+  reportPath := '%%OUTPATH%%';
+  targetName := '%%PLUGIN%%';
+
+  AddMessage('PIPMON: Initialize - generator looking for ' + targetName);
+  q := Chr(34);
+  targetLower := LowerCase(targetName);
+  sl := TStringList.Create;
+  sigs := TStringList.Create;
+  cnt := TStringList.Create;
+  loaded := False;
+  found := 0;
+  nFiles := 0;
+  nRecords := 0;
+  nCell := 0;
+
+  { PROVEN BY EXECUTION 2026-09-30: FileCount, FileByIndex, GetFileName. }
+  nFiles := FileCount;
+  AddMessage('PIPMON: Initialize - ' + IntToStr(nFiles) + ' files loaded');
+  for i := 0 to nFiles - 1 do
   begin
-    sl := TStringList.Create;
-    reportPath := '%%OUTPATH%%';
-    targetName := '%%PLUGIN%%';
-    found := 0;
-    created := 0;
-    Result := 0;
-  end;
-
-  { Report a line to the file AND to xEdit's console, so a failure is visible
-    without opening a file. stdout is captured by tools/validate_plugin.ps1. }
-  procedure Say(const s: string);
-  begin
-    sl.Add(s);
-    AddMessage(s);
-  end;
-
-  function Finalize: Integer;
-  var
-    f: TextFile;
-    i: Integer;
-  begin
-    { Locate the loaded plugin. FileByIndex walks what xEdit actually has open;
-      GetFileName is what identifies it. Nothing here creates anything. }
-    Say('PIPMON: looking for loaded plugin ' + targetName);
-    for i := 0 to 99 do
+    if LowerCase(GetFileName(FileByIndex(i))) = targetLower then
     begin
-      if not Assigned(FileByIndex(i)) then
-      begin
-        Say('PIPMON: reached end of loaded file list at index ' + IntToStr(i));
-        Break;
-      end;
-      if GetFileName(FileByIndex(i)) = targetName then
-      begin
-        Inc(found);
-        Say('PIPMON: found ' + targetName + ' at loaded-file index ' + IntToStr(i));
-        Break;
-      end;
+      loaded := True;
+      found := i;
+      AddMessage('PIPMON: Initialize - REACHED ' + targetName + ' at index ' + IntToStr(i)
+        + ' WITHOUT creating anything');
     end;
-
-    if found = 0 then
-      Say('PIPMON: RESULT=NOT_FOUND -- the plugin is not among the loaded files. '
-        + 'Nothing was written. This is a load-order problem, not a generator problem.')
-    else
-      Say('PIPMON: RESULT=REACHED -- the plugin was found without creating anything.');
-
-    Say('PIPMON: cells created=' + IntToStr(created)
-      + '  (0 is EXPECTED on the first run: a top-level group cannot be addressed '
-      + 'by label through any documented call, so this unit declines rather than guesses.)');
-
-    AssignFile(f, reportPath);
-    Rewrite(f);
-    WriteLn(f, '{');
-    WriteLn(f, '  "schema": "pipmon.gen.facility/1",');
-    WriteLn(f, '  "status": "REACHED",');
-    WriteLn(f, '  "plugin_found": ' + IntToStr(found) + ',');
-    WriteLn(f, '  "records_created": ' + IntToStr(created) + ',');
-    WriteLn(f, '  "note": "The plugin was located WITHOUT creating one. AddNewFileName and AddNewFile create a new empty plugin and append to the plugin list, so they are never used here. A CELL was not created because no documented call finds a top-level group by label.",');
-    WriteLn(f, '  "lines": [');
-    for i := 0 to sl.Count - 1 do
-    begin
-      WriteLn(f, '    "' + StringReplace(sl[i], '"', '''', []) + '"');
-      if i < sl.Count - 1 then
-        WriteLn(f, ',');
-    end;
-    WriteLn(f, '  ]');
-    WriteLn(f, '}');
-    CloseFile(f);
-
-    sl.Free;
-    Result := 0;
   end;
 
-  end.
+  if not loaded then
+    AddMessage('PIPMON: Initialize - NOT among the loaded files. That is a load-order '
+      + 'problem, not a generator problem. Nothing will be written.');
+
+  Result := 0;
+end;
+
+function Process(e: IInterface): Integer;
+begin
+  Result := 0;
+  sig := Signature(e);
+  if sig = 'CELL' then
+  begin
+    nCell := nCell + 1;
+    Inc(nRecords);
+  end
+  else if sig <> 'GRUP' and sig <> 'MAST' and sig <> 'TES4' then
+    Inc(nRecords);
+
+  idx := sigs.IndexOf(sig);
+  if idx < 0 then
+  begin
+    sigs.Add(sig);
+    cnt.Add('1');
+  end
+  else
+    cnt[idx] := IntToStr(StrToInt(cnt[idx]) + 1);
+end;
+
+function Finalize: Integer;
+begin
+  AddMessage('PIPMON: Finalize - reporting. No record was created; see declined_reason.');
+
+  sl.Add('{');
+  sl.Add(JStr('schema', 'pipmon.gen.facility/2'));
+  if loaded then
+    sl.Add(JStr('status', 'REACHED'))
+  else
+    sl.Add(JStr('status', 'NOT_FOUND'));
+  sl.Add(JStr('target', targetName));
+  sl.Add(JBool('plugin_found', loaded));
+  sl.Add(JNum('target_index', found));
+  sl.Add(JNum('files_loaded', nFiles));
+  sl.Add(JNum('records_created', 0));
+  sl.Add(JStr('declined_reason', 'a CELL needs a top-level group addressed by a grid-derived label, and no link in that chain (TwbVector -> wbPositionToGridCell -> wbGridCellToGroupLabel) is proven by execution; an unproven call raises and aborts the run with nothing written'));
+  sl.Add(JStr('provenance', 'testfacility/xedit/gen_facility.pas, run by tools/run_gen.ps1'));
+  sl.Add(JStr('proven_by_execution', 'FileCount, FileByIndex, GetFileName, Signature, TStringList.SaveToFile, AddMessage, IntToStr, StrToInt, LowerCase, Chr'));
+  sl.Add(JStr('removed_as_fatal', 'AssignFile, Rewrite, WriteLn, CloseFile (not available in xEdit Pascal -- real abort 2026-09-30 02:17); StringReplace (unproven, and unnecessary)'));
+
+  sl.Add('  ' + q + 'signature_counts' + q + ': {');
+  for k := 0 to sigs.Count - 1 do
+  begin
+    if k < sigs.Count - 1 then comma := ',' else comma := '';
+    sl.Add('    ' + q + sigs[k] + q + ': ' + cnt[k] + comma);
+  end;
+  sl.Add('  },');
+  sl.Add(JNum('records_in_load_order', nRecords));
+  sl.Add(JNum('cell_records_in_load_order', nCell));
+  sl.Add('  ' + q + 'not_checked' + q + ': [');
+  sl.Add('    ' + q + 'any semantic validity of any record' + q + ',');
+  sl.Add('    ' + q + 'whether the target plugin has a writable top-level group' + q);
+  sl.Add('  ]');
+  sl.Add('}');
+
+  sl.SaveToFile(reportPath);
+  AddMessage('PIPMON: VERDICT ' + sl[3]);
+  AddMessage('PIPMON: SAVED ' + reportPath);
+  AddMessage('PIPMON: SAVED lines=' + IntToStr(sl.Count) + ' signatures=' + IntToStr(sigs.Count));
+  AddMessage('PIPMON: done - Finalize complete');
+
+  cnt.Free;
+  sigs.Free;
+  sl.Free;
+  Result := 0;
+end;
+
+end.

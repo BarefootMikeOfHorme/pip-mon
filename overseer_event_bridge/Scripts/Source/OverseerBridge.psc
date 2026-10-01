@@ -25,7 +25,7 @@
 ; audit; this file is pure game-side state, and every judgement about it happens
 ; in OverseerCLI (Rule 4).
 
-Scriptname OverseerBridge : 0x0010 overseereventbridge.esp
+Scriptname OverseerBridge
 
 ; ---------------------------------------------------------------------------
 ; Bridge state
@@ -46,18 +46,24 @@ int property PingCount = 0 auto readonly
 int property TerminationRequests = 0 auto readonly
 int property StackDumpRequests = 0 auto readonly
 
-CustomEvent OverseerPing int
-CustomEvent OverseerStatusChanged string
-CustomEvent OverseerRequestStackDump int
-CustomEvent OverseerRequestTerminate int
-CustomEvent OverseerError string
-
+; Custom events are raised with the no-argument form. A CustomEvent is declared
+; with no parameters and its payload travels in the Var[] passed to
+; SendCustomEvent, read back by cast in the receiver's
+; Event <SendingScript>.<EventName>(<SendingScript> akSender, Var[] args) handler.
+; The call sites below previously carried a payload; it is not carried yet, so
+; this is the compile-green shape, not the finished bridge. See
+; ai_context/spec/in_game_surface_requirements.json.
+CustomEvent OverseerPing
+CustomEvent OverseerStatusChanged
+CustomEvent OverseerRequestStackDump
+CustomEvent OverseerRequestTerminate
+CustomEvent OverseerError
 Event OnInit()
     ; Fired once at cell load. OverseerCLI treats the first ping as proof that
     ; the bridge is present, which is how its UI distinguishes "vprobe is
     ; loaded but the bridge is not installed" from "vprobe is not loaded at all".
     ; Those are very different problems with very different fixes.
-    SendEventAll OverseerPing(BridgeProtocolVersion)
+    SendCustomEvent("OverseerPing")
 EndEvent
 
 ; ---------------------------------------------------------------------------
@@ -69,7 +75,7 @@ EndEvent
 Function Ping() ;
     LastPingTime = Utility.GetCurrentRealTime()
     PingCount += 1
-    SendEventAll OverseerPing(BridgeProtocolVersion)
+    SendCustomEvent("OverseerPing")
 EndFunction
 
 ; ---------------------------------------------------------------------------
@@ -89,7 +95,7 @@ Function RequestTerminate(int aThreadId, bool aForce) ;
         TerminationRequests += 1
         PendingTerminationCount += 1
         MarkedForTermination = true
-        SendEventAll OverseerRequestTerminate(aThreadId)
+        SendCustomEvent("OverseerRequestTerminate")
         Utility.Wait(0.0)   ; yield so the native runner sees the counter
     else
         ; Soft cancel: ask the owning form to cancel itself. Pure Papyrus, so
@@ -97,9 +103,9 @@ Function RequestTerminate(int aThreadId, bool aForce) ;
         ObjectReference owner = GetOwningObjectOfThread(aThreadId)
         if owner != 0
             owner.Cancel()
-            SendEventAll OverseerStatusChanged("soft-cancel requested for thread " + aThreadId)
+            SendCustomEvent("OverseerStatusChanged")
         else
-            SendEventAll OverseerError("no owning form for thread " + aThreadId)
+            SendCustomEvent("OverseerError")
         endif
     endif
 EndFunction
@@ -121,7 +127,7 @@ EndFunction
 ; VM is mid-transition is the deadlock described in pitfall 1.
 Function RequestStackDump(int aThreadId) ;
     StackDumpRequests += 1
-    SendEventAll OverseerRequestStackDump(aThreadId)
+    SendCustomEvent("OverseerRequestStackDump")
     Utility.Wait(0.0)
 EndFunction
 
@@ -142,12 +148,9 @@ Event OnGetGlobalState()
     ; One round-trip: a script name and its FormID. OverseerCLI uses this to
     ; resolve the FormID it sees in telemetry to something a human recognises,
     ; which is the difference between "05005678" and "SkyFC06.esp Script_TCMain".
-    SendEventAll OverseerStatusChanged(
-        "state: ping=" + PingCount +
-        " term=" + TerminationRequests +
-        " dump=" + StackDumpRequests +
-        " marked=" + MarkedForTermination
-    )
+    SendCustomEvent("OverseerStatusChanged")
+        ; The state string belongs in a Var[] payload; the no-argument form is
+        ; the compile-green shape and is documented at the top of this file.
 EndEvent
 
 ; ---------------------------------------------------------------------------
@@ -161,38 +164,58 @@ EndEvent
 Event OnTestLabEvent(int aEventKind)
     if aEventKind == 1
         ; LoopTest started
-        SendEventAll OverseerStatusChanged("testlab: runaway loop armed")
+        SendCustomEvent("OverseerStatusChanged")
     elseif aEventKind == 2
         ; LeakTest started
-        SendEventAll OverseerStatusChanged("testlab: handle leak armed")
+        SendCustomEvent("OverseerStatusChanged")
     elseif aEventKind == 3
         ; LeakTest cleaned up
-        SendEventAll OverseerStatusChanged("testlab: references released")
+        SendCustomEvent("OverseerStatusChanged")
     endif
 EndEvent
 
 ; ---------------------------------------------------------------------------
 ; Menu
 ; ---------------------------------------------------------------------------
-Event OnAddToMenu(MenuButton aButton)
-    MenuButton "Ping V-Probe" Button 0 id 1
-    MenuButton "Publish global state" Button 1 id 2
-    MenuButton "Cancel all my scripts" Button 2 id 3
+; ---------------------------------------------------------------------------
+; ACTIVATION, not a menu
+; ---------------------------------------------------------------------------
+; This used to be the menu API, which this build does not declare (OnAddToMenu / MenuButton / OnMenuClick).
+; Fallout 4 Papyrus has no menu system: the compile probe fails on MenuButton
+; with "no viable alternative at input '\"\"'", and ScriptObject.psc in this
+; build declares no MenuButton at all. The dispatch below is the same logic,
+; selected by a property the CK sets, which is the ordinary FO4 idiom.
+;
+;   BridgeAction  0 = ping   1 = publish global state   2 = cancel all
+int property BridgeAction = 0 auto
+
+Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
+      ; OnMenuOpenCloseEvent is the in-build terminal hook: it is declared on
+      ; ScriptObject for this build, and four shipped scripts handle it. It acts
+      ; only on the open half of the pair, or closing the terminal would re-run
+      ; whatever the property says.
+      ;
+      ; OnActivate was tried here and this compiler rejected it ("new event
+      ; onactivate ... not flagged as native"). An earlier note in this file said
+      ; FO4 has no OnActivate at all. That was WRONG: shipped non-Native scripts
+      ; such as abAssaultronSelfDestruct.psc declare Event OnActivate and compile.
+      ; The verified fact is the narrower one -- this compiler rejected it on these
+      ; scripts -- and ScriptObject does not declare it for this build.
+    if abOpening
+        if BridgeAction == 0
+            Ping()
+            Debug.Notification("OverseerBridge ping " + PingCount + " (protocol v" + BridgeProtocolVersion + ")")
+        elseif BridgeAction == 1
+            SendCustomEvent("OverseerPing")
+            Debug.Notification("Global state published. Check the OverseerCLI log.")
+        elseif BridgeAction == 2
+            ; self.Cancel() is the only universally safe way for a script to stop
+            ; itself. Offered because it is the action a user reaches for in the
+            ; console, and having it discoverable prevents them reaching for
+            ; force-kill instead.
+            SendCustomEvent("OverseerStatusChanged")
+            self.Cancel()
+        endif    endif
 EndEvent
 
-Event OnMenuClick(int aButton)
-    if aButton == 1
-        Ping()
-        DebugNotification "OverseerBridge ping " + PingCount + " (protocol v" + BridgeProtocolVersion + ")"
-    elseif aButton == 2
-        SendEventAll OverseerPing(BridgeProtocolVersion)
-        DebugNotification "Global state published. Check the OverseerCLI log."
-    elseif aButton == 3
-        ; Script.Cancel() on self is the only universally safe way for a script
-        ; to stop itself. Offered here because it is the action a user reaches
-        ; for in the console, and having it discoverable prevents them from
-        ; reaching for force-kill instead.
-        SendEventAll OverseerStatusChanged("bridge: cancel-all requested")
-        self.Cancel()
-    endif
-EndEvent
+

@@ -67,6 +67,9 @@ $JobFile = Join-Path $OutDir 'xedit-job.json'
 $StdoutLog = Join-Path $OutDir 'xedit-stdout.log'
 $StderrLog = Join-Path $OutDir 'xedit-stderr.log'
 $XEditLog = Join-Path $XEditDir 'FO4Script_log.txt'
+# The compile/runtime exception log. See Get-XEditException for why this is read
+# before any verdict is printed rather than after.
+$XEditExcLog = Join-Path $XEditDir 'xFOEdit64Exception.log'
 
 New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
 
@@ -88,6 +91,75 @@ function Get-XEditLogTail {
     return @('(xEdit wrote no FO4Script_log.txt)')
 }
 
+# ---------------------------------------------------------------- EXCEPTION LOG
+# WHY THIS IS READ, AND WHY IT IS READ FIRST
+#   xEdit reports a SCRIPT COMPILE failure to a file of its own, not to stdout,
+#   not to stderr, and not to FO4Script_log.txt. On 2026-09-30 the last run
+#   produced 0 bytes on all three of those, and the entire cause sat in this
+#   one file, unread:
+#       Message: 'unit' expected but 'var' found
+#       xejviScriptHost.TxejviScript.Create (Line 767)
+#   CreateScript is the COMPILE entry point. That is a parse error: the script
+#   never ran, so no amount of reading the run log will ever explain it. A tool
+#   that reports "FAIL: no report produced" without this is reporting the
+#   absence of evidence while holding the evidence.
+#
+#   It is read BEFORE the verdict is formed, so the verdict names the cause
+#   rather than the symptom, and a compile error never shares an exit code with
+#   a script that ran and failed to write.
+function Get-XEditException {
+    if (-not (Test-Path $XEditExcLog)) {
+        return [ordered]@{ present = $false; kind = 'none'; message = $null; frame = $null }
+    }
+    $fi = Get-Item -LiteralPath $XEditExcLog
+    $raw = Get-Content -LiteralPath $XEditExcLog -Raw -ErrorAction SilentlyContinue
+    if (-not $raw) {
+        return [ordered]@{ present = $true; kind = 'empty'; message = $null; frame = $null
+                           bytes = $fi.Length; mtime = $fi.LastWriteTime }
+    }
+    # The last block is the most recent exception; earlier blocks are history.
+    $blocks = ($raw -split '(?m)^=+\s*$') | Where-Object { $_.Trim() }
+    $last = if ($blocks.Count) { $blocks[-1] } else { $raw }
+
+    $msg = $null
+    if ($last -match "(?m)^Message:\s*(.+?)\s*$") { $msg = $Matches[1] }
+
+    # The first frame inside xEdit's own script host is what separates a COMPILE
+    # failure from a RUNTIME one, and they need different fixes.
+    $frame = $null
+    if ($last -match 'xejviScriptHost\.TxejviScript\.(Create|Compile)') { $frame = $Matches[0] }
+    elseif ($last -match 'xeScriptHost\.TxeScriptHost\.CreateScript') { $frame = 'CreateScript' }
+
+    $kind = 'runtime'
+    if ($frame -eq 'CreateScript' -or $msg -match "'unit' expected|expected but") { $kind = 'compile' }
+    elseif ($msg -match 'Undeclared Identifier') { $kind = 'compile' }
+
+    return [ordered]@{
+        present = $true; kind = $kind; message = $msg; frame = $frame
+        bytes = $fi.Length; mtime = $fi.LastWriteTime
+        note = if ($kind -eq 'compile') {
+            'COMPILE failure: the script was rejected before Initialize ran. No record was ever read, so plugin contents are UNVERIFIED, not bad.'
+        } else {
+            'RUNTIME failure: the script compiled and started.'
+        }
+    }
+}
+
+function Write-ExceptionBanner($exc) {
+    if (-not $exc.present) {
+        Write-Output 'exception: none (xEdit wrote no exception log)'
+        return
+    }
+    if ($exc.kind -eq 'empty') {
+        Write-Output ("exception: file present but EMPTY ({0} B, {1}) -- a parse error produced this and nothing else" -f $exc.bytes, $exc.mtime)
+        return
+    }
+    Write-Output ("exception: {0}  [{1}]" -f $exc.kind, $exc.frame)
+    Write-Output ("  message: {0}" -f $exc.message)
+    Write-Output ("  note   : {0}" -f $exc.note)
+}
+
+
 # ---------------------------------------------------------------- COLLECT
 if ($Collect) {
     if (-not (Test-Path $JobFile)) {
@@ -99,16 +171,87 @@ if ($Collect) {
     $proc = Get-Process -Id $job.pid -ErrorAction SilentlyContinue
     $elapsed = [math]::Round(((Get-Date) - [datetime]$job.startedLocal).TotalSeconds, 1)
 
+    # A verdict may only be formed about a job that actually RAN.
+    #
+    # Measured 2026-09-30 21:33: -Collect was called in the same second a detached
+    # launch started, read the job file left by a run four hours earlier, saw a
+    # dead pid, and published FAIL -- blaming a compile error that had been fixed
+    # hours before, for a run that had not begun. Absence of evidence was reported
+    # as a result, which is the one thing this project treats as its worst outcome.
+    #
+    # So: if the recorded process is gone AND xEdit's own log shows no evidence
+    # that this job ever got as far as the script, then nothing was measured and
+    # the honest answer is "no job in flight", not a verdict about the plugin.
+    $logPathNow = if ($job.xeditLog) { $job.xeditLog } else { $XEditLog }
+    $startedEvidence = $null
+    if (Test-Path $logPathNow) {
+        $startedEvidence = Get-Content $logPathNow -ErrorAction SilentlyContinue |
+            Where-Object { $_ -match 'Start:\s*Applying script' } |
+            Select-Object -Last 1
+    }
+    $logHasThisRun = $false
+    if ($startedEvidence -and (Test-Path $logPathNow)) {
+        $logAge = ((Get-Date) - (Get-Item $logPathNow).LastWriteTime).TotalSeconds
+        $jobAge = ((Get-Date) - [datetime]$job.startedLocal).TotalSeconds
+        # The log is being written now if it is newer than the job is old, or if
+        # the job is still inside the window where the loader writes nothing.
+        $logHasThisRun = ($logAge -lt 30) -or ($jobAge -lt 15)
+    }
+
+    if (-not $proc -and -not $logHasThisRun) {
+        Write-Output ("NO JOB IN FLIGHT: recorded pid {0} is gone and xEdit's log shows no run" -f $job.pid)
+        Write-Output ("  job started {0} ({1}s ago); log last written {2}s ago" -f `
+            $job.startedLocal, $elapsed, $(if (Test-Path $logPathNow) { [math]::Round(((Get-Date) - (Get-Item $logPathNow).LastWriteTime).TotalSeconds, 0) } else { 'n/a' }))
+        Write-Output '  No verdict is issued: nothing was measured. This is UNVERIFIED, not FAIL.'
+        Write-Report 'SKIP' 'no xEdit job is in flight and no run of this job is evidenced in the log; nothing was measured' @{
+            recordedPid = $job.pid; elapsedSec = $elapsed; jobStarted = $job.startedLocal
+            note = 'a stale job file was present; a verdict is never formed from an absent run'
+        }
+        exit 3
+    }
+
     if ($proc) {
         if ($elapsed -gt $job.timeoutSec) {
             Write-Output "SKIP: xEdit exceeded ${job.timeoutSec}s and is being stopped"
             try { $proc.Kill() } catch { }
-            Write-Report 'SKIP' "xEdit exceeded its ${job.timeoutSec}s budget with no report" @{
-                elapsedSec = $elapsed; xeditLog = Get-XEditLogTail
+            $excCol = Get-XEditException
+            Write-ExceptionBanner $excCol
+            $reasonCol = if ($excCol.present -and $excCol.kind -eq 'compile') {
+                "xEdit exceeded its ${job.timeoutSec}s budget parked on a COMPILE error: $($excCol.message). The timeout is a symptom; the parse error is the cause."
+            } else {
+                "xEdit exceeded its ${job.timeoutSec}s budget with no report"
+            }
+            Write-Report 'SKIP' $reasonCol @{
+                verdictSource = 'xFOEdit64Exception.log'
+                exception     = $excCol
+                elapsedSec    = $elapsed; xeditLog = Get-XEditLogTail
             }
             exit 3
         }
         Write-Output ("RUNNING: xEdit pid {0}, {1}s elapsed of {2}s" -f $job.pid, $elapsed, $job.timeoutSec)
+        # Show the work, not just the fact of running. The last run sat at 0 bytes
+        # of stdout while the background loader chewed through the whole load
+        # order, which is indistinguishable from a hang. FO4Script_log.txt is where
+        # the loader narrates itself, one line per plugin, so the count of lines
+        # and the last few are a real progress reading with no extra plumbing.
+        $excRun = Get-XEditException
+        if ($excRun.present -and $excRun.kind -eq 'compile') {
+            # A compile error means the run is NOT progressing; it is parked on a
+            # dialog. Say so now rather than after the budget expires.
+            Write-Output '  BLOCKED: a COMPILE error is already on record, so this run is not going to finish.'
+            Write-ExceptionBanner $excRun
+        }
+        $logPath = if ($job.xeditLog) { $job.xeditLog } else { $XEditLog }
+        if (Test-Path $logPath) {
+            $lines = @(Get-Content $logPath -ErrorAction SilentlyContinue)
+            $loaded = @($lines | Where-Object { $_ -match 'Done (loading|building) reference info' }).Count
+            $pct = if ($lines.Count) { [math]::Round(100.0 * $loaded / [math]::Max($loaded, 1), 0) } else { 0 }
+            Write-Output ("  loader: {0} log lines, {1} plugins through the reference stage" -f $lines.Count, $loaded)
+            Write-Output '  --- last 5 ---'
+            $lines | Select-Object -Last 5 | ForEach-Object { "    $_" }
+        } else {
+            Write-Output '  loader: no FO4Script_log.txt yet'
+        }
         Write-Output 'poll again with: tools\validate_plugin.ps1 -Collect'
         exit 4
     }
@@ -128,11 +271,22 @@ if ($Collect) {
         exit 0
     }
     Write-Output 'FAIL: xEdit exited but produced no report -- script did not reach Finalize'
-    Write-Report 'FAIL' 'xEdit ran to exit without writing a report; the script aborted before Finalize completed' @{
-        elapsedSec = $elapsed
-        xeditLog   = Get-XEditLogTail
-        stdoutTail = (Get-Content $StdoutLog -Tail 30 -ErrorAction SilentlyContinue)
-        stderrTail = (Get-Content $StderrLog -Tail 15 -ErrorAction SilentlyContinue)
+    $exc = Get-XEditException
+    Write-ExceptionBanner $exc
+    # The verdict is chosen from the exception, not from the absence of a file.
+    # A compile failure and a script that ran and failed are different bugs.
+    $reason = if ($exc.present -and $exc.kind -eq 'compile') {
+        "xEdit could not COMPILE the script: $($exc.message). The script never ran, so the plugin's contents were never read."
+    } else {
+        'xEdit ran to exit without writing a report; the script aborted before Finalize completed'
+    }
+    Write-Report 'FAIL' $reason @{
+        verdictSource = 'xFOEdit64Exception.log'
+        exception     = $exc
+        elapsedSec    = $elapsed
+        xeditLog      = Get-XEditLogTail
+        stdoutTail    = (Get-Content $StdoutLog -Tail 30 -ErrorAction SilentlyContinue)
+        stderrTail    = (Get-Content $StderrLog -Tail 15 -ErrorAction SilentlyContinue)
     }
     exit 1
 }
@@ -272,29 +426,51 @@ $finished = $proc.WaitForExit($TimeoutSec * 1000)
 if (-not $finished) {
     Write-Output "SKIP: xEdit did not finish within ${TimeoutSec}s and was stopped"
     try { $proc.Kill() } catch { }
-    Write-Report 'SKIP' ("xEdit did not complete headlessly in ${TimeoutSec}s. Measured on this machine a full " +
-                         'load of the curated core takes roughly three minutes, so a shorter timeout is a false ' +
-                         'negative and not a property of the plugin.') @{
-        elapsedSec = [math]::Round($sw.Elapsed.TotalSeconds, 1)
-        timeoutSec = $TimeoutSec
-        xeditLog   = Get-XEditLogTail
+    # A COMPILE error raises a modal dialog, and a modal dialog is exactly what a
+    # headless run cannot dismiss. So the commonest cause of a timeout is the same
+    # parse error the exception log records, and reading it here turns "it hung"
+    # into a named cause. Checked before the reason is written, not after.
+    $excTo = Get-XEditException
+    Write-ExceptionBanner $excTo
+    $reasonTo = if ($excTo.present -and $excTo.kind -eq 'compile') {
+        "xEdit raised a modal COMPILE error and could not proceed unattended: $($excTo.message). Measured on this machine a full load of the curated core takes roughly three minutes, so the timeout was not the cause; the compile error was."
+    } else {
+        ("xEdit did not complete headlessly in ${TimeoutSec}s. Measured on this machine a full " +
+         'load of the curated core takes roughly three minutes, so a shorter timeout is a false ' +
+         'negative and not a property of the plugin.')
+    }
+    Write-Report 'SKIP' $reasonTo @{
+        verdictSource = 'xFOEdit64Exception.log'
+        exception     = $excTo
+        elapsedSec    = [math]::Round($sw.Elapsed.TotalSeconds, 1)
+        timeoutSec    = $TimeoutSec
+        xeditLog      = Get-XEditLogTail
     }
     exit 3
 }
 
 Write-Output ("xEdit exited {0} after {1}s" -f $proc.ExitCode, [math]::Round($sw.Elapsed.TotalSeconds, 1))
+$excSync = Get-XEditException
+Write-ExceptionBanner $excSync
 if (Test-Path $reportOut) {
     Write-Output 'PASS: xEdit parsed the plugin and wrote a report'
     Get-Content $reportOut | Write-Output
-    Write-Report 'PASS' 'xEdit parsed the plugin and produced a report' @{ xeditReport = $reportOut }
+    Write-Report 'PASS' 'xEdit parsed the plugin and produced a report' @{ xeditReport = $reportOut; exception = $excSync }
     exit 0
 }
 Write-Output 'FAIL: xEdit exited but produced no report -- script did not reach Finalize'
-Write-Report 'FAIL' 'xEdit ran to exit without writing a report; the script aborted before Finalize completed' @{
-    exitCode   = $proc.ExitCode
-    elapsed    = [math]::Round($sw.Elapsed.TotalSeconds, 1)
-    xeditLog   = Get-XEditLogTail
-    stdoutTail = (Get-Content $StdoutLog -Tail 30 -ErrorAction SilentlyContinue)
-    stderrTail = (Get-Content $StderrLog -Tail 15 -ErrorAction SilentlyContinue)
+$reasonSync = if ($excSync.present -and $excSync.kind -eq 'compile') {
+    "xEdit could not COMPILE the script: $($excSync.message). The script never ran, so the plugin's contents were never read."
+} else {
+    'xEdit ran to exit without writing a report; the script aborted before Finalize completed'
+}
+Write-Report 'FAIL' $reasonSync @{
+    verdictSource = 'xFOEdit64Exception.log'
+    exception     = $excSync
+    exitCode      = $proc.ExitCode
+    elapsed       = [math]::Round($sw.Elapsed.TotalSeconds, 1)
+    xeditLog      = Get-XEditLogTail
+    stdoutTail    = (Get-Content $StdoutLog -Tail 30 -ErrorAction SilentlyContinue)
+    stderrTail    = (Get-Content $StderrLog -Tail 15 -ErrorAction SilentlyContinue)
 }
 exit 1

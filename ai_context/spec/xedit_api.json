@@ -16,6 +16,10 @@
     {
       "source": "a real run, 2026-09-30",
       "note": "background loader FINISHED at 00:11, script started, then aborted at 02:17 on AssignFile. This is the first run to prove the load path works end to end."
+    },
+    {
+      "source": "local execution, 2026-09-30 20:33",
+      "note": "First report this project ever produced: 2,287,300 records, 64,926 CELL, 140 distinct signatures, verdict PASS, 1m42s. The load path and Finalize are proven end to end. This supersedes the earlier note that no report had ever been produced."
     }
   ],
   "prose": "Two functions this project assumed DO NOT EXIST and one it assumed was a function is a global. The absent ones are the expensive part: AddNewFileName reads like a registration call and actually creates a new plugin in the game folder and appends to the plugin list, so using it to 'activate' an existing plugin would have written to Data and mutated plugins.txt. AddElement is not a create call at all, it attaches an already-constructed element and THROWS if that element already has a container; the idempotent create is Add(container, signature, silent). GetPluginName is undeclared, confirmed both by the documented function list and by a real run. ProgramPath does exist, as a read-only global rather than a function. exists is a boolean precisely so a program can branch on it.",
@@ -308,6 +312,71 @@
         "GetActivePlugin"
       ],
       "severity": "error"
+    },
+    {
+      "name": "FileCount",
+      "exists": true,
+      "signature": "FileCount(): Integer",
+      "container": "session",
+      "returns": "integer",
+      "provenance": [
+        "docs 13 (FileCount)"
+      ],
+      "proof": "proven_by_execution",
+      "proof_note": "Used in Initialize's loop over the load order. That loop ran to completion on 2026-09-30 20:33 and found PipMonTestFacility.esp at index 54, so this call demonstrably works on 4.1.5f x64.",
+      "behaviour": "Number of loaded files in the current session.",
+      "detect": [
+        "FileCount"
+      ]
+    },
+    {
+      "name": "GetFile",
+      "exists": true,
+      "signature": "GetFile(aeElement: IwbElement): IwbFile",
+      "container": "IwbElement",
+      "returns": "IwbFile",
+      "provenance": [
+        "docs 13 (GetFile)"
+      ],
+      "proof": "falsified_here",
+      "proof_note": "Documented with an unambiguous signature, and it still aborted our run. On 2026-09-30 20:11 the script ran 15s through Process and stopped with [EAbort] at the line calling GetFileName(GetFile(e)) once per record. Upstream says the parameter is an IwbElement, and a Process record is an IInterface; whatever the mismatch is, the signature did not predict it.",
+      "behaviour": "Returns the file that contains the element. PER-RECORD CALL IS NOT SAFE IN OUR USE -- see proof_note. Do not put this in a loop over every record until it is proven in isolation.",
+      "detect": [
+        "GetFile"
+      ],
+      "severity": "warning",
+      "caution": true,
+      "caution_note": "Not wrong, but not proven in a per-record loop. A warning rather than an error because it is the documented way to attribute a record to a file and is probably fine once proven on its own."
+    },
+    {
+      "name": "MasterCount",
+      "exists": true,
+      "signature": "MasterCount(aeFile: IwbFile): cardinal",
+      "container": "IwbFile",
+      "returns": "cardinal",
+      "provenance": [
+        "docs 13 (MasterCount)"
+      ],
+      "proof": "unproven",
+      "behaviour": "Number of master files the given file has.",
+      "detect": [
+        "MasterCount"
+      ]
+    },
+    {
+      "name": "MasterByIndex",
+      "exists": true,
+      "signature": "MasterByIndex(aeFile: IwbFile; aiIndex: integer): IwbFile",
+      "container": "IwbFile",
+      "returns": "IwbFile",
+      "provenance": [
+        "docs 13 (MasterByIndex)"
+      ],
+      "proof": "unproven",
+      "behaviour": "Returns the aiIndex-th master file for aeFile.",
+      "detect": [
+        "MasterByIndex"
+      ]
     }
   ],
   "detection_note": "exists false means the name does not exist and any use is an error. Entries with caution true exist but have a side effect that is easy to intend wrongly, so the gate warns rather than fails. The distinction matters: a gate that fails on legitimate use teaches people to bypass it.",
@@ -321,6 +390,51 @@
         "the run log pasted by the user, 2026-09-30",
         "testfacility/xedit/validate_plugin.pas header"
       ]
+    },
+    {
+      "assumption": "A documented upstream signature is enough to call an xEdit function in a per-record loop",
+      "reality": "GetFile(aeElement: IwbElement): IwbFile is documented, unambiguous, and aborted our Process after 15 seconds over 2.28M records. The abort is at the CALL, not at a compile check, so nothing warns you in advance.",
+      "cost": "one full three-minute load, twice: once to find the abort, once to confirm the fix",
+      "correction": "Prefer a call proven by execution in this script. Where a documented call is genuinely needed, add it to Initialize first -- Initialize runs once, so a failure there costs the run immediately and says so, instead of aborting 15s into a hot loop.",
+      "provenance": [
+        "run log 2026-09-30 20:11 and 20:33",
+        "testfacility/xedit/validate_plugin.pas header"
+      ]
     }
-  ]
+  ],
+  "proof_vocabulary": {
+    "proven_by_execution": "Observed working in OUR script on THIS xEdit build. The strongest evidence there is, and the only kind that survives a game update.",
+    "documented": "Transcribed from upstream docs with a signature. Necessary and NOT sufficient: see GetFile.",
+    "falsified_here": "Documented upstream, but observed to ABORT in our use. Being documented is not a clearance.",
+    "unproven": "No evidence either way. Not a clearance and not a condemnation; it means nobody has run it."
+  },
+  "interpreter_standard_library": {
+    "note": "JvInterpreter wraps whatever xEdit was compiled with, so these arrive WITHOUT a uses clause. They are not xEdit API, which is why they are recorded here rather than as entries -- and an absent entry is not evidence of absence.",
+    "provided": [
+      "TStringList (Create, Add, Count, IndexOf, SaveToFile, Free)",
+      "Classes",
+      "Buttons",
+      "Forms",
+      "Dialogs",
+      "Menus",
+      "Controls",
+      "Graphics",
+      "Comctrls",
+      "Contnrs",
+      "ExtCtrls"
+    ],
+    "proven_by_execution": [
+      "TStringList.Create",
+      "TStringList.Add",
+      "TStringList.IndexOf",
+      "TStringList.SaveToFile",
+      "TStringList.Free",
+      "LowerCase",
+      "Chr",
+      "IntToStr",
+      "StrToInt"
+    ],
+    "proof_note": "All of the above ran in our validator on 2026-09-30 20:33 over 2,287,300 records. StrToInt and IndexOf were on the hot path, so they are exercised far harder than a single call would prove.",
+    "not_plain_pascal": "AssignFile, Rewrite, WriteLn and CloseFile are ordinary Delphi and are NOT available. See falsified_assumptions."
+  }
 }

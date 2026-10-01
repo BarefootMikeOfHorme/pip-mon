@@ -29,6 +29,9 @@ SKIP_DIRS = {
     "FO4Edit Cache", "loaddata", "textures",
 }
 MAX_BYTES = 1_500_000
+# Paths dropped for exceeding MAX_BYTES, reported at the end of the run rather than
+# vanishing. See the note at the size check in walk().
+OVERSIZE = []
 
 # The address database exists in seven places on this tree (runs/*, stage/*,
 # vprobe/libs/*). Indexing all of them produced 3,451 chunks that were 28% of
@@ -237,6 +240,14 @@ def candidates():
         if p.suffix.lower() not in EXTS:
             continue
         if p.stat().st_size > MAX_BYTES:
+            # RECORDED, not skipped in silence. This used to be a bare `continue`
+            # with no print and no counter, so a 7 MB file was dropped and the
+            # run still reported "indexed 24 unchanged 738" with every number
+            # true. Nothing anywhere said the file was missing. A size cap that
+            # does not announce itself is indistinguishable from a working
+            # index, which is the failure this project treats as its worst.
+            if (rel, p.stat().st_size) not in OVERSIZE:
+                OVERSIZE.append((rel, p.stat().st_size))
             continue
         yield p
 
@@ -318,9 +329,19 @@ def main() -> int:
     con.close()
     print("db: %s" % DB)
     print("indexed %d  unchanged %d  removed %d  empty %d" % (indexed, skipped, removed, empty))
+    if OVERSIZE:
+        print("")
+        print("NOT INDEXED -- %d file(s) exceed MAX_BYTES (%d B). They are absent from"
+              % (len(OVERSIZE), MAX_BYTES))
+        print("the index and a query will not find them. Split them, or raise the cap")
+        print("deliberately -- do not leave this looking like a working index:")
+        for rel, sz in sorted(OVERSIZE, key=lambda x: -x[1]):
+            print("   %9d B  %s" % (sz, rel))
     print("totals: %d files, %d chunks" % (files, total))
     return 0
 
 
 if __name__ == "__main__":
     sys.exit(main())
+
+

@@ -104,6 +104,39 @@ if errorlevel 8 ( echo FAILED: robocopy could not mirror the base scripts & exit
 copy /y "%PAPYRUS%\PipMon.psc"        "%STAGE%\" >nul
 copy /y "%PAPYRUS%\PipMonTestFacility.psc" "%STAGE%\" >nul
 copy /y "%PAPYRUS%\papyrus_flags.flg" "%STAGE%\" >nul
+
+REM ---------------------------------------------------------------------------
+REM  The rest of our Papyrus, which used to be in no gate at all.
+REM
+REM  Four scripts -- the event bridge and the three test bench probes -- sat in
+REM  the tree for sessions with nothing compiling them, so a set of Skyrim-only
+REM  constructs sat there failing nothing. A file that no gate reads is a file
+REM  whose correctness is unknown rather than known-good, and "it is not in the
+REM  build" is not the same as "it is not ours".
+REM
+REM  They are compiled here for that reason alone. They are NOT deployed and NOT
+REM  copied to build\, because they are product code with their own placement and
+REM  the CK session README still has to be walked through before any of it goes
+REM  into a plugin. Compiling proves the language accepts it; it does not claim
+REM  the content is right.
+REM ---------------------------------------------------------------------------
+REM  Single-line ifs on purpose. Inside a parenthesised block, %EXTRA% is
+REM  expanded when the BLOCK is parsed, so every append would read the value
+REM  from before the block ran and the list would come out as one literal
+REM  "!EXTRA!" -- which is exactly what happened on the first attempt. A
+REM  single-line if is parsed on its own, so plain %VAR% is correct here and no
+REM  delayed expansion is needed.
+set TOP=%~dp0..\..
+set EXTRA=
+if exist "%TOP%\overseer_event_bridge\Scripts\Source\OverseerBridge.psc" copy /y "%TOP%\overseer_event_bridge\Scripts\Source\OverseerBridge.psc" "%STAGE%\" >nul
+if exist "%TOP%\overseer_event_bridge\Scripts\Source\OverseerBridge.psc" set EXTRA=%EXTRA% OverseerBridge
+if exist "%TOP%\pip_mon_testlab\Scripts\Source\PipMon_LoopTest.psc" copy /y "%TOP%\pip_mon_testlab\Scripts\Source\PipMon_LoopTest.psc" "%STAGE%\" >nul
+if exist "%TOP%\pip_mon_testlab\Scripts\Source\PipMon_LoopTest.psc" set EXTRA=%EXTRA% PipMon_LoopTest
+if exist "%TOP%\pip_mon_testlab\Scripts\Source\PipMon_LeakTest.psc" copy /y "%TOP%\pip_mon_testlab\Scripts\Source\PipMon_LeakTest.psc" "%STAGE%\" >nul
+if exist "%TOP%\pip_mon_testlab\Scripts\Source\PipMon_LeakTest.psc" set EXTRA=%EXTRA% PipMon_LeakTest
+if exist "%TOP%\pip_mon_testlab\Scripts\Source\PipMon_TerminalTest.psc" copy /y "%TOP%\pip_mon_testlab\Scripts\Source\PipMon_TerminalTest.psc" "%STAGE%\" >nul
+if exist "%TOP%\pip_mon_testlab\Scripts\Source\PipMon_TerminalTest.psc" set EXTRA=%EXTRA% PipMon_TerminalTest
+if defined EXTRA echo   also staging:%EXTRA%
 REM Stale .pex from a previous run must not be able to satisfy the verification
 REM below. A leftover artefact that passes its own check is the failure mode this
 REM project keeps re-learning.
@@ -161,7 +194,58 @@ copy /y "%STAGE%\PipMon.pex" "%PAPYRUS%\build\PipMon.pex" >nul
 copy /y "%STAGE%\PipMonTestFacility.pex" "%PAPYRUS%\build\PipMonTestFacility.pex" >nul
 
 echo.
+echo === compiling the rest of our Papyrus (compile-only; not deployed) ===
+REM Each is named on failure, because "one of them did not compile" is not
+REM actionable and four unnamed scripts is the exact shape of the problem this
+REM section was added to fix.
+REM
+REM No list variable and no for-loop. The first attempt built a space-separated
+REM %EXTRA% inside if-blocks and read it back inside a for-loop, which needs
+REM delayed expansion that this script does not enable -- the loop ran once with
+REM the literal text "!EXTRA!" as the script name. Four explicit calls have no
+REM expansion to get wrong, and the set of scripts is not going to grow often.
+set EXFAIL=0
+
+call :compile_one OverseerBridge
+call :compile_one PipMon_LoopTest
+call :compile_one PipMon_LeakTest
+call :compile_one PipMon_TerminalTest
+
+if "%EXFAIL%"=="1" (
+  echo.
+  echo FAILED: not every Papyrus source compiles. See above.
+  exit /b 1
+)
+
+echo.
 echo PipMon.pex               built at %PAPYRUS%\build\PipMon.pex
 echo PipMonTestFacility.pex   built at %PAPYRUS%\build\PipMonTestFacility.pex
+echo compiled, not deployed :%EXTRA%
 endlocal
 exit /b 0
+
+:compile_one
+echo.
+echo --- %~1 ---
+pushd "%STAGE%"
+"%CC%" %~1.psc -f=papyrus_flags.flg
+set RC=%errorlevel%
+popd
+if exist "%STAGE%\%~1.pex" (
+  if "%RC%"=="0" (
+    echo   OK  %~1 compiles
+  ) else (
+    echo   FAILED: %~1 exit=%RC%
+    set EXFAIL=1
+  )
+  del /q "%STAGE%\%~1.pex" >nul 2>nul
+) else (
+  echo   FAILED: %~1 did not compile. The compiler's message is above.
+  set EXFAIL=1
+)
+exit /b 0
+exit /b 0
+
+
+
+

@@ -33,7 +33,7 @@
 ; the terminal option each iteration, and the wait interval is non-zero so the
 ; terminal stays responsive.
 
-Scriptname PipMon_LoopTest : 0x0001 pip_montestlab.esl
+Scriptname PipMon_LoopTest
 
 ; --- configuration, tuned so the result is unambiguous -----------------------
 ; 0.01 s is the practical minimum. At 100 Hz and ~40 ops per iteration this is
@@ -53,16 +53,22 @@ int property LastSelfCheckOps = 0 auto readonly
 float property LastSelfCheckDuration = 0.0 auto readonly
 bool property SelfCheckPassed = false auto readonly
 
-CustomEvent LoopTestStarted int
-CustomEvent LoopTestIteration int
-CustomEvent LoopTestStopped int
-CustomEvent LoopTestAborted string
-
+; Custom events are raised with the no-argument form. A CustomEvent is declared
+; with no parameters and its payload travels in the Var[] passed to
+; SendCustomEvent, read back by cast in the receiver's
+; Event <SendingScript>.<EventName>(<SendingScript> akSender, Var[] args) handler.
+; The call sites below previously carried a payload; it is not carried yet, so
+; this is the compile-green shape, not the finished bridge. See
+; ai_context/spec/in_game_surface_requirements.json.
+CustomEvent LoopTestStarted
+CustomEvent LoopTestIteration
+CustomEvent LoopTestStopped
+CustomEvent LoopTestAborted
 Event OnInit()
     ; Runs once at cell load. Report the FormID so a test run can be tied to an
     ; exact script instance -- FormIDs shift with load order, so recording the
     ; value at runtime is the only reliable way to correlate.
-    DebugNotification "PIP-MON LoopTest ready. FormID " + GetFormIDFromEvent(self)
+    Debug.Notification("PIP-MON LoopTest ready. FormID " + GetFormIDFromEvent(self))
 EndEvent
 
 ; ---------------------------------------------------------------------------
@@ -70,12 +76,12 @@ EndEvent
 ; ---------------------------------------------------------------------------
 Function StartLoop(int aThreads) ;
     if aThreads < 1
-        DebugNotification "LoopTest: thread count must be >= 1"
+        Debug.Notification("LoopTest: thread count must be >= 1")
         return
     endif
 
     if Running
-        DebugNotification "LoopTest: already running. Use tq_stop to end it."
+        Debug.Notification("LoopTest: already running. Use tq_stop to end it.")
         return
     endif
 
@@ -90,8 +96,8 @@ Function StartLoop(int aThreads) ;
 
     Running = true
     IterationCount = 0
-    SendEventAll None
-    DebugNotification "LoopTest: started " + aThreads + " thread(s) at " + WaitsPerSecond + " Hz"
+    SendCustomEvent("LoopTestStarted")
+    Debug.Notification("LoopTest: started " + aThreads + " thread(s) at " + WaitsPerSecond + " Hz")
 EndFunction
 
 Event OnLoopThread()
@@ -114,16 +120,16 @@ Event OnLoopThread()
         ; half a second in a tight loop without starving other threads, so the
         ; loop period here is the *thread* period, not a single Wait duration.
         if GetLocalFlag(PIPMON_ABORT)
-            SendEventAll None
+            SendCustomEvent("LoopTestAborted")
             break
         endif
 
-        SendEvent LoopTestIteration(IterationCount)
+        SendCustomEvent("LoopTestIteration")
         Utility.Wait(waitSeconds)
     endwhile
 
     Running = false
-    DebugNotification "LoopTest: thread ended after " + IterationCount + " iterations"
+    Debug.Notification("LoopTest: thread ended after " + IterationCount + " iterations")
 EndEvent
 
 ; ---------------------------------------------------------------------------
@@ -135,7 +141,7 @@ EndEvent
 ; into a question with a printed answer.
 Function StartSelfCheck() ;
     if Running
-        DebugNotification "LoopTest: still running, stop it first"
+        Debug.Notification("LoopTest: still running, stop it first")
         return
     endif
 
@@ -161,11 +167,11 @@ Function StartSelfCheck() ;
     ; 500 ops/s runaway threshold, so a correct detector MUST have fired.
     SelfCheckPassed = (rate > 500.0)
 
-    DebugNotification "SelfCheck: " + ops + " ops in " + duration + "s = " + rate + " ops/s"
+    Debug.Notification("SelfCheck: " + ops + " ops in " + duration + "s = " + rate + " ops/s")
     if SelfCheckPassed
-        DebugNotification "SelfCheck PASSED - OverseerCLI should flag runaway_loop now."
+        Debug.Notification("SelfCheck PASSED - OverseerCLI should flag runaway_loop now.")
     else
-        DebugNotification "SelfCheck FAILED - signal too weak to detect."
+        Debug.Notification("SelfCheck FAILED - signal too weak to detect.")
     endif
 EndFunction
 
@@ -179,39 +185,41 @@ Function StopLoop() ;
         ; "stopped" while threads are still spinning.
         Utility.Wait(0.1)
     endif
-    SendEventAll None
-    DebugNotification "LoopTest: abort flag set."
+    SendCustomEvent("LoopTestAborted")
+    Debug.Notification("LoopTest: abort flag set.")
 EndFunction
 
 ; ---------------------------------------------------------------------------
 ; Menu
 ; ---------------------------------------------------------------------------
-Event OnAddToMenu(MenuButton aButton)
-    MenuButton "Start 1 runaway thread" Button 0 id 1
-    MenuButton "Start 8 threads (test vm_starvation)" Button 1 id 2
-    MenuButton "Run self-check (5s, measured)" Button 2 id 3
-    MenuButton "Stop all" Button 3 id 4
-EndEvent
+; ---------------------------------------------------------------------------
+; ACTIVATION, not a menu. See PipMon_TerminalTest.psc for why.
+;   LoopAction  0 = start 1 thread   1 = start 8   2 = self-check   3 = stop all
+; ---------------------------------------------------------------------------
+int property LoopAction = 0 auto
 
-Event OnMenuClick(int aButton)
-    if aButton == 1
-        StartLoop(1)
-    elseif aButton == 2
-        StartLoop(8)
-    elseif aButton == 3
-        StartSelfCheck()
-    elseif aButton == 4
-        StopLoop()
-    endif
-EndEvent
-
-Event OnTimer()
-    int aTimer = GetEventParameter(MenuClickEvent, "MenuItemID") as int
-    ; aTimer == 0 means the player closed the terminal; make sure we do not
-    ; leave runaway threads running after the test equipment is put away.
-    if aTimer == 0
-        if Running
+Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
+      ; OnMenuOpenCloseEvent is the in-build terminal hook: it is declared on
+      ; ScriptObject for this build, and four shipped scripts handle it. It acts
+      ; only on the open half of the pair, or closing the terminal would re-run
+      ; whatever the property says.
+      ;
+      ; OnActivate was tried here and this compiler rejected it ("new event
+      ; onactivate ... not flagged as native"). An earlier note in this file said
+      ; FO4 has no OnActivate at all. That was WRONG: shipped non-Native scripts
+      ; such as abAssaultronSelfDestruct.psc declare Event OnActivate and compile.
+      ; The verified fact is the narrower one -- this compiler rejected it on these
+      ; scripts -- and ScriptObject does not declare it for this build.
+    if abOpening
+        if LoopAction == 0
+            StartLoop(1)
+        elseif LoopAction == 1
+            StartLoop(8)
+        elseif LoopAction == 2
+            StartSelfCheck()
+        elseif LoopAction == 3
             StopLoop()
-        endif
-    endif
+        endif    endif
 EndEvent
+
+
