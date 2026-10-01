@@ -277,3 +277,121 @@ editor          C:\Users\ADMINI~1\AppData\Local\Temp\opencode\xedit\x\xFOEdit64.
 `PipMonTestFacility.pex` in `vprobe\papyrus\build\` is current and already
 deployed. **Do not rebuild it for the CK** — the deployed build is the one the
 plugin should reference.
+
+---
+
+## 12. Session stop — validator rework, UNVERIFIED (read before running anything)
+
+This session was stopped by the user for changing too much without evidence.
+The tree was committed in this state. **Nothing below has been run.**
+
+### 12.1 Stop and read this first
+
+- **Do not launch xEdit yet.** The validator has never produced a report.
+- Two edits to `tools/validate_plugin.ps1` are **unverified and one is incomplete**
+  (see 12.4). Treat both as suspect.
+- The last live xEdit run **failed**. There is no passing run to build on.
+
+### 12.2 What the last run actually proved
+
+Good news, from `%LOCALAPPDATA%\Temp\opencode\xedit\x\FO4Script_log.txt`:
+
+- Background loader **finished at `00:11`** — the loader path works.
+- The script **started and reached `Finalize`**.
+- It then failed at `02:17`:
+
+```
+[EJvInterpreterError] Error in unit 'UserScript' on line 97 : Undeclared Identifier 'AssignFile'
+[02:17] Aborted: Applying script "validate_plugin.gen"
+```
+
+So: loader works, script engine works, `SaveToFile`-style reporting is the only
+unknown left. That is a much better position than "xEdit does not work".
+
+### 12.3 xEdit API facts — measured, do not re-derive
+
+| Call | Status |
+|---|---|
+| `GetPluginName` | **does not exist** in 4.1.5f — aborted a run |
+| `AssignFile` / `Rewrite` / `WriteLn` / `CloseFile` | **undeclared** — aborted a run |
+| `TStringList.SaveToFile` | documented; use this for all report output |
+| `AddMessage` | documented; appears in the xEdit log, not stdout |
+| `GetFile`, `GetFileName`, `FileCount`, `FileByIndex` | documented, common |
+| `MasterCount`, `MasterByIndex` | documented |
+| `Signature` | proven by execution |
+
+- **Hidden windows stall** at `Loading active plugin list`. Only visible mode is
+  proven. `validate_plugin.ps1` now launches visibly.
+- `AddNewFileName`/`AddNewFile` **create a new plugin**; do not call them to reach
+  an existing one.
+- `AddElement` throws if already parented; `Add` is the idempotent create-or-get.
+
+### 12.4 Unverified / incomplete edits — the danger zone
+
+`tools/validate_plugin.ps1`:
+
+1. **Added** regex substitution that rewrites the two `// GENERATOR`-marked lines
+   in the `.pas` template (`targetName`, `reportPath`). Needed because the new
+   template carries readable literal defaults instead of `%%OUTPATH%%` /
+   `%%PLUGIN%%`. **Never executed — unverified.**
+2. **Added a `-GenOnly` switch to the param block with no handler.** It is a
+   declared-but-unimplemented no-op. There is currently **no** way to generate the
+   `.gen.pas` without launching xEdit. Finishing this was the next task.
+
+Because of (2), the only way to produce a `.gen.pas` is a real xEdit launch. Fix
+that before spending a 2–3 minute load.
+
+### 12.5 The validator now on disk
+
+`testfacility/xedit/validate_plugin.pas` (5,222 bytes) — authored as a correction
+of an earlier, wrongly-scoped version that inventoried all ~135K records in the
+load order. It now does **one job**: validate the target plugin.
+
+- Filters records to the target via `GetFile`/`GetFileName`.
+- Emits real JSON (`schema pipmon.plugin.validation/4`).
+- Ends with an explicit `verdict`:
+  - `SKIP` — target not in the load order (never collapsed into PASS)
+  - `FAIL` — target loaded but header-only, or has records and no `CELL`
+  - `PASS` — target loaded, records parse, at least one `CELL`; semantics unchecked
+- Also reports per-signature counts, `masters`, `master_names`, and a
+  `not_checked` list.
+
+Expected first result, given the plugin is currently 66 B / 0 records:
+**`FAIL` — "target plugin is header-only: 0 records"**. That is the correct,
+honest blocker, not a harness bug.
+
+Risk to watch on first run: `StrToInt` and `sigs.IndexOf` are used in the
+signature histogram. If either is undeclared, the fix is to drop the histogram,
+not to re-add file I/O.
+
+### 12.6 Measured plugin facts
+
+- `Data\PipMonTestFacility.esp` — **66 bytes**, CRC32 `E1DD5E4D`, **0 records**.
+- FO4 TES4/record header is **24 bytes**; `dataSize=42`; `24 + 42 = 66`.
+- `tools/make_empty_esp.py` was corrected 16 → 24 bytes and its off-by-eight body
+  offset fixed. Subrecord parsing beyond `HEDR` is still untrusted.
+- The 973-byte version is **only a backup**:
+  `runs\tasks\facility-v0\snapshots\PRIOR-WORK-973B.esp`.
+- `ai_state_dashboard.md` still claims 973 B and is **stale**. Regeneration was
+  aborted. `tools/factcheck.py` correctly flags this.
+
+### 12.7 Safe order of work from here
+
+1. Implement the `-GenOnly` handler; generate `validate_plugin.gen.pas`; **diff it
+   by eye** before any xEdit launch. Confirm `reportPath` points at
+   `runs\watch\xedit-validation-report.json` and no absolute path leaked in.
+2. Only then run `tools\validate_plugin.ps1 -Async`, **detached**, visible, and
+   return immediately. Collect in a **separate** call. Never `Start-Sleep`.
+3. Expect `FAIL / header-only`. Record it, do not treat it as a harness failure.
+4. Then, and only then, move to cell creation — still blocked on a documented
+   top-level group-by-label call and `TwbVector` construction.
+
+### 12.8 Standing process rules
+
+- **Never** run a long third-party process inside a blocking tool call.
+- **Never** use `Start-Sleep` to monitor; poll in separate short calls.
+- **Never** claim a process is running from a cached job file — check the live
+  process. A stale job file caused a false "still running" report this session
+  after the user had already killed it.
+- **Never** claim a file/record count from memory. Re-measure or say unknown.
+- Do not touch `tools/*.py`, specs, or the RAG while an xEdit run is in flight.

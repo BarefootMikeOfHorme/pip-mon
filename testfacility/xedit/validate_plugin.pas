@@ -1,141 +1,194 @@
-{
-  PIP-MON: validate a plugin and emit a machine-readable JSON report.
-
-  WHY THIS EXISTS
-    The Creation Kit is the only tool that can author content here, and it is
-    also the least reliable: three crash dumps in one session, batch operations
-    that abort mid-dataset, and unsaved work lost each time. Everything the CK
-    would be used for that does NOT need the CK should run headlessly instead,
-    where a failure costs nothing and leaves evidence.
-
-    This answers three questions about a plugin file:
-      1. does xEdit parse it at all;
-      2. what masters does it declare;
-      3. what records does it contain, with FormID and EditorID.
-
-    It deliberately asserts NOTHING about game semantics. "Is this cell
-    coherent" is a question about the game's rules, not about a file walk, and
-    a tool that guesses at that is worse than one that declines.
-
-  A NOTE ON API CAUTION
-    Verified by execution, not by documentation. This unit ran to Finalize on
-    2026-09-30 and aborted at the last statement with:
-
-        [EJvInterpreterError] Error in unit 'UserScript' on line 82 :
-        Undeclared Identifier 'GetPluginName'
-
-    So in FO4Edit 4.1.5f x64 (7C57FA01) the following ARE real and were proven
-    by a full load reaching Finalize: Signature, GetElementEditValues,
-    FixedFormID, IntToHex, TStringList. The following are NOT available and
-    must never be used again: GetPluginName (undeclared), and by policy
-    ProgramPath, since nothing after the failure point has been executed yet
-    and an unproven path API would cost another three-minute round trip.
-
-    Consequence: this script now takes the output path and the plugin name as
-    LITERAL strings, substituted by tools\validate_plugin.ps1 at launch. That
-    removes the dependency entirely instead of guessing at a replacement API.
-
-    A script that fails to compile produces NO output at all, which the caller
-    has to distinguish from "the plugin was fine and there was nothing to say".
-    That is why the caller now captures xEdit's stdout/stderr and reads this
-    file's sibling FO4Script_log.txt before ever believing a result.
-}
 unit UserScript;
+
+{
+  PIP-MON: validate ONE plugin (the target) and emit a verdict.
+
+  Job:     report measured facts about targetName and end with PASS, FAIL or SKIP.
+  Not job: inventory of the load order, repair, semantic validation.
+
+  Verdicts (SKIP is not PASS: the property it covers is UNVERIFIED)
+    SKIP  target is not in the loaded load order, so nothing could be checked
+    FAIL  target loaded but is header-only, or has records and no CELL
+    PASS  target loaded, has records, and has at least one CELL
+
+  Constraints this file respects (earlier versions died on these)
+    - no AssignFile/WriteLn: the report is written with TStringList.SaveToFile
+    - every function is declared before its first use
+    - no try/except
+    - GetFile/GetFileName/FileCount/FileByIndex/MasterCount/MasterByIndex are
+      standard xEdit script calls. FIRST RUN IS THE TEST for them: a compile
+      error shows as a dialog and costs one load.
+
+  Edit ONLY the two lines marked GENERATOR in Initialize.
+  Failure history lives in HANDOVER.md, not here.
+}
 
 var
   sl: TStringList;
-  recordCount: Integer;
-  groupCount: Integer;
-  masterCount: Integer;
-  first: Boolean;
+  sigs: TStringList;
+  cnt: TStringList;
+  masterNames: TStringList;
+  reportPath: string;
+  targetName: string;
+  tgtLower: string;
+  verdict: string;
+  reason: string;
+  q: string;
+  sig: string;
+  comma: string;
+  tgt: IInterface;
+  loaded: Boolean;
+  nRecords: Integer;
+  nCell: Integer;
+  nMasters: Integer;
+  i: Integer;
+  k: Integer;
+  idx: Integer;
+
+function JStr(key, val: string): string;
+begin
+  Result := '  ' + q + key + q + ': ' + q + val + q + ',';
+end;
+
+function JNum(key: string; n: Integer): string;
+begin
+  Result := '  ' + q + key + q + ': ' + IntToStr(n) + ',';
+end;
+
+function JBool(key: string; b: Boolean): string;
+begin
+  if b then
+    Result := '  ' + q + key + q + ': true,'
+  else
+    Result := '  ' + q + key + q + ': false,';
+end;
 
 function Initialize: Integer;
 begin
+  targetName := 'PipMonTestFacility.esp';                                                              // GENERATOR
+  reportPath := 'C:\Users\Administrator\Desktop\Pip-mon Script Management system\runs\watch\xedit-validation-report.json'; // GENERATOR
+
+  q := Chr(34);
+  tgtLower := LowerCase(targetName);
   sl := TStringList.Create;
-  recordCount := 0;
-  groupCount := 0;
-  masterCount := 0;
-  first := True;
+  sigs := TStringList.Create;
+  cnt := TStringList.Create;
+  masterNames := TStringList.Create;
+  nRecords := 0;
+  nCell := 0;
+  nMasters := 0;
+  loaded := False;
+
+  for i := 0 to FileCount - 1 do
+  begin
+    if LowerCase(GetFileName(FileByIndex(i))) = tgtLower then
+    begin
+      tgt := FileByIndex(i);
+      loaded := True;
+    end;
+  end;
+
+  if loaded then
+  begin
+    nMasters := MasterCount(tgt);
+    for k := 0 to nMasters - 1 do
+      masterNames.Add(GetFileName(MasterByIndex(tgt, k)));
+  end;
+
   Result := 0;
 end;
 
 function Process(e: IInterface): Integer;
-var
-  sig, edid, fid, q: string;
 begin
   Result := 0;
-  sig := Signature(e);
 
-  if sig = 'MAST' then
+  if loaded then
   begin
-    Inc(masterCount);
-    sl.Add('M|' + GetElementEditValues(e, 'MAST'));
-  end
-  else if sig = 'GRUP' then
-  begin
-    Inc(groupCount);
-  end
-  else
-  begin
-    Inc(recordCount);
-    fid := IntToHex(FixedFormID(e), 8);
-    edid := GetElementEditValues(e, 'EDID');
-    q := '"';
-    sl.Add('R|' + q + sig + q + '|' + q + fid + q + '|' + q + edid + q);
+    if LowerCase(GetFileName(GetFile(e))) = tgtLower then
+    begin
+      sig := Signature(e);
+      if sig <> 'TES4' then
+      begin
+        nRecords := nRecords + 1;
+        if sig = 'CELL' then
+          nCell := nCell + 1;
+
+        idx := sigs.IndexOf(sig);
+        if idx < 0 then
+        begin
+          sigs.Add(sig);
+          cnt.Add('1');
+        end
+        else
+          cnt[idx] := IntToStr(StrToInt(cnt[idx]) + 1);
+      end;
+    end;
   end;
 end;
 
 function Finalize: Integer;
-var
-  outName: string;
-  i: Integer;
-  line: string;
-  f: TextFile;
 begin
-  outName := '%%OUTPATH%%';
-
-  AssignFile(f, outName);
-  Rewrite(f);
-
-  WriteLn(f, '{');
-  WriteLn(f, '  "schema": "pipmon.plugin.validation/1",');
-  WriteLn(f, '  "status": "PASS",');
-  WriteLn(f, '  "plugin": "%%PLUGIN%%",');
-  WriteLn(f, '  "note": "Parsed by xEdit. Semantic validity is NOT asserted: PASS means the file');
-  WriteLn(f, '          parsed and was inventoried, not that the game will accept its content.",');
-  WriteLn(f, '  "groups": ' + IntToStr(groupCount) + ',');
-  WriteLn(f, '  "records": ' + IntToStr(recordCount) + ',');
-  WriteLn(f, '  "masters": [');
-  for i := 0 to sl.Count - 1 do
+  if not loaded then
   begin
-    line := sl[i];
-    if Copy(line, 1, 2) <> 'M|' then
-      continue;
-    if not first then
-      WriteLn(f, ',');
-    WriteLn(f, '    "' + Copy(line, 3, Length(line) - 2) + '"');
-    first := False;
-  end;
-  first := True;
-  WriteLn(f, '  ],');
-  WriteLn(f, '  "records_detail": [');
-  for i := 0 to sl.Count - 1 do
+    verdict := 'SKIP';
+    reason := 'target plugin is not in the loaded load order; nothing was checked';
+  end
+  else if nRecords = 0 then
   begin
-    line := sl[i];
-    if Copy(line, 1, 2) <> 'R|' then
-      continue;
-    if not first then
-      WriteLn(f, ',');
-    WriteLn(f, '    {' + Copy(line, 3, Length(line) - 2) + '}');
-    first := False;
+    verdict := 'FAIL';
+    reason := 'target plugin is header-only: 0 records';
+  end
+  else if nCell = 0 then
+  begin
+    verdict := 'FAIL';
+    reason := 'target plugin has records but no CELL record';
+  end
+  else
+  begin
+    verdict := 'PASS';
+    reason := 'header loaded, records parse, at least one CELL; semantics not checked';
   end;
-  WriteLn(f, '  ]');
-  WriteLn(f, '}');
 
-  CloseFile(f);
+  sl.Add('{');
+  sl.Add(JStr('schema', 'pipmon.plugin.validation/4'));
+  sl.Add(JStr('target', targetName));
+  sl.Add(JStr('verdict', verdict));
+  sl.Add(JStr('reason', reason));
+  sl.Add(JBool('target_loaded', loaded));
+  sl.Add(JNum('records', nRecords));
+  sl.Add(JNum('cell_records', nCell));
+  sl.Add(JNum('masters', nMasters));
 
-  AddMessage('PIPMON: wrote ' + outName + ' (' + IntToStr(recordCount) +
-             ' records, ' + IntToStr(masterCount) + ' masters)');
+  sl.Add('  ' + q + 'master_names' + q + ': [');
+  for k := 0 to masterNames.Count - 1 do
+  begin
+    if k < masterNames.Count - 1 then comma := ',' else comma := '';
+    sl.Add('    ' + q + masterNames[k] + q + comma);
+  end;
+  sl.Add('  ],');
+
+  sl.Add('  ' + q + 'signature_counts' + q + ': {');
+  for k := 0 to sigs.Count - 1 do
+  begin
+    if k < sigs.Count - 1 then comma := ',' else comma := '';
+    sl.Add('    ' + q + sigs[k] + q + ': ' + cnt[k] + comma);
+  end;
+  sl.Add('  },');
+
+  sl.Add('  ' + q + 'not_checked' + q + ': [');
+  sl.Add('    ' + q + 'semantic validity: a parsed record is not necessarily a correct record' + q + ',');
+  sl.Add('    ' + q + 'cell contents: geometry, placement and door wiring' + q + ',');
+  sl.Add('    ' + q + 'every other plugin in the load order' + q);
+  sl.Add('  ]');
+  sl.Add('}');
+
+  sl.SaveToFile(reportPath);
+  AddMessage('PIPMON: ' + verdict + ' - ' + reason);
+  AddMessage('PIPMON: wrote ' + reportPath);
+
+  masterNames.Free;
+  cnt.Free;
+  sigs.Free;
   sl.Free;
   Result := 0;
 end;

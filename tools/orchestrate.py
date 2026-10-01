@@ -64,21 +64,33 @@ def record(entry):
 
 
 def sh(cmd):
-    """Run one allowed command. Refuses anything not explicitly allowlisted,
-    because a plan should not be able to name an arbitrary command."""
+    """Run one allowlisted command. Refuses anything not explicitly allowlisted,
+    because a plan should not be able to name an arbitrary command.
+
+    The allowlist is keyed by the EXECUTABLE token, not the whole command string.
+    Keying it by the full string meant `tools/validate_plugin.ps1 -Async` matched
+    nothing, so P1's actions silently did not run at all and the phase failed at
+    verify for the wrong reason entirely. A gate that no-ops its own actions and
+    then reports the consequence is worse than one that refuses to start."""
     parts = cmd.split()
-    exe = parts[0]
-    if exe not in SHELL:
+    if not parts or parts[0] not in SHELL:
         raise Stop("refused_command",
                    "%r is not in the orchestrator allowlist. A plan names gates and "
-                   "detached launches, not arbitrary commands." % exe)
-    argv = SHELL[exe] + parts[1:]
+                   "detached launches, not arbitrary commands." % (parts[0] if parts else cmd))
+    argv = SHELL[parts[0]] + parts[1:]
     try:
         r = subprocess.run(argv, cwd=str(REPO), capture_output=True, text=True,
                            encoding="utf-8", errors="replace", timeout=300)
         return r.returncode, (r.stdout or "") + (r.stderr or "")
     except subprocess.TimeoutExpired:
         return 124, "timed out after 300s"
+
+
+def allowed(cmd):
+    """Membership test that matches how sh() actually dispatches. Kept as one
+    function so the check and the dispatch can never drift apart again."""
+    parts = cmd.split()
+    return bool(parts) and parts[0] in SHELL
 
 
 def preflight(plan):
@@ -173,6 +185,32 @@ def run_plan(plan, through=None, plan_only=False):
                 ok = code == want if not isinstance(want, str) else code == 0
                 print("     exit : %d %s" % (code, "OK" if ok else "UNEXPECTED"))
                 record({"event": "action", "phase": ph["id"], "cmd": a["run"], "exit": code, "ok": ok})
+
+        # A detached launch is not done when it returns; it is done when the
+        # thing it launched finishes. Without this, P1's verify block would fail
+        # on a perfectly healthy run that simply had not finished loading yet --
+        # which is the same class of error as treating a stale index as fresh.
+        poll = ph.get("poll")
+        if poll and poll["run"] in SHELL:
+            inflight_exit = poll.get("in_flight_exit", 4)
+            budget = poll.get("budget_sec", 0)
+            print("   poll   : %s (in-flight exit %s, budget %ds)"
+                  % (poll["run"], inflight_exit, budget))
+            waited = 0
+            while waited < budget:
+                code, out = sh(poll["run"])
+                record({"event": "poll", "phase": ph["id"], "exit": code, "waited": waited})
+                if code != inflight_exit:
+                    print("     converged: exit=%d after %ds" % (code, waited))
+                    break
+                time.sleep(poll.get("interval", 20))
+                waited += poll.get("interval", 20)
+            else:
+                print("     still in flight after %ds budget; returning so the caller stays free."
+                      % budget)
+                record({"event": "poll_budget_exhausted", "phase": ph["id"], "waited": waited})
+                return 4
+
         verify(ph)
         print("   verified.")
 

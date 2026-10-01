@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parent.parent
 DB = REPO / "rag" / "index.sqlite3"
 
 EXTS = {
-    ".md", ".txt", ".json", ".ps1", ".py", ".pas", ".psc", ".ppc", ".cpp", ".c",
+    ".md", ".txt", ".json", ".pyr", ".ps1", ".py", ".pas", ".psc", ".ppc", ".cpp", ".c",
     ".h", ".hpp", ".ini", ".flg", ".csv", ".xml", ".yml", ".yaml", ".toml",
     ".log", ".bat", ".cfg", ".jsonl", ".def", ".sh",
 }
@@ -29,6 +29,23 @@ SKIP_DIRS = {
     "FO4Edit Cache", "loaddata", "textures",
 }
 MAX_BYTES = 1_500_000
+
+# The address database exists in seven places on this tree (runs/*, stage/*,
+# vprobe/libs/*). Indexing all of them produced 3,451 chunks that were 28% of
+# the corpus and near-identical to each other, so a query about an address
+# returned the same answer seven times. The DERIVED copies are excluded; the
+# source of truth at vprobe/libs is kept. Same reasoning as .gitignore: a
+# derived artefact must never be committable, and must never be retrievable
+# either.
+EXCLUDE_SUBPATHS = (
+    "runs/", "stage/", "rag/",
+    "inspiration archive/",
+)
+
+# Mis-decoded logs. Two Papyrus logs are UTF-16 being read as UTF-8, which
+# yields three-character and empty chunks: not merely useless, but actively
+# misleading, because an empty chunk looks like an authoritative absence.
+MIN_MEANINGFUL_RATIO = 0.60
 TARGET = 1400
 OVERLAP = 200
 
@@ -76,6 +93,20 @@ def classify_authority(head, kind):
         if any(kw in low for kw in kws):
             return tier
     return "derived"
+
+
+def scope_for(rel: Path) -> str:
+    """Whose world is this file in. third_party is reference material about the
+    ENGINE, not about our program, and 458 files of it was crowding out the
+    project's own surfaces. Ranking can now treat it as a different scope."""
+    s = rel.as_posix().lower()
+    if s.startswith("third_party/"):
+        return "third_party"
+    if s.startswith("ai_context/"):
+        return "curated"
+    if s.startswith("runs/"):
+        return "evidence"
+    return "project"
 
 
 def kind_for(rel: Path) -> str:
@@ -196,7 +227,12 @@ def candidates():
             continue
         if any(part in SKIP_DIRS for part in p.parts):
             continue
-        if p.relative_to(REPO).as_posix() in NOT_INDEXED:
+        rel = p.relative_to(REPO).as_posix()
+        if rel in NOT_INDEXED:
+            continue
+        if any(rel.startswith(sp) for sp in EXCLUDE_SUBPATHS):
+            continue
+        if "addresses.txt" in rel and not rel.startswith("vprobe/libs/"):
             continue
         if p.suffix.lower() not in EXTS:
             continue
@@ -233,7 +269,21 @@ def main() -> int:
         if key in known and known[key][0] == digest and known[key][1] == size:
             skipped += 1
             continue
-        text = data.decode("utf-8", errors="replace")
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            # Not UTF-8. Indexing the replacement characters produces chunks of
+            # "���" that look like real content. Skip and say so.
+            print("skipping (not utf-8): %s" % key)
+            continue
+        # A file that decodes but is mostly whitespace or one repeated
+        # replacement glyph is not content. Detect rather than assume.
+        sample = text[:4096]
+        if sample:
+            printable = sum(1 for c in sample if c.isprintable() or c in "\r\n\t")
+            if printable / len(sample) < MIN_MEANINGFUL_RATIO:
+                print("skipping (not meaningful text): %s" % key)
+                continue
         pieces = chunk_text(text)
         con.execute("DELETE FROM chunks WHERE path = ?", (key,))
         for idx, (start, end, body) in enumerate(pieces):

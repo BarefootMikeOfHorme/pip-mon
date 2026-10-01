@@ -12,6 +12,10 @@
     {
       "source": "local execution",
       "note": "A full core load reached Finalize at 2m15s and aborted with: [EJvInterpreterError] Error in unit 'UserScript' on line 82 : Undeclared Identifier 'GetPluginName'"
+    },
+    {
+      "source": "a real run, 2026-09-30",
+      "note": "background loader FINISHED at 00:11, script started, then aborted at 02:17 on AssignFile. This is the first run to prove the load path works end to end."
     }
   ],
   "prose": "Two functions this project assumed DO NOT EXIST and one it assumed was a function is a global. The absent ones are the expensive part: AddNewFileName reads like a registration call and actually creates a new plugin in the game folder and appends to the plugin list, so using it to 'activate' an existing plugin would have written to Data and mutated plugins.txt. AddElement is not a create call at all, it attaches an already-constructed element and THROWS if that element already has a container; the idempotent create is Add(container, signature, silent). GetPluginName is undeclared, confirmed both by the documented function list and by a real run. ProgramPath does exist, as a read-only global rather than a function. exists is a boolean precisely so a program can branch on it.",
@@ -306,5 +310,17 @@
       "severity": "error"
     }
   ],
-  "detection_note": "exists false means the name does not exist and any use is an error. Entries with caution true exist but have a side effect that is easy to intend wrongly, so the gate warns rather than fails. The distinction matters: a gate that fails on legitimate use teaches people to bypass it."
+  "detection_note": "exists false means the name does not exist and any use is an error. Entries with caution true exist but have a side effect that is easy to intend wrongly, so the gate warns rather than fails. The distinction matters: a gate that fails on legitimate use teaches people to bypass it.",
+  "falsified_assumptions": [
+    {
+      "assumption": "AssignFile, Rewrite, WriteLn and CloseFile are standard Pascal and need no verification",
+      "reality": "NOT AVAILABLE in xEdit pascal. A real run on 2026-09-30 aborted at 02:17 with [EJvInterpreterError] Undeclared Identifier AssignFile, after the background loader completed and the script started.",
+      "cost": "two full three-minute loads to discover",
+      "correction": "write files with TStringList.SaveToFile. The report format is line oriented rather than JSON, because JSON escaping would need StringReplace, and the value of a report is not worth the risk of a malformed one.",
+      "provenance": [
+        "the run log pasted by the user, 2026-09-30",
+        "testfacility/xedit/validate_plugin.pas header"
+      ]
+    }
+  ]
 }

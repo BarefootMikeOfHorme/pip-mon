@@ -395,6 +395,31 @@
       "zero-alloc",
       "verbosity",
       "escalation"
+    ],
+    "plans": [
+      "plan",
+      "plans",
+      "orchestrate",
+      "orchestrator",
+      "create_environment",
+      "choreograph",
+      "choreographed",
+      "phase",
+      "phases",
+      "precondition",
+      "preconditions",
+      "rollback",
+      "idempotent",
+      "deterministic",
+      "blocked_reason",
+      "pyr",
+      "on_failure",
+      "verify",
+      "decision point",
+      "session lifecycle",
+      "startup",
+      "shutdown",
+      "enter environment"
     ]
   }
 }

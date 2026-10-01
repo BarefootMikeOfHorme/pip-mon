@@ -1,8 +1,7 @@
-{
-  unit gen_facility;
+unit UserScript;
 
-  {
-    PIP-MON: create a CELL in a plugin, headlessly, with FO4Edit 4.1.5f.
+{
+  PIP-MON: create a CELL in a plugin, headlessly, with FO4Edit 4.1.5f.
 
     WHY THIS FILE WAS REWRITTEN
       The first version called GetActivePlugin and AddNewElement. Neither exists

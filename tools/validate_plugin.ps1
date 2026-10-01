@@ -53,7 +53,8 @@ param(
     [string]$XEditDir = "$env:LOCALAPPDATA\Temp\opencode\xedit\x",
     [int]$TimeoutSec = 420,
     [switch]$Async,
-    [switch]$Collect
+    [switch]$Collect,
+    [switch]$GenOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -181,10 +182,24 @@ foreach ($p in @($reportOut, $StdoutLog, $StderrLog)) {
     if (Test-Path $p) { Remove-Item -LiteralPath $p -Force }
 }
 $src = Get-Content -LiteralPath $Template -Raw
-$src = $src.Replace('%%OUTPATH%%', $reportOut).Replace('%%PLUGIN%%', (Split-Path $Plugin -Leaf))
+$leaf = Split-Path $Plugin -Leaf
+$src = $src.Replace('%%OUTPATH%%', $reportOut).Replace('%%PLUGIN%%', $leaf)
+
+# The template also carries two lines tagged "// GENERATOR" that hold readable
+# literals so the file opens and reads correctly on its own. Those must be
+# rewritten to the real values here, or a baked absolute path ships into xEdit
+# and the report lands somewhere the runner never looks.
+$src = [regex]::Replace($src, "(?m)^(\s*targetName\s*:=\s*')[^']*(';\s*//\s*GENERATOR)", ('${1}' + $leaf + '${2}'))
+$src = [regex]::Replace($src, "(?m)^(\s*reportPath\s*:=\s*')[^']*(';\s*//\s*GENERATOR)", ('${1}' + $reportOut.Replace("'", "''") + '${2}'))
+
 if ($src -match '%%') {
     Write-Output 'FAIL: template still contains unsubstituted placeholders'
     Write-Report 'FAIL' 'validate_plugin.pas template has unresolved placeholders' @{ template = $Template }
+    exit 1
+}
+if ($src -notmatch [regex]::Escape($reportOut)) {
+    Write-Output 'FAIL: GENERATOR-marked reportPath line was not rewritten'
+    Write-Report 'FAIL' 'template GENERATOR reportPath did not take the injected value' @{ template = $Template; expected = $reportOut }
     exit 1
 }
 Set-Content -LiteralPath $GenScript -Value $src -Encoding utf8
@@ -208,7 +223,6 @@ if ($Async) {
                 if ($oldAge -gt $old.timeoutSec) {
                     Write-Output ("reaping orphan xEdit pid {0}: {1:N0}s old against a {2}s budget" -f $old.pid, $oldAge, $old.timeoutSec)
                     try { $oldProc.Kill() } catch { }
-                    Start-Sleep -Seconds 2
                 } else {
                     Write-Output ("an xEdit job is already in flight (pid {0}, {1:N0}s of {2}s). Collect it with -Collect, or wait." -f $old.pid, $oldAge, $old.timeoutSec)
                     exit 5
