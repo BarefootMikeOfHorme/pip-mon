@@ -55,7 +55,71 @@ compose by reference, not by containment.
 
 ---
 
-## 2. Fast travel into an interior — the actual rules
+## 1b. Where an off-map location actually sits on the physical map
+
+Two different mechanisms, and which one you want is a design decision, not a
+technical constraint.
+
+**Option A — its own map, Far Harbor style.** A `WRLD` with its own map data has
+its own map screen:
+
+> Use Map Data: the world map texture file for this WorldSpace.
+> Map Image: select the DDS file to use.
+
+Far Harbor and Nuka-World both work this way. Each has its own map image, so the
+location appears on **its own map and nowhere on the Commonwealth map**. The
+player reaches it the way they reach Far Harbor — not by walking the main map.
+
+**Option B — parented, and pinned to a point on the Commonwealth map.** Set a
+`Parent Worldspace` and give it world map offset data:
+
+> World Map Offset Data: the offset of the location for the **Parent's** world
+> map. This is used to line up the map marker with where the WorldSpace would be
+> on the world map.
+> Cell X Offset / Cell Y Offset / Cell Z Offset / World Map Scale / Hide Map Markers
+
+So an off-map worldspace is not invisible on the map. It can be *placed* on the
+parent map at a chosen offset, and its markers line up there. `Hide Map Markers`
+suppresses them if you want the reverse.
+
+**So the answer to "where would it be placed" is: you choose, and there are two
+shapes for it.** Either it gets its own map (Far Harbor model), or it is pinned
+at an offset on the Commonwealth map (parented model). The second is closer to
+what most people picture when they say "somewhere on the map."
+
+**Two related fields that matter either way:**
+- `WRLD` → **Hide Map Markers** — suppress markers for this worldspace
+- `WRLD` → **Encounter Zone** and **Location** — world-wide, and the
+  worldspace-level encounter zone is what NPCs are scoped by
+- `WRLD` → **No Landscape / No Sky** — for interiors dressed as a worldspace
+- `WRLD` → **Small WorldSpace** — a real performance flag: *"Mark this as a
+  small WorldSpace. This speeds up certain processing for smaller WorldSpaces."*
+  Directly relevant to a test environment, which is exactly the wrong size to be
+  optimising for.
+
+**On the "another instance" instinct — it is correct, and Far Harbor is the
+proof.** Far Harbor is a separate worldspace, not a region of the Commonwealth.
+The engine treats it as its own instance with its own map, weather, and loading.
+That is the shape a bunker-of-our-own wants if it is to be somewhere distinct
+rather than tucked into an existing cell.
+
+**Caveat on scale, from CK modders building custom worldspaces:**
+> The max map size allowed by the Creation Kit editor is 64x64 Cells, with
+> negative and positive (-32, +31)… Bigger world can be made with external
+> tools. There is a bug that makes maps bigger than ±64 cells on the X axis not
+> work properly.
+
+So a custom worldspace is bounded, and the bound is known-broken past 64 cells
+on X. For a test environment that is generous.
+
+**Unverified:** whether the world map offset survives being authored headlessly,
+or whether it is a CK-only field like precombine. `xEditAPI.pas` exposes
+`SetEditValue` and this is a field-set operation, so it is *probably* reachable
+from a script, but that has not been tested. It should be probed before any plan
+depends on it.
+
+---
+
 
 This is the part that constrains the design most, and it is not "make the door
 fast travel".
@@ -109,6 +173,8 @@ makes NPC assignment work, and it is independent of the marker chain.
 | settler/workshop assignment inside | **doable** | shared LOCATION + ENCOUNTER ZONE across the two cells |
 | exterior cells that render | **CK only** | see below |
 | fast travel in survival, from interiors, always | **not doable vanilla** | F4SE mod territory ("Unlimited Fast Travel") |
+| an off-map worldspace with its own map | **doable** | `WRLD` Use Map Data + Map Image (Far Harbor model) |
+| an off-map worldspace pinned onto the Commonwealth map | **doable, unverified headlessly** | `Parent Worldspace` + World Map Offset Data; `SetEditValue` should reach it, untested |
 | nested regions (field inside hill inside region) | **not a thing** | exteriors are a flat grid; only worldspaces nest |
 | clean (unfiltered) precombine | **CK command line only** | GUI makes filtered only |
 
