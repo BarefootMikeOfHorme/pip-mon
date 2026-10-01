@@ -308,5 +308,35 @@
       "ai_context/systems/"
     ],
     "why": "Our curated guides scored higher than the verbatim upstream documents they were derived from, so a request for an exact specification returned our summary instead of the specification. The tiers express how reliable a claim is; this expresses which file IS the claim. Derived summaries must not outrank the primary source for a lookup."
+  },
+  "subject_tags": {
+    "_comment": "A query may name a subject with @tag, e.g. '@ck navmesh'. The tag is removed from the search terms and applies a multiplier to the files registered below. It is a BOOST, never a filter, for two reasons: a filter returns nothing silently when a tag is misspelled or unregistered, which reads as 'nothing known' rather than 'you asked wrong'; and it leaves every un-targeted query byte-for-byte unchanged, so registering a cheat sheet cannot alter what an existing query returns. Register a subject by listing file paths; the last entry in a list should be the cheat sheet, since that is the one meant to win.",
+    "boost": 2.2,
+    "files": {
+      "ck": [
+        "ai_context/ck_command_reference.md"
+      ],
+      "ckpe": [
+        "ai_context/ck_command_reference.md"
+      ],
+      "xedit": [
+        "ai_context/xedit_command_reference.md",
+        "ai_context/reference/xedit_pascal_api.md"
+      ],
+      "papyrus": [
+        "ai_context/engine/papyrus_surface/README.md"
+      ]
+    },
+    "aliases": {
+      "_comment": "Alternate spellings that resolve to the same subject, so @creation-kit and @ck are the same request.",
+      "creation-kit": "ck",
+      "creationkit": "ck",
+      "ck-commands": "ck",
+      "fo4edit": "xedit",
+      "sseedit": "xedit",
+      "tes5edit": "xedit"
+    },
+    "floor": 5.0,
+    "_note_single_file": "One command reference per subject, deliberately. Registering several meant a tagged query returned several near-identical tables and let term frequency decide between them. Add a second file only when it answers a question the first one does not -- the xEdit API reference qualifies, the earlier CK cheat sheets did not and were removed."
   }
 }

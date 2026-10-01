@@ -297,6 +297,7 @@ def dashboard(plan, phase_status, code, reason=""):
     done = [p for p, s in phase_status.items() if s == "done"]
     blocked = [p for p, s in phase_status.items() if s == "blocked"]
     failed = [p for p, s in phase_status.items() if s == "failed"]
+    skipped_ph = [p for p, s in phase_status.items() if s == "skipped"]
     left = [p for p in plan["phases"] if p["id"] not in done]
 
     g = TALLY
@@ -310,7 +311,7 @@ def dashboard(plan, phase_status, code, reason=""):
     print("  phases    : %d done / %d total" % (len(done), len(plan["phases"])))
     for p in plan["phases"]:
         s = phase_status.get(p["id"], "pending")
-        mark = {"done": "[x]", "blocked": "[!]", "failed": "[X]", "running": "[>]"}.get(s, "[ ]")
+        mark = {"done": "[x]", "blocked": "[!]", "failed": "[X]", "running": "[>]", "skipped": "[~]"}.get(s, "[ ]")
         print("    %s %-4s %-42s %s" % (mark, p["id"], p["name"], s.upper()))
     print()
     print("  checks    : %d run, %d passed" % (g["gates"], g["gate_ok"]))
@@ -511,7 +512,7 @@ def verify(phase):
     return True
 
 
-def run_plan(plan, through=None, plan_only=False, force=False):
+def run_plan(plan, through=None, plan_only=False, force=False, args_start=None):
     global VERBOSE
     STATE_ROW.update({"plan": plan["plan_id"], "goal": plan["goal"],
                       "task": plan.get("task") or plan["goal"],
@@ -562,10 +563,27 @@ def run_plan(plan, through=None, plan_only=False, force=False):
         dashboard(plan, status, 3, "%s: %s" % (e.reason, e.detail))
         return 3
 
+    started = False
     for ph in plan["phases"]:
         if through and ph["id"] == through:
             print("\n-- stopping before %s as requested --" % through)
             break
+        if args_start and not started:
+            # --from: begin at a phase rather than replaying the ones already
+            # settled. P1 costs a two-minute xEdit load and P2 costs another, so
+            # re-running them to reach P4 is paying full price for a result that
+            # is already in the transcript. Phases before the start point are
+            # reported as SKIPPED, never as passed -- a phase that did not run
+            # has not verified anything, and recording it as done is the exact
+            # conflation this orchestrator exists to avoid.
+            if ph["id"] == args_start:
+                started = True
+            else:
+                status[ph["id"]] = "skipped"
+                trace("phase_skipped", "%s skipped (--from %s)" % (ph["id"], args_start),
+                      level="warn", phase=ph["id"])
+                print("\n%s %s   SKIPPED (--from %s)" % (ph["id"], ph["name"], args_start))
+                continue
         if ph.get("blocked_reason"):
             print("\n%s %s is BLOCKED: %s" % (ph["id"], ph["name"], ph["blocked_reason"]))
             trace("phase_blocked", "%s BLOCKED: %s" % (ph["id"], ph["blocked_reason"][:160]),
@@ -851,6 +869,7 @@ def main():
     ap.add_argument("command", choices=["list", "show", "run", "state"])
     ap.add_argument("plan", nargs="?")
     ap.add_argument("--through", help="stop before this phase id")
+    ap.add_argument("--from", dest="args_start", help="begin AT this phase id; earlier phases are reported SKIPPED, never passed")
     ap.add_argument("--plan-only", action="store_true")
     ap.add_argument("--verbose", "-v", action="store_true",
                     help="also print each gate's own output. It is always captured "
@@ -902,7 +921,7 @@ def main():
     if args.dry_run:
         return dry_run(plan, args.through)
     try:
-        return run_plan(plan, args.through, args.plan_only, force=args.force)
+        return run_plan(plan, args.through, args.plan_only, force=args.force, args_start=args.args_start)
     except Stop as e:
         trace("plan_stopped", "STOP %s: %s" % (e.reason, e.detail), level="error",
               reason=e.reason, detail=e.detail)
@@ -912,4 +931,5 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
 

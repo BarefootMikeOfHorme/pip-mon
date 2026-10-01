@@ -14,7 +14,7 @@
     "ordering": "Validate BEFORE generating. A generator whose output cannot be read back is not producing an environment, it is producing a file. Then fix the load path, then fix the generator, then generate. Reordering these means debugging two unknowns at once, which is exactly how the last three attempts produced no evidence at all.",
     "no_implicit_state": "Assumes xEdit 4.1.5f x64 is present and its first-run notice has been dismissed by a human. Assumes the curated 35-plugin load order is active. Assumes NO xEdit process is running -- enforced as a precondition, not hoped for."
   },
-  "gate_repair_2026_09_30": "Eight actions and gates in this plan were prose, not commands, and the orchestrator's allowlist refuses anything that is not a command. A dry run on 2026-09-30 listed all eight: P2's two actions and its verify, P3's second verify, P4's action and both its verifies. So P2, P3 and P4 could not have passed for any reason relating to xEdit. Every one is now a real command, and tools/xedit_log.py exists because three of them were asking questions about a log that nothing could measure.",
+  "gate_repair_2026_09_30": "Eight actions and gates in this plan were prose, not commands, and the orchestrator's allowlist refuses anything that is not a command. A dry run on 2026-09-30 listed all eight: P2's two actions and its verify, P3's second verify, P4's action and both its verifies. So P2, P3 and P4 could not have passed for any reason relating to xEdit. Every one is now a real command, and tools/xedit_log.py exists because three of them were asking questions about a log that nothing could measure. P4's verify was also repaired the same way: it named --require report, which resolved to the VALIDATOR's report, so the generator phase would have passed on a stale file from another job. xedit_log.py now takes --report and --gen-key so the two artefacts cannot be confused.",
   "preflight": [
     {
       "check": "no xEdit process is running",
@@ -158,19 +158,24 @@
       },
       "verify": [
         {
-          "gate": "tools/xedit_log.py --require report",
+          "gate": "tools/xedit_log.py --report generator --require report",
           "expect_exit": 0,
-          "why": "The generator's report is the proof it ran. NOTE this checks the validator's report path, which the generator does not write -- so until xedit_log.py learns the generator's report, this gate is satisfied by the validator's report and is therefore WEAK. Recorded rather than hidden: a gate that passes for the wrong reason is worse than one marked provisional."
+          "why": "The GENERATOR's report, named explicitly. The gate used to say --require report, which xedit_log.py resolved to the VALIDATOR's report -- so this phase would have been graded against a leftover file from a different job and passed without the generator ever running."
+        },
+        {
+          "gate": "tools/xedit_log.py --report generator --gen-key",
+          "expect_exit": 0,
+          "why": "The number, not the file. A generator that reaches Finalize and creates nothing is the most likely way this phase reports green while the environment still does not exist, so the gate asks the report for records_created > 0. xedit_log.py gained --report and --gen-key for exactly this: one tool, two artefacts, no silent substitution between them."
         }
       ],
-      "known_limitation": "The generator REACHES the plugin and reports; it does not yet create a CELL. Every link in the group-addressing chain (TwbVector -> wbPositionToGridCell -> wbGridCellToGroupLabel) is documented but unproven, and an unproven call raises and aborts the run with nothing written. The next experiment is deliberately one link, in Finalize, where a raise costs one run and names itself. So a green P4 means the generator RAN, not that a cell exists -- and the phase's own report says records_created: 0.",
       "on_failure": {
         "stop": true,
         "rollback": [
           "restore runs/tasks/facility-v0/snapshots/PRIOR-WORK-973B.esp"
         ],
         "report": "The generator did not produce a report. Run tools/xedit_log.py and read the exception log: the previous version of gen_facility.pas died on AssignFile, which is ordinary Delphi and is NOT available in xEdit's Pascal. That class of fault is a COMPILE failure and only ever appears in xFOEdit64Exception.log."
-      }
+      },
+      "expected_outcome_today": "Both gates are expected to FAIL on the first run, and that is the correct result. gen_facility.pas reaches the plugin and reports; it does not create a CELL, because every link in the group-addressing chain is documented but unproven and an unproven call aborts the run with nothing written. A green P4 means a CELL exists in PipMonTestFacility.esp."
     },
     {
       "id": "P5",

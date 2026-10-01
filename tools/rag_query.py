@@ -20,6 +20,29 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from rag_index import DB, REPO, RANKING, tokenize  # noqa: E402
 
+# Stdout on a Windows console defaults to cp1252, which cannot represent
+# U+2192 (RIGHTWARDS ARROW), U+2014 (EM DASH), U+2265 and a few others that
+# appear constantly in reference material. Printing a hit containing one of
+# them raised UnicodeEncodeError from inside the result loop, so the process
+# exited 1 AFTER the hit had already been found and ranked.
+#
+# That failure is invisible from the caller's side and reads exactly like a
+# retrieval miss: `pipmon.ps1 rag query` reports "rag_query.py returned a
+# nonzero exit" and shows no hits. Two freshly indexed documents were
+# unretrievable for this reason alone -- the ranker had them at position 1.
+#
+# errors="replace" rather than strict on purpose. A character that cannot be
+# shown should cost one glyph, not the whole query.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+# Subject tags: "@ck navmesh" boosts the files registered for "ck" in
+# ai_context/ranking.json. Boost, never filter -- see the block in main().
+_tag_re = re.compile(r"(?:^|\s)@([A-Za-z0-9_.\-]+)")
+
 K1 = 1.2
 B = 0.75
 
@@ -148,6 +171,9 @@ def main() -> int:
     ap.add_argument("--db", default=str(DB))
     ap.add_argument("--kind")
     ap.add_argument("--path", dest="path_prefix")
+    ap.add_argument("--subject", default=None,
+                    help="boost files registered for a subject, e.g. --subject ck. "
+                         "Same as prefixing the query with @ck.")
     ap.add_argument("--limit", type=int, default=5)
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--stats", action="store_true")
@@ -211,6 +237,46 @@ def main() -> int:
         return 0
 
     raw = " ".join(args.query)
+
+    # ---------------------------------------------------------------- subject tags
+    # "@ck navmesh" strips the tag and boosts the files registered for "ck" in
+    # ai_context/ranking.json. Three properties this has to have, each of which
+    # cost something to learn:
+    #
+    # 1. The strip happens HERE, before expand_query, not in the scorer. An
+    #    earlier attempt re-tokenized inside the scoring loop to drop the tag,
+    #    which silently bypassed query expansion -- morphological variants and
+    #    the vocabulary map stopped applying to EVERY query, tagged or not. A
+    #    change to a retrieval path has to be inert for untagged queries or it
+    #    is a regression wearing a feature's clothes.
+    # 2. It is a BOOST, never a filter. A filter returns nothing silently when a
+    #    tag is misspelled or unregistered, which reads as "nothing known"
+    #    rather than "you asked wrong".
+    # 3. Untagged queries are byte-for-byte unchanged, so registering a cheat
+    #    sheet cannot alter what any existing query returns.
+    #
+    # Why it is needed: a cheat sheet is the best answer to "what are the CK's
+    # commands" and a poor answer to nearly everything else, being a table of
+    # keys. Left to BM25 it competes on term frequency with long prose and
+    # loses, so the document written to be consulted never surfaces. Ranking
+    # cannot fix that alone, because the two documents answer different
+    # questions and no weighting makes that true for both at once.
+    SUBJ = RANKING.get("subject_tags") or {}
+    SUBJ_BOOST = float(SUBJ.get("boost", 2.0) or 2.0)
+    SUBJ_FLOOR = float(SUBJ.get("floor", 5.0) or 5.0)
+    SUBJ_FILES = {k: [str(x) for x in (v or [])] for k, v in (SUBJ.get("files") or {}).items()}
+    # Aliases so "@creation-kit" and "@ck" are the same request. Resolved here
+    # rather than at registration so adding a spelling does not mean editing two
+    # places, and an alias that points at a subject which does not exist simply
+    # resolves to nothing and boosts nothing.
+    _ALIASES = {k.lower(): v for k, v in (SUBJ.get("aliases") or {}).items()
+                if not str(k).startswith("_")}
+    tag_hits = [_ALIASES.get(t.lower(), t.lower()) for t in _tag_re.findall(raw)]
+    if args.subject:
+        tag_hits.append(_ALIASES.get(args.subject.lower(), args.subject.lower()))
+    if tag_hits:
+        raw = _tag_re.sub(" ", raw).strip()
+
     query_low = raw.lower()
     query_is_meta = any(m in query_low for m in OBJ_MARKERS.get("retrieval", []))
     added = []
@@ -297,6 +363,27 @@ def main() -> int:
         parts = {"bm25": score} if score > 0 else {}
         if score > 0 and not args.no_weights:
             parts = weight_parts(row)
+        for _tg in tag_hits:
+            _key = _tg.lower()
+            _targets = SUBJ_FILES.get(_key)
+            if _targets and any(
+                    row[0] == t or row[0].endswith("/" + t) or t in row[0]
+                    for t in _targets):
+                # A floor AND a multiplier, and both are needed.
+                #
+                # The multiplier alone does not work. A tagged file whose chunk
+                # lacks the literal query term scores 0, gets dropped by the
+                # min_score filter, and the boost never runs -- so "@ck navmesh
+                # finalize" returned nothing from the CK reference at all. And
+                # where it does score, a 2.2x multiplier cannot outrank a
+                # corpus-wide term like "finalize" that a spec file repeats
+                # hundreds of times.
+                #
+                # So a tagged file is guaranteed candidacy (floor) and then
+                # favoured (multiplier). Still not a filter: an untagged query
+                # is untouched, and a tag matching nothing changes nothing.
+                parts["bm25"] = max(parts.get("bm25", 0.0), SUBJ_FLOOR)
+                parts["subject[@%s]" % _key] = SUBJ_BOOST
         total = 1.0
         for v in parts.values():
             total *= v
@@ -316,7 +403,33 @@ def main() -> int:
         if score > args.min_score:
             scored.append((score, row, parts))
 
-    scored.sort(key=lambda x: x[0], reverse=True)
+    # Sort by (is-tagged-subject, score), descending.
+    #
+    # A weight was the wrong mechanism and two rounds of tuning proved it. A spec
+    # file that repeats "finalize" across a few hundred chunks scores in the
+    # hundreds; no sane multiplier on a reference document closes that gap, and
+    # raising one to 50x would wreck the untagged ordering it also applies to.
+    #
+    # What was actually being asked for is a partition, not a weight: when the
+    # query names a program, that program's reference is the answer, full stop,
+    # and the rest of the corpus is the fallback. So the tagged file is sorted
+    # ahead of everything else and ranked by score only among its peers.
+    #
+    # The key is a tag_rank of 1 for a file registered under an ACTIVE tag and 0
+    # otherwise, and with no tag present every file scores 0, so the sort reduces
+    # to the original score ordering exactly. That is why the untagged path is
+    # unchanged: not because a weight is small, but because the feature is absent
+    # from the comparison.
+    _tagged_paths = {t for _tg in tag_hits
+                     for t in SUBJ_FILES.get(_tg.lower(), [])}
+
+    def _key(x):
+        _row = x[1]
+        hit = any(_row[0] == t or _row[0].endswith("/" + t) or t in _row[0]
+                  for t in _tagged_paths)
+        return (1 if hit else 0, x[0])
+
+    scored.sort(key=_key, reverse=True)
     top = scored[: args.limit]
 
     weights = {}

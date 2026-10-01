@@ -222,12 +222,14 @@
     {
       "name": "FileWriteToStream",
       "exists": true,
-      "signature": "FileWriteToStream(aeFile: IwbFile; akOutStream: TStream)",
+      "signature": "FileWriteToStream(aeFile: IInterface; akOutStream: TStream; abResetModified: Boolean)",
       "container": "IwbFile",
       "provenance": [
         "docs 13.9"
       ],
-      "behaviour": "Used by the shipped SaveAs.pas. The closest documented thing to a save operation."
+      "behaviour": "MEASURED against the shipped reference, not transcribed from docs. third_party/xedit/Edit Scripts/SaveAs.pas:63 calls FileWriteToStream(aFile, fs, aReset) with THREE arguments. Passing two raises [EJvInterpreterError] Not enough parameters -- measured 2026-09-30 23:47. The first argument is IInterface (SaveAs declares PluginFile: IInterface and obtains it from GetFile(e)), NOT IwbFile. aReset is the reset-modified-status flag; SaveAs leaves it False, which preserves the modified status. Call it exactly as SaveAs does: TFileStream.Create(name, fmCreate), then FileWriteToStream inside try/finally with fs.Free.",
+      "reference_implementation": "third_party/xedit/Edit Scripts/SaveAs.pas (procedure SavePlugin, lines 53-75)",
+      "resolves_blocker": "B4"
     },
     {
       "name": "wbPositionToGridCell",
@@ -436,5 +438,17 @@
     ],
     "proof_note": "All of the above ran in our validator on 2026-09-30 20:33 over 2,287,300 records. StrToInt and IndexOf were on the hot path, so they are exercised far harder than a single call would prove.",
     "not_plain_pascal": "AssignFile, Rewrite, WriteLn and CloseFile are ordinary Delphi and are NOT available. See falsified_assumptions."
-  }
+  },
+  "dialect_rules": [
+    {
+      "name": "no chained comparisons in a condition",
+      "severity": "error",
+      "applies_to": ".pas",
+      "forbidden_pattern": "(?:==|<=|>=|<>|<|=|>)\\s*'[^']*'\\s+(?:and|or)\\s+[\\w.]+\\s*(?:==|<=|>=|<>|<|=|>)",
+      "prohibition": "Two or more string comparisons joined by and/or in one condition raise [EJvInterpreterError] Type mismatch.",
+      "measured": "2026-09-30 22:41, gen_facility.gen.pas line 213: \\\u001blse if sig <> 'GRUP' and sig <> 'MAST' and sig <> 'TES4' then\\ raised Type mismatch on the first Process call, after a clean Initialize that located PipMonTestFacility.esp at index 54.",
+      "why_it_matters": "Every static gate in this project passed that file first. check_item.py and artifact_gate.py only detect calls marked exists:false, so a file that cannot COMPILE read as clean. The compiler is the only thing that catches this, and it costs a two-minute xEdit run.",
+      "instead": "Use an if/else-if cascade, one comparison per condition, exactly as testfacility/xedit/validate_plugin.pas does. That file is the only one of the two with a passing run behind it."
+    }
+  ]
 }

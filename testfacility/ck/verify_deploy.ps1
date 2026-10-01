@@ -21,6 +21,25 @@ function Row($ok, $what, $detail) {
     if (-not $ok) { $script:fail++ }
 }
 
+# Reports a condition without scoring it. Needed because a check being FALSE is
+# not the same as the deployment being broken, and conflating them makes the
+# exit code lie.
+#
+# CKPE is the case that proved it: the deploy gate counted its absence as a
+# FAIL, while ai_context/spec/blockers_to_environment.json B7 carries
+# status AVOIDABLE FOR NOW. CKPE is a scripting extension that this project
+# exists to replace, so its absence is a pre-operation state of the pipeline,
+# not a failed deployment. `pipmon.ps1 editor preflight` already reported the
+# same condition as SKIP, and `caps` declares the same posture for F4SE, so this
+# gate was the lone place still scoring it as a failure.
+#
+# Note what this row does NOT say: it does not mean the Creation Kit is out of
+# scope. B7's "do not author in the CK for the first cell" is a first-step
+# tactic, not a policy, and reading it as a policy was a mistake worth naming.
+function Note($what, $detail) {
+    Write-Output ("  [INFO] {0,-34} {1}" -f $what, $detail)
+}
+
 Write-Output ''
 Write-Output 'PIP-MON deploy verification'
 Write-Output ("  game dir : {0}" -f $GameDir)
@@ -90,7 +109,11 @@ if (Test-Path $ck) {
 }
 
 $ckpe = @(Get-ChildItem (Join-Path $GameDir 'Data') -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '*PlatformExtended*' -or $_.Name -like '*CKPE*' })
-Row ($ckpe.Count -gt 0) 'CKPE installed' $(if ($ckpe.Count -gt 0) { ($ckpe | Select-Object -ExpandProperty Name) -join ', ' } else { 'absent -- render crashes likely on large cells' })
+if ($ckpe.Count -gt 0) {
+    Row $true 'CKPE installed' (($ckpe | Select-Object -ExpandProperty Name) -join ', ')
+} else {
+    Note 'CKPE installed' 'absent -- expected; a scripting extension this project replaces. Pre-operation state, not a deployment failure (blockers B7, AVOIDABLE FOR NOW).'
+}
 
 Write-Output ''
 if ($fail -eq 0) {

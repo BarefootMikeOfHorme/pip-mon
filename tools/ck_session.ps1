@@ -106,21 +106,44 @@ switch ($Action) {
             }
         }
 
-        Set-Content -LiteralPath $PluginTxt -Value $want -Encoding ascii
+        # INERT. This used to be:
+        #
+        #     Set-Content -LiteralPath $PluginTxt -Value $want -Encoding ascii
+        #
+        # which replaced the whole load-order file from a hard-coded profile
+        # order. Two things were wrong with that and both bit.
+        #
+        # 1. It destroyed the live order. Anything set in the Creation Kit Data
+        #    tab was erased on the next prepare, and the run still printed
+        #    "prepared profile ..." as if that were the intent. The profile is a
+        #    wish, not an authority: it cannot know what is currently staged.
+        # 2. It wrote $PluginTxt (plugins.txt), which is not the file the editor
+        #    and Vortex resolve from. So it wiped one order and set a different
+        #    one, then reported success.
+        #
+        # So it now writes a proposal next to the file it would have replaced,
+        # and says so. Nothing is applied. Restore stays available, and applying
+        # a profile is now a separate, deliberate act.
+        $proposal = "$PluginTxt.proposed.txt"
+        Set-Content -LiteralPath $proposal -Value $want -Encoding ascii
 
-        $after = Get-Live
+        $after = $want
         $added = @($want | ForEach-Object { $_.Substring(1) } | Where-Object { $liveEnabled -notcontains $_ })
         $dropped = @($liveEnabled | Where-Object { $want -notcontains "*$_" })
 
-        Write-Output "prepared profile '$($p.label)'"
-        Write-Output ("  snapshot : {0}" -f $dir)
-        Write-Output ("  enabled  : {0} -> {1}" -f $liveEnabled.Count, $after.Count)
-        Write-Output ("  last line: {0}" -f $after[-1])
-        Write-Output ("  added    : {0}" -f $added.Count)
-        Write-Output ("  dropped  : {0}" -f $dropped.Count)
+        Write-Output "INERT: profile '$($p.label)' written as a proposal only"
+        Write-Output ("  live file : {0}  ({1} entries) -- UNCHANGED" -f $PluginTxt, $liveEnabled.Count)
+        Write-Output ("  proposal  : {0}  ({1} entries) -- not applied" -f $proposal, $want.Count)
+        Write-Output ("  snapshot  : {0}" -f $dir)
+        Write-Output ("  would add : {0}" -f $added.Count)
+        Write-Output ("  would drop: {0}" -f $dropped.Count)
         if ($dropped.Count -gt 0) {
-            Write-Output '  dropped from this session (restore puts them back):'
+            Write-Output '  WOULD BE DROPPED (these are set live and the profile omits them):'
             foreach ($d in $dropped) { Write-Output "    - $d" }
+        }
+        if ($added.Count -gt 0) {
+            Write-Output '  WOULD BE ADDED:'
+            foreach ($a in $added) { Write-Output "    + $a" }
         }
         if ($missing.Count -gt 0) {
             Write-Output '  NOT ON DISK (the CK will report a missing master):'

@@ -232,6 +232,37 @@ def main():
                                        "measure before changing." % (hdr["bytes"], m.group(1)),
                         "spec": "ai_context/spec/fo4_record_format.json"})
 
+    # 6. DIALECT RULES -- constructs that COMPILE-BREAK this interpreter's Pascal
+    #    without being absent from any API list.
+    #
+    #    Every other rule here detects a call marked exists:false. That whole
+    #    class of check passed a file that could not compile at all, on
+    #    2026-09-30, which is the failure mode this rule exists to close: the
+    #    gate said "no rule broken" and the file raised Type mismatch on its
+    #    first record. A gate that cannot see a compile error is not evidence
+    #    that a file runs.
+    for rule in xedit.get("dialect_rules", []):
+        pat = rule.get("forbidden_pattern")
+        if not pat:
+            continue
+        rx = re.compile(pat, re.I)
+        exts = {e.lstrip(".") for e in (rule.get("applies_to") or ".pas").split()}
+        for f in walk(exts):
+            for i, line in enumerate(
+                    strip_noise(f.read_text(encoding="utf-8", errors="replace"), f.suffix).splitlines(), 1):
+                s = line.strip()
+                if s.startswith("//") or s.startswith("{"):
+                    continue
+                if rx.search(s):
+                    errors.append({
+                        "file": f.relative_to(REPO).as_posix(), "line": i, "text": s,
+                        "rule": "xEdit Pascal dialect rule: " + rule["name"],
+                        "construct": rule["name"],
+                        "consequence": rule.get("prohibition", ""),
+                        "spec": "ai_context/spec/xedit_api.json",
+                        "measured": rule.get("measured", ""),
+                        "instead": rule.get("instead", "")})
+
     # Baseline. Without this the gate is permanently red from the moment it is
     # switched on, because it correctly finds violations that predate it -- and a
     # permanently red gate is ignored, which is the exact failure mode this whole

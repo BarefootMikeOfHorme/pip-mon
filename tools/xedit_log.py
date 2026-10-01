@@ -44,6 +44,12 @@ XEDIT_DIR = Path(os.environ.get("PIPMON_XEDIT_DIR",
 SCRIPT_LOG = XEDIT_DIR / "FO4Script_log.txt"
 EXC_LOG = XEDIT_DIR / "xFOEdit64Exception.log"
 REPORT = WATCH / "xedit-validation-report.json"
+# The generator writes a different report. Without this, a gate asking for "the
+# report" after a generator run would find the VALIDATOR's stale report and pass
+# on evidence from a different job -- which is the quiet substitution this tool exists
+# to prevent.
+GEN_REPORT = WATCH / "gen-facility-report.json"
+REPORTS = {"validator": REPORT, "generator": GEN_REPORT}
 
 RE_DONE = re.compile(r"Done (?:loading|building) reference info", re.I)
 RE_START = re.compile(r'Start:\s*Applying script\s*"([^"]+)"', re.I)
@@ -88,13 +94,21 @@ def safe(s, limit=200):
 RE_SEPARATOR = re.compile(r"(?m)^[=\s]*=[=\s]*$")
 
 
-def survey():
+def survey(which="validator"):
+    global REPORT
+    # Resolve the report BEFORE the result dict is built. Setting it afterwards
+    # looks equivalent and is not: the dict captures REPORT at construction, so
+    # --report generator measured the validator's file and reported the
+    # generator's report as present when no such file existed. A gate that
+    # measures the wrong artefact is worse than one that measures nothing.
+    REPORT = REPORTS.get(which, REPORT)
     s = {"logPresent": SCRIPT_LOG.exists(), "logLines": 0, "pluginsLoaded": 0,
          "loaderFinished": False, "scriptStarted": None, "aborted": None,
          "abortLine": None, "abortKind": None, "abortText": None,
          "undeclared": None, "lastLine": None, "logMtime": None,
          "reportPresent": REPORT.exists(), "reportMtime": None,
          "exception": None, "exceptionKind": None, "exceptionMtime": None}
+
 
     raw = read(SCRIPT_LOG)
     if raw:
@@ -159,11 +173,16 @@ def main():
                     choices=["log", "loader", "script", "finalize", "report"],
                     help="assert this much happened; all must hold")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--report", choices=sorted(REPORTS), default="validator",
+                    help="which report to measure. A generator phase must say so, or it"
+                         " will be graded against the validator's leftover report.")
+    ap.add_argument("--gen-key", action="store_true",
+                    help="also require the generator report to declare records_created > 0")
     ap.add_argument("--stale-after", type=int, default=900,
                     help="seconds after which the evidence is called out as stale")
     args = ap.parse_args()
 
-    s = survey()
+    s = survey(args.report)
     age = None
     if s["logMtime"]:
         age = time.time() - SCRIPT_LOG.stat().st_mtime
@@ -217,8 +236,36 @@ def main():
             print("  The run happened and did not get that far. That is a real result,")
             print("  not a harness problem, and it does not need re-running to confirm.")
         return 1
+
+    if args.gen_key:
+        # A generator run that reached Finalize and created nothing is NOT a
+        # pass, and it is the single most likely way this phase could report
+        # green while the environment still does not exist. So the gate asks the
+        # report for the number, not for its existence.
+        created = None
+        if GEN_REPORT.exists():
+            try:
+                created = int(json.loads(GEN_REPORT.read_text(encoding="utf-8")).get("records_created", 0))
+            except Exception as e:
+                print("  UNREADABLE generator report: %s" % e)
+                return 1
+        if not created:
+            if not args.json:
+                if created is None:
+                    print("\n  NOT MET: no generator report exists, so nothing was created OR measured.")
+                    print("  Run tools/run_gen.ps1 -Collect; do not read this as a pass.")
+                else:
+                    print("\n  NOT MET: the generator report declares records_created = %d" % created)
+                    print("  The generator ran and wrote its report, and created no record.")
+                print("  Either way this is a real result about a real gap -- not a pass,")
+                print("  and not something to re-run hoping for a different answer.")
+            return 1
+        if not args.json:
+            print("  OK  generator created %d record(s)" % created)
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+

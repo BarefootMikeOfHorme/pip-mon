@@ -189,8 +189,20 @@ if (-not (Test-Path $Template)) { Write-Output 'SKIP: gen_facility.pas missing';
 
 # ---------------------------------------------------------------- SUBSTITUTE
 foreach ($p in @($ReportOut, $StdoutLog, $StderrLog)) { if (Test-Path $p) { Remove-Item -LiteralPath $p -Force } }
+# The scratch path is the ONLY file the generator is permitted to write a plugin
+# to. It lives beside the source, not in the game Data folder, so an experiment
+# that turns out to write malformed records is still throwaway. Adding this as a
+# placeholder rather than hardcoding it inside the .pas keeps the script free of
+# machine paths and keeps the guarantee in one place.
+$ScratchDir = Join-Path (Split-Path -Parent $Template) 'out'
+if (-not (Test-Path -LiteralPath $ScratchDir)) {
+    New-Item -ItemType Directory -Path $ScratchDir -Force | Out-Null
+}
+$ScratchEsp = Join-Path $ScratchDir 'PipMonTestFacility.probe.esp'
+foreach ($p in @($ScratchEsp)) { if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force } }
+
 $src = Get-Content -LiteralPath $Template -Raw
-$src = $src.Replace('%%OUTPATH%%', $ReportOut).Replace('%%PLUGIN%%', $Plugin)
+$src = $src.Replace('%%OUTPATH%%', $ReportOut).Replace('%%PLUGIN%%', $Plugin).Replace('%%SCRATCH%%', $ScratchEsp)
 if ($src -match '%%') {
     Write-Output 'FAIL: template still has unsubstituted placeholders'
     Write-Report 'FAIL' 'gen_facility.pas has unresolved placeholders' @{ template = $Template }
