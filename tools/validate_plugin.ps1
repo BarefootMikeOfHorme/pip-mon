@@ -194,11 +194,47 @@ $argList = @("`"$Plugin`"", '-auto', '-quickexit', "-script:`"$GenScript`"")
 
 # ---------------------------------------------------------------- ASYNC
 if ($Async) {
-    $proc = Start-Process -FilePath $exe -ArgumentList $argList -PassThru -WindowStyle Hidden `
+    # Reap orphans BEFORE launching. An async job is only bounded if something
+    # collects it: without a collector it outlives its own budget silently. One
+    # was launched and never collected, and sat for 191 minutes holding the
+    # instance lock and blocking every later run. So the deadline goes in the
+    # job file, and every launch enforces it. Self-healing, and deterministic.
+    if (Test-Path $JobFile) {
+        try {
+            $old = Get-Content -LiteralPath $JobFile -Raw | ConvertFrom-Json
+            $oldProc = Get-Process -Id $old.pid -ErrorAction SilentlyContinue
+            if ($oldProc) {
+                $oldAge = ((Get-Date) - [datetime]$old.startedLocal).TotalSeconds
+                if ($oldAge -gt $old.timeoutSec) {
+                    Write-Output ("reaping orphan xEdit pid {0}: {1:N0}s old against a {2}s budget" -f $old.pid, $oldAge, $old.timeoutSec)
+                    try { $oldProc.Kill() } catch { }
+                    Start-Sleep -Seconds 2
+                } else {
+                    Write-Output ("an xEdit job is already in flight (pid {0}, {1:N0}s of {2}s). Collect it with -Collect, or wait." -f $old.pid, $oldAge, $old.timeoutSec)
+                    exit 5
+                }
+            }
+        } catch {
+            Write-Output "job file was unreadable; treating it as absent"
+        }
+    }
+
+    # VISIBLE, deliberately. This used to be -WindowStyle Hidden, and that was
+    # wrong in a way that looked like a broken tool: a hidden window cannot raise
+    # or dismiss a modal dialog, so xEdit stalls at "Loading active plugin list"
+    # with 0 bytes of stdout and no report. Observed twice, 191 minutes apart.
+    #
+    # The one run that demonstrably worked -- 35-plugin load, 2m15s, reached
+    # Finalize -- was INTERACTIVE, with a real window. Documenting that as
+    # "the mechanism works" and then running a hidden harness anyway is exactly
+    # the green-gate-means-nothing failure, committed as fact. Match the proven
+    # path: visible window, user-visible dialogs, nothing hidden.
+    $proc = Start-Process -FilePath $exe -ArgumentList $argList -PassThru `
         -RedirectStandardOutput $StdoutLog -RedirectStandardError $StderrLog
     $job = [ordered]@{
         pid          = $proc.Id
         startedLocal = (Get-Date).ToString('o')
+        deadlineLocal = (Get-Date).AddSeconds($TimeoutSec).ToString('o')
         timeoutSec   = $TimeoutSec
         plugin       = $Plugin
         reportOut    = $reportOut
@@ -206,9 +242,9 @@ if ($Async) {
         xeditLog     = $XEditLog
     }
     $job | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $JobFile -Encoding utf8
-    Write-Output "launched detached: xEdit pid $($proc.Id)"
-    Write-Output "a full core load takes ~3 minutes; poll with:"
-    Write-Output '  tools\validate_plugin.ps1 -Collect'
+    Write-Output "launched detached: xEdit pid $($proc.Id), deadline in ${TimeoutSec}s"
+    Write-Output "poll with: tools\validate_plugin.ps1 -Collect"
+    Write-Output "the job self-reaps: any later launch enforces the deadline, so it cannot leak again"
     exit 0
 }
 

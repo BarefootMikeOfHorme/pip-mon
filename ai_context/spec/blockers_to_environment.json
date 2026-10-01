@@ -1,0 +1,139 @@
+{
+  "schema_id": "pipmon.blockers/1",
+  "spec_id": "status.blockers_to_environment",
+  "kind": "registry",
+  "collection_field": "blockers",
+  "title": "What is actually stopping a testable environment, sorted by what unblocks it soonest",
+  "authority": "measured",
+  "audited": "2026-09-30",
+  "prose": "A buildable test environment needs exactly three things: a plugin that holds at least one record, a tool that can write that record, and a save. Everything else -- Layer A, CKPE, the Papyrus surface, the four testlab scripts -- is real work but none of it is on the critical path to getting a cell on disk and a thing to walk into. Sorting by dependency rather than by severity is the point, because the most important open question in the project, Layer A, does not block the environment at all. It blocks USING the environment in-game, which is a later gate.",
+  "critical_path_to_a_cell_on_disk": [
+    "B1",
+    "B2",
+    "B3"
+  ],
+  "blockers": [
+    {
+      "id": "B1",
+      "what": "gen_facility.pas calls two functions that do not exist in FO4Edit 4.1.5f",
+      "blocks": "writing any cell",
+      "status": "FIXABLE NOW",
+      "detail": "GetActivePlugin and AddNewElement. Neither is in any documented class; both were guesses. The real calls are known from the fetched signatures: use FileByLoadOrder or FileByIndex, or IwbElement.GetFile, to reach the ALREADY LOADED plugin -- and note that AddNewFileName and AddNewFile do the opposite of what their names suggest, creating a new empty plugin in the game Data folder and appending to the plugin list.",
+      "fix": "Rewrite against ai_context/spec/xedit_api.json. The create is IwbContainer.Add(container, 'CELL', false), which is idempotent. AddElement attaches an already-constructed element and THROWS if that element already has a container, so it is the wrong call for record creation.",
+      "blocks_the_critical_path": true,
+      "provenance": [
+        "ai_context/spec/xedit_api.json",
+        "tools/artifact_gate.py"
+      ]
+    },
+    {
+      "id": "B2",
+      "what": "No headless xEdit run has ever produced a report",
+      "blocks": "proving the validator works at all, and therefore proving the generator's output can be read back",
+      "status": "NEXT",
+      "detail": "The mechanism is PROVEN and this matters: a full 35-plugin core load reached the script's Finalize at 2m15s and executed it. It then aborted on GetPluginName, which does not exist. The corrected script substitutes %%OUTPATH%% and %%PLUGIN%% as literals precisely because of that, but has not yet completed a run. A working mechanism with a bug in it, not a broken tool.",
+      "fix": "Run tools/validate_plugin.ps1 -Async, poll with -Collect. Timeouts below about 4 minutes are false negatives; the default is 420s.",
+      "blocks_the_critical_path": true,
+      "provenance": [
+        "runs/xedit/fo4edit-4.1.5f-pascal-api.md"
+      ]
+    },
+    {
+      "id": "B3",
+      "what": "wbPositionToGridCell takes a TwbVector and no constructor for one is documented",
+      "blocks": "placing a cell at a chosen world position",
+      "status": "AVOIDABLE",
+      "detail": "The function exists and the conversion is documented as dividing coordinates by 4096. But its argument type is a TwbVector and no documented way to construct one was found, so calling it from script may be unreachable.",
+      "fix": "Do NOT solve this to start. Place the cell in a known existing cell or group first, which needs no vector, and confirm a record lands. Treat the placement problem as a second step once writing works at all. The 4096 constant is recorded either way.",
+      "blocks_the_critical_path": true,
+      "provenance": [
+        "ai_context/spec/xedit_api.json"
+      ]
+    },
+    {
+      "id": "B4",
+      "what": "No documented headless SAVE for a plugin",
+      "blocks": "persisting anything generated",
+      "status": "PARTIALLY SOLVED",
+      "detail": "Not one of the 21 upstream xEditScripts saves the plugin -- every AddNewFile creates a patch in-session and the human saves through the UI. So this gap is real and upstream does not fill it.",
+      "fix": "The closest documented path is IwbFile.FileWriteToStream, used by the shipped SaveAs.pas, which constructs a TFileStream and writes the loaded file. Read that script rather than inventing a save.",
+      "blocks_the_critical_path": true,
+      "provenance": [
+        "ai_context/automation/xedit-script-patterns.md"
+      ]
+    },
+    {
+      "id": "B5",
+      "what": "Layer A: no BSScript vtable slot is hooked",
+      "blocks": "S0, every Papyrus-to-native call, the wire's engine end, and therefore running the environment IN-GAME",
+      "status": "THE BIG ONE, BUT NOT ON THIS PATH",
+      "detail": "This is the central open question of the whole project and it does NOT block creating a cell. A cell on disk is produced entirely by xEdit. Layer A only blocks getting a verdict out of a live game session.",
+      "fix": "CommonLibF4 RE/Bethesda/BSScript.h holds native declarations in method order, and RE/VTABLE_IDs.h is the vtable inventory. Both are vendored and indexed. That is the lead the blocker note has always asked for.",
+      "blocks_the_critical_path": false,
+      "provenance": [
+        "ai_context/spec/side_invariants.json",
+        "third_party/CommonLibF4/CommonLibF4/include/RE/Bethesda/BSScript.h"
+      ]
+    },
+    {
+      "id": "B6",
+      "what": "The four testlab Papyrus scripts cannot compile in FO4",
+      "blocks": "nothing on the environment path",
+      "status": "MISPLACED, NOT BROKEN",
+      "detail": "OverseerBridge and the three pip_mon_testlab scripts use CustomEvent, SendEvent, MenuButton and OnMenuClick, none of which exist in FO4 Papyrus. They are also doing L-BE work -- measurement, counting, routing -- from inside L-IN, which both perturbs what they measure and spends the frame budget the thing under test needs.",
+      "fix": "Reduce each to a thin in-engine shim over the wire and move the analysis to the backend. Retire PipMon_TerminalTest entirely: terminal UI needs a Native script and a Native script cannot hold data, so a bench that must report results has nowhere to put them.",
+      "blocks_the_critical_path": false,
+      "provenance": [
+        "ai_context/systems_core/structural_layers.md",
+        "ai_context/spec/papyrus_constructs.json"
+      ]
+    },
+    {
+      "id": "B7",
+      "what": "CKPE absent, and the CK render window crash-risks larger cells",
+      "blocks": "authoring cells larger than a handful of objects IN THE EDITOR",
+      "status": "AVOIDABLE FOR NOW",
+      "detail": "Three crash dumps on record. Also the CK has no scriptable interface on this machine, so every CK-facing tool is read-only by necessity.",
+      "fix": "Do not author in the CK at all for the first cell. Headless xEdit is the route, which is why B1 to B4 matter more than this. CKPE's most portable idea is Cell View list virtualisation, and that is a candidate rather than a diagnosis.",
+      "blocks_the_critical_path": false,
+      "provenance": [
+        "ai_context/systems/ckpe/ckpe-insights.md"
+      ]
+    },
+    {
+      "id": "B8",
+      "what": "No F4SE compatibility surface exists",
+      "blocks": "mods that gate on F4SE",
+      "status": "PLANNED, 0 OF 10 PROVEN",
+      "detail": "Two capabilities DECLARED, five PLANNED, one DIFFERENT_MECHANISM, one NOT_PLANNED, one REJECTED. Deliberately a reporter rather than an impersonation: faking F4SE would let a mod pass its version gate and then crash on a call we do not have.",
+      "fix": "Nothing before Layer A. Every one of these needs the hook.",
+      "blocks_the_critical_path": false,
+      "provenance": [
+        "ai_context/spec/compat_f4se_map.json"
+      ]
+    }
+  ],
+  "the_one_thing_that_matters": "B5 is the most important open question in the project and it is not on the path to a testable environment. If the environment work is what you want next, B1 through B4 are the whole job, and all four are tractable today. Layer A can wait without costing anything on this path.",
+  "provenance": [
+    {
+      "source": "tools/side_gate.py",
+      "note": "per-side availability, 1 of 3 sides"
+    },
+    {
+      "source": "runs/xedit/fo4edit-4.1.5f-pascal-api.md",
+      "note": "the 2m15s Finalize measurement and the GetPluginName abort"
+    },
+    {
+      "source": "ai_context/goal_alignment.md",
+      "note": "goal-to-gate audit; six goals with no gate coverage"
+    },
+    {
+      "source": "ai_context/spec/compat_f4se_map.json",
+      "note": "0 of 10 capabilities proven"
+    },
+    {
+      "source": "tools/artifact_gate.py",
+      "note": "the acknowledged findings behind B1 and B6"
+    }
+  ]
+}

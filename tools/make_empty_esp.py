@@ -92,14 +92,25 @@ def parse_tes4(data: bytes) -> dict[str, object]:
     if data[:4] != TES4_MAGIC:
         raise ValueError(f"not a plugin: magic {data[:4]!r}")
     size = struct.unpack_from("<I", data, 4)[0]
-    # dataSize counts the subrecords only; the 16-byte prologue sits between the
-    # size field and the first subrecord and is NOT counted. Verified against
-    # Fallout4.esm and a Creation Kit plugin.
-    prologue = 16
-    end = 8 + prologue + size
+    # dataSize counts the subrecords only; the RECORD HEADER sits between the
+    # size field and the first subrecord and is NOT counted.
+    #
+    # MEASURED, not assumed. Decoding the installed 66-byte plugin: TES4 at
+    # 0x00, dataSize=42 at 0x04, version=131 at 0x14 -- and 24 + 42 = 66, the
+    # exact file size. The 16-byte prologue this used to assume was wrong, and
+    # fopdoc independently documents a 24-byte record header (type, dataSize,
+    # flags, formid, revision, version, unknown). Corrected against a
+    # measurement rather than against a wiki, because a wiki is a claim about
+    # the engine and this is the engine's own output.
+    prologue = 24
+    # The body starts AT the end of the header, not 8 bytes past it. type and
+    # dataSize live INSIDE the 24-byte record header, so adding 8 first was an
+    # off-by-eight that only surfaced once the prologue was measured rather
+    # than guessed: the installed 66-byte plugin declares 42 and is 24+42.
+    end = prologue + size
     if end > len(data):
-        raise ValueError(f"TES4 claims {size} B of subrecords, file holds {len(data) - 8 - prologue} B")
-    body = data[8 + prologue : end]
+        raise ValueError(f"TES4 claims {size} B of subrecords, file holds {len(data) - prologue} B")
+    body = data[prologue:end]
     out: dict[str, object] = {"masters": [], "description": None, "version": None,
                               "nextFormId": None, "recordCount": None, "subrecords": []}
     pos = 0

@@ -166,6 +166,16 @@ REM engine side works".
 python "%R%tools\side_gate.py"
 if errorlevel 1 ( set FAILED=1 & echo [FAIL] side gate )
 
+REM Surface inventory: a promise that names a path which is not there is worse
+REM than no inventory, so every claimed path is confirmed to exist.
+python "%R%tools\surfaces_gate.py"
+if errorlevel 1 ( set FAILED=1 & echo [FAIL] surfaces gate )
+
+REM Per-side ownership: knowledge exists, excluded is really excluded, and
+REM documented gaps have not quietly stopped being gaps.
+python "%R%tools\ownership_gate.py"
+if errorlevel 1 ( set FAILED=1 & echo [FAIL] ownership gate )
+
 echo.
 echo ############################################################
 if %FAILED% EQU 0 (

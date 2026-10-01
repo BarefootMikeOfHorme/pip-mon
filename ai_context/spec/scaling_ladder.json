@@ -1,0 +1,188 @@
+{
+  "schema_id": "pipmon.scaling_ladder/1",
+  "spec_id": "concepts.scaling_ladder",
+  "kind": "ladder",
+  "title": "The bit-to-file scaling ladder, mapped across native, Python and Creation Engine",
+  "authority": "derived",
+  "prose": "A conceptual ladder from the smallest unit of information to a file on disk, with each rung mapped into three paradigms. The ladder is sound as a teaching device and the native and Python columns are correct. The CREATION ENGINE column is not: CE has FOUR rungs where this ladder has seven, and the mapping breaks hardest at 'array' and 'matrix'. A plugin contains no arrays of records and no multi-dimensional structures. Writing the corrected column is the point -- an AI that believes a plugin holds Vec<SurfaceMaterialDef> or a 2D passability grid will write a parser that cannot succeed, and will not find out until it reads a real file.",
+  "provenance": [
+    {
+      "source": "ai_context/spec/fo4_record_format.json",
+      "note": "the 24-byte record header and the subrecord layout, from fopdoc plus a measurement of the installed plugin"
+    },
+    {
+      "source": "third_party/CommonLibF4/.../TESForms.h",
+      "note": "engine-derived FO4 record backing classes, offsets and static_assert sizes"
+    },
+    {
+      "source": "ai_context/spec/surface_material.json",
+      "note": "BGSMaterialType at sizeof 0x80 with its real member list, which disproves three fields of the proposed design"
+    }
+  ],
+  "ladder": [
+    {
+      "rung": 1,
+      "concept": "bit / boolean",
+      "native": "bool, or one bit of a uint32",
+      "python": "bool",
+      "creation_engine": "a named bit in a record flag field",
+      "ce_evidence": "BGSMaterialType.flags is uint32 @0x7C; BGSImpactData has int8 flags @0x14 and int8 resultOverride @0x15"
+    },
+    {
+      "rung": 2,
+      "concept": "bitmask / enum",
+      "native": "uint32_t bitfield; set with |=, test with &, clear with &= ~",
+      "python": "int, or enum.IntFlag",
+      "creation_engine": "a 32-bit flags field where individual behaviours are named bits",
+      "ce_evidence": "BGSMaterialType.flags @0x7C",
+      "notes": "This rung is fully correct in all three columns. Engine material and impact properties are bitmasks, not arrays of bools, which is the point worth keeping from the incoming reference."
+    },
+    {
+      "rung": 3,
+      "concept": "scalar field",
+      "native": "float, uint32, int32",
+      "python": "float, int",
+      "creation_engine": "a subrecord payload: 4-char type, uint16 size, then the typed bytes",
+      "ce_evidence": "subrecord header is type char[4] + dataSize uint16 + payload"
+    },
+    {
+      "rung": 4,
+      "concept": "record / struct",
+      "native": "struct, fixed offsets",
+      "python": "dataclass, TypedDict, dict",
+      "creation_engine": "a FORM record: 24-byte header then a variable, named sequence of subrecords. NOT a tuple, and NOT a flat fixed-offset block on disk.",
+      "ce_evidence": "BGSMaterialType is a FIXED 0x80 in memory, but the on-disk MATT form is header plus named subrecords. Conflating the in-memory layout with the file layout is how a parser gets written against the wrong thing."
+    },
+    {
+      "rung": 5,
+      "concept": "array / buffer",
+      "native": "T[], std::vector, Vec<T>, span",
+      "python": "list, array, numpy ndarray",
+      "creation_engine": "DOES NOT EXIST AS A CONTAINER. Repeated same-type subrecords use either a COUNT subrecord pattern (KSIZ then KVAT) or indexed subrecords. A plugin never holds an array of records.",
+      "notes": "CORRECTION. The incoming mapping called this a 1D sequence equal to a Vec. In a plugin, multiple instances of a subrecord are a counted or indexed list inside ONE record, and multiple records live in separate files resolved through load order."
+    },
+    {
+      "rung": 6,
+      "concept": "matrix / 2D grid",
+      "native": "float4x4, grids",
+      "python": "ndarray, nested list",
+      "creation_engine": "DOES NOT EXIST IN A PLUGIN. A collision or passability grid is geometry in a mesh, and Fallout 4 mesh collision is PhysX-based, not Havok.",
+      "notes": "CORRECTION. What a plugin does carry are 3x4 PROJECTION matrices (WEDR, WMAP), which are a completely different concept from a 2D grid and must not be filed under the same rung."
+    },
+    {
+      "rung": 7,
+      "concept": "file on disk",
+      "native": "read/seek",
+      "python": "read_bytes",
+      "creation_engine": "a plugin (.esm/.esp/.esl/.mod) or an archive (.ba2), or a mesh (.nif)",
+      "ce_evidence": "our installed PipMonTestFacility.esp is 66 bytes: 24-byte record header, dataSize 42, 24+42=66 exactly",
+      "notes": "The plugin rung carries a dimension no memory paradigm has: the MASTER and OVERRIDE chain. Which file a record comes from is part of its identity, and load order decides which wins. That is why 'an array of records' is not a thing here and 'all the materials' is not a Vec -- it is a load-ordered set of records across many files."
+    }
+  ],
+  "bitmask_practice_confirmed": {
+    "verdict": "CORRECT in all three paradigms, and worth indexing",
+    "operations": {
+      "set": "flags |= FLAG",
+      "test": "(flags & FLAG) != 0",
+      "clear": "flags &= ~FLAG"
+    },
+    "why_it_matters_here": "This is the cheapest representation available in-engine. An array of bools costs a byte each; a bitmask costs one bit. On an L-IN surface where the frame budget is the constraint, that difference is the whole argument."
+  },
+  "cross_language_alignment": {
+    "corroborated": "The incoming reference independently describes the same 8-byte-alignment padding this workspace measured: the proposed SurfaceMaterialDef has fields summing to 36 bytes but repr(C) lays it out at 40, because sound_category_hash is a u64.",
+    "options": [
+      {
+        "choice": "accept 40 bytes",
+        "cost": "8 wasted bytes per entry, no other change",
+        "note": "safest and usually right for a table of thousands"
+      },
+      {
+        "choice": "reorder so the u64 comes first",
+        "cost": "nothing",
+        "note": "cheapest fix; 4+8+4+4+4+4+4 = 32 with no padding at all if ordered well"
+      },
+      {
+        "choice": "align(16) on both sides",
+        "cost": "48 bytes per entry",
+        "note": "SIMD-friendly but a 33 percent increase over the natural layout; only worth it if the data is actually processed in 16-byte lanes"
+      },
+      {
+        "choice": "repr(C, packed) with #pragma pack(1)",
+        "cost": "0 bytes",
+        "note": "HAZARD: in Rust, taking a reference to a field of a packed struct is a compile error, because the reference would be unaligned. Unaligned access is also a performance trap on some targets. This is the one option that trades a correctness bug for space."
+      }
+    ],
+    "verdict": "RECOMMEND reordering. It is free, it removes the padding entirely, and it avoids both the packed-struct reference hazard and the 48-byte SIMD tax."
+  },
+  "corrections_to_incoming_reference": [
+    {
+      "claimed": "Collision layers STATIC/TERRAIN/CLUTTER/BIPED/PROJECTILE/WATER, hkpRigidBody::hkpCollisionFilter, bhkCollisionObject, bhkSimpleShapePhantom",
+      "reality": "SKYRIM. Every one of those identifiers is Havok, and Fallout 4 uses PhysX. Zero of them should be indexed for this project.",
+      "action": "rejected, and fo4docs.org was also rejected earlier for documenting Havok for FO4"
+    },
+    {
+      "claimed": "CommonLibSSE and CommonLibSF (Starfield) as sources",
+      "reality": "SSE is Skyrim; SF is Starfield. We hold and index CommonLibF4, and every FO4 fact here was derived from it.",
+      "action": "not fetched"
+    },
+    {
+      "claimed": "MATT holds friction, density and bitmasks",
+      "reality": "BGSMaterialType holds breakableFXModel, parentType, havokImpactDataSet, materialName, materialID, materialColor, buoyancy, flags. There is NO friction and NO density field. Friction-like behaviour is not in the material record at all.",
+      "action": "corrected in ai_context/spec/surface_material.json"
+    },
+    {
+      "claimed": "Vec<SurfaceMaterialDef> is the in-file representation of all engine materials",
+      "reality": "Materials are individual MATT records, each its own form, resolved through the master and override chain across files. There is no material array anywhere.",
+      "action": "corrected at rung 5"
+    },
+    {
+      "claimed": "a 2D texture or physics mask maps materials to terrain or mesh pixels",
+      "reality": "Not a plugin concept. Spatial mapping lives in mesh data, PhysX-based in FO4.",
+      "action": "corrected at rung 6"
+    },
+    {
+      "claimed": "BSLightingShaderProperty links physics material IDs to visual mesh geometry",
+      "reality": "BSLightingShaderProperty is real and FO4-relevant, and IS worth indexing for the mesh side. It is a lighting/shader property, not a physics link; the physics linkage is a separate structure and remains UNDOCUMENTED for FO4.",
+      "action": "partially accepted: keep the identifier, drop the claimed physics linkage"
+    }
+  ],
+  "what_to_index_from_this": [
+    {
+      "item": "bitmask set/test/clear idiom",
+      "paradigm": "all three",
+      "status": "accepted",
+      "where": "this spec, rung 2"
+    },
+    {
+      "item": "bitmasks as the cheap in-engine representation",
+      "paradigm": "engine",
+      "status": "accepted",
+      "where": "this spec, bitmask_practice_confirmed"
+    },
+    {
+      "item": "struct padding and cross-language alignment",
+      "paradigm": "native/python",
+      "status": "accepted and corroborated",
+      "where": "cross_language_alignment"
+    },
+    {
+      "item": "BSLightingShaderProperty",
+      "paradigm": "engine",
+      "status": "accepted, physics linkage dropped",
+      "where": "rung 7 notes"
+    },
+    {
+      "item": "collision layer enums and hkp/bhk identifiers",
+      "paradigm": "engine",
+      "status": "REJECTED as Skyrim",
+      "where": "corrections"
+    },
+    {
+      "item": "the corrected four-rung CE chain",
+      "paradigm": "engine",
+      "status": "accepted",
+      "where": "rungs 3-7"
+    }
+  ],
+  "collection_field": "ladder"
+}

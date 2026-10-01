@@ -1,0 +1,390 @@
+{
+  "schema_id": "pipmon.surfaces/1",
+  "spec_id": "surfaces.inventory",
+  "title": "Every surface this project has, by kind and direction, with what is actually proven",
+  "authority": "measured",
+  "audited": "2026-09-30, by smoke-testing each surface rather than reading its intent",
+  "prose": "A surface is a place where one thing meets another and something can be said across it. They are not all the same kind of thing, and lumping them together is how a working mechanism gets mistaken for a working feature. The kinds here are: OPERATOR, for a human or an agent driving the project; AI, for what an agent may QUERY; ENGINE_PROGRAM, engine internals to our native code; ENGINE_MOD, our surface to a mod or plugin; PROVIDER_SOURCE, third-party material into ours; CREATION, authoring time; and CROSS, a surface between two of the above. Smoke-tested 2026-09-30: the operator and AI surfaces respond, the native runtime is built and deployed, the backend is packaged, and one creation-kit surface is the single closest-to-working and furthest-from-proven thing in the project -- xEdit's mechanism works and its output has never landed.",
+  "status_vocabulary": {
+    "MET": "Smoke-tested and answered, or deployed and loadable.",
+    "PARTIALLY_MET": "A mechanism works; the output it exists to produce has never been observed.",
+    "DECLARED": "The surface exists as a definition; nothing proves it answers.",
+    "NOT_MET": "Verified absent. Named, not inferred.",
+    "UNVERIFIED": "Not checked by anything that could fail."
+  },
+  "kinds": {
+    "OPERATOR": "a human or agent driving the project",
+    "AI": "what an agent may QUERY rather than read",
+    "ENGINE_PROGRAM": "game engine internals into our native code",
+    "ENGINE_MOD": "our surface to a mod or plugin",
+    "PROVIDER_SOURCE": "third-party material into our source or reference",
+    "CREATION": "authoring time: the CK, its addons, headless xEdit",
+    "CROSS": "a surface between two of the above"
+  },
+  "surfaces": [
+    {
+      "id": "operator.surface",
+      "kind": "OPERATOR",
+      "direction": "human or agent -> project",
+      "side": "in-house",
+      "status": "MET",
+      "transport": "one JSON envelope, one exit-code vocabulary",
+      "path": "tools/pipmon.ps1",
+      "verbs": [
+        "caps",
+        "status",
+        "verify",
+        "build",
+        "link",
+        "validate",
+        "rag",
+        "editor",
+        "ck-session",
+        "snapshot",
+        "docs",
+        "compat"
+      ],
+      "evidence": "Smoke-tested: caps, status and docs all return schema pipmon.surface/1. caps is the discovery document and carries every blocker.",
+      "provenance": [
+        "tools/pipmon.ps1"
+      ]
+    },
+    {
+      "id": "operator.envgate",
+      "kind": "OPERATOR",
+      "direction": "agent -> environment state",
+      "side": "in-house",
+      "status": "MET",
+      "transport": "--verify flag, no game required",
+      "path": "overseer_cli/src/overseer_cli/envgate.py",
+      "evidence": "Runs with no game, no editor and no dashboard, which is one of the three hosts it reports on. 106 python checks pass.",
+      "provenance": [
+        "build_all.bat stage 4"
+      ]
+    },
+    {
+      "id": "operator.telemetry",
+      "kind": "OPERATOR",
+      "direction": "engine -> file -> agent",
+      "side": "in-house",
+      "status": "MET",
+      "transport": "a markdown file, regenerated on change",
+      "path": "tools/ai_watcher.py",
+      "artifact": "runs/live/ai_session_telemetry.md",
+      "evidence": "Written and verified. Detects [ERROR]/[EXCEPTION]/[SCRIPT_FAIL] and reports a verdict. Atomic writes, so a reader never catches a half-written file. Polls because watchdog is not installed.",
+      "provenance": [
+        "tools/ai_watcher.py"
+      ],
+      "notes": "Exists so no agent has to sit in a blocking terminal loop. Its payload is DATA and must never be treated as instruction."
+    },
+    {
+      "id": "ai.retrieval",
+      "kind": "AI",
+      "direction": "agent -> knowledge",
+      "side": "in-house",
+      "status": "MET",
+      "transport": "dense / tsv / paths / json",
+      "path": "tools/rag_query.py",
+      "index": "rag/index.sqlite3",
+      "evidence": "Smoke-tested: query and vocabulary both respond. 777 files, 12223 chunks. Every hit carries path, line range and hash.",
+      "provenance": [
+        "tools/rag_selftest.py",
+        "tools/rag_index.py"
+      ]
+    },
+    {
+      "id": "ai.selfdescription",
+      "kind": "AI",
+      "direction": "agent -> own capabilities",
+      "side": "in-house",
+      "status": "MET",
+      "transport": "JSON or table",
+      "path": "ai_context/vocabulary.json",
+      "command": "pipmon.ps1 rag vocabulary",
+      "evidence": "26 concept groups, machine-readable. A program reads this at startup instead of hardcoding the project's words.",
+      "provenance": [
+        "tools/rag_query.py --vocabulary"
+      ],
+      "notes": "The one surface that lets a tool discover its own vocabulary rather than assume it."
+    },
+    {
+      "id": "ai.gates",
+      "kind": "AI",
+      "direction": "agent -> build truth",
+      "side": "in-house",
+      "status": "MET",
+      "transport": "exit codes plus a report file",
+      "path": "tools/",
+      "members": [
+        "rag_selftest.py",
+        "spec_lint.py",
+        "artifact_gate.py",
+        "door_lint.py",
+        "side_gate.py",
+        "ownership_gate.py",
+        "selfalign.py"
+      ],
+      "evidence": "All seven run in stage 6. rag_selftest 10/10, spec_lint 0 problems, artifact_gate 0 new, door_lint 0 problems, side_gate 1 of 3 sides available, ownership_gate 0 problems.",
+      "provenance": [
+        "build_all.bat stage 6"
+      ]
+    },
+    {
+      "id": "engine.layera",
+      "kind": "ENGINE_PROGRAM",
+      "direction": "game -> our native",
+      "side": "engine",
+      "status": "NOT_MET",
+      "transport": "a BSScript vtable slot",
+      "path": null,
+      "spec": "ai_context/spec/program_components.json",
+      "evidence": "No vtable slot is hooked. There is no mechanism by which a compiled .psc reaches a native we registered.",
+      "provenance": [
+        "ai_context/spec/side_invariants.json"
+      ],
+      "notes": "THE blocker. Blocks S0, all Papyrus-to-native calls, the four testlab scripts, and the wire's engine end. Most direct lead is CommonLibF4 RE/Bethesda/BSScript.h, which holds native declarations in method order."
+    },
+    {
+      "id": "engine.resolver",
+      "kind": "ENGINE_PROGRAM",
+      "direction": "game address -> our table",
+      "side": "engine",
+      "status": "MET",
+      "transport": "vprobe.probes plus a three-tier resolver",
+      "path": "vprobe/src/",
+      "artifact": "vprobe/build/vprobe.dll",
+      "evidence": "Built and deployed. 18 of 18 probes resolve through Tier 1 AddressLib lookup. build_vtables.bat confirms each vtable target's RTTI class name against the real executable.",
+      "provenance": [
+        "build_all.bat stage 1"
+      ],
+      "notes": "Resolution is not dispatch. This was true while S0 was unproven, which is the proof they are different systems."
+    },
+    {
+      "id": "engine.addressblob",
+      "kind": "ENGINE_PROGRAM",
+      "direction": "build -> runtime",
+      "side": "engine",
+      "status": "MET",
+      "transport": "a binary blob: u64 count then 16-byte records (id, RVA)",
+      "path": "vprobe/libs/",
+      "spec": "ai_context/systems_core/address_blob_schema.json",
+      "evidence": "Per-build .txt source present; the .bin is derived and gitignored, and build_libbin.bat byte-compares it every build.",
+      "provenance": [
+        "ai_context/systems_core/address_blob_schema.json"
+      ],
+      "notes": "Three traps recorded: offsets are RVA not absolute, ids are sparse per version, and count is never validated."
+    },
+    {
+      "id": "mod.papyrussurface",
+      "kind": "ENGINE_MOD",
+      "direction": "our mod -> any script",
+      "side": "engine",
+      "status": "DECLARED",
+      "transport": "PipMon: Global Native functions",
+      "path": "vprobe/papyrus/PipMon.psc",
+      "artifact": "game:Data/Scripts/PipMon.pex",
+      "evidence": "Compiles and deploys: PipMon.pex 1034 B, PipMonTestFacility.pex 12080 B. The surface is defined and the .pex is valid.",
+      "provenance": [
+        "build_all.bat stage 2",
+        "ai_context/spec/papyrus_constructs.json"
+      ],
+      "notes": "Defined is not answering. Every function here needs engine.layera to return anything at all."
+    },
+    {
+      "id": "mod.wire",
+      "kind": "CROSS",
+      "direction": "engine -> backend",
+      "side": "engine to in-house",
+      "status": "PARTIALLY_MET",
+      "transport": "V-Link; the contract is docs/IPC_PROTOCOL.md",
+      "path": "docs/IPC_PROTOCOL.md",
+      "evidence": "Sizes and field orders were corrected against the static_asserts after an audit found three of ten wrong. The document still describes a priority-drop scheme, a control channel and a config file that do not exist.",
+      "provenance": [
+        "HANDOVER.md section 11"
+      ],
+      "notes": "The engine end cannot exist until engine.layera exists. The backend end does work, which is why this is partial rather than absent."
+    },
+    {
+      "id": "mod.f4secompat",
+      "kind": "ENGINE_MOD",
+      "direction": "our mod -> mods expecting F4SE",
+      "side": "engine",
+      "status": "NOT_MET",
+      "transport": "a capability map, not an impersonation",
+      "path": "ai_context/spec/compat_f4se_map.json",
+      "command": "tools/compat_check.py",
+      "evidence": "10 mapped capabilities: 0 COVERED, 2 DECLARED, 5 PLANNED, 1 DIFFERENT_MECHANISM, 1 NOT_PLANNED, 1 REJECTED.",
+      "provenance": [
+        "ai_context/spec/compat_f4se_map.json"
+      ],
+      "notes": "Deliberately a REPORTER. Impersonating F4SE would let a mod pass its version gate and then call a function we do not have, converting an honest no into a load-time crash."
+    },
+    {
+      "id": "creation.ck",
+      "kind": "CREATION",
+      "direction": "human -> authored records",
+      "side": "creation-kit",
+      "status": "PARTIALLY_MET",
+      "transport": "a GUI, 1.11.240, matching the game",
+      "path": "game:CreationKit.exe",
+      "evidence": "Present and build-matched. Three crash dumps on record, no CKPE, and no scriptable interface, so every CK-facing tool is read-only inspection.",
+      "provenance": [
+        "tools/pipmon.ps1 editor preflight"
+      ],
+      "notes": "This is why headless xEdit matters: it is the only route to record automation that does not require driving the CK."
+    },
+    {
+      "id": "creation.xedit",
+      "kind": "CREATION",
+      "direction": "our tooling -> record files",
+      "side": "creation-kit",
+      "status": "PARTIALLY_MET",
+      "transport": "FO4Edit 4.1.5f x64, -auto -quickexit -script:",
+      "path": "testfacility/xedit/validate_plugin.pas",
+      "evidence": "THE most important line in this file. xEdit and F4SE are compatible and the mechanism WORKS: a full 35-plugin core load reached the script's Finalize at 2m15s and executed it. It then aborted on GetPluginName, which does not exist in 4.1.5f. The corrected script has not yet completed a run, and no report has ever been produced.",
+      "provenance": [
+        "runs/xedit/fo4edit-4.1.5f-pascal-api.md",
+        "ai_context/spec/xedit_api.json"
+      ],
+      "notes": "A working mechanism with a bug in it, not a broken tool. That distinction is the whole reason this is PARTIALLY_MET rather than NOT_MET, and it is why it is the highest-value next move."
+    },
+    {
+      "id": "creation.ba2",
+      "kind": "CREATION",
+      "direction": "asset containers -> our tools",
+      "side": "creation-kit",
+      "status": "MET",
+      "transport": "BSArch family, shipped with xEdit",
+      "path": "third_party/xedit/",
+      "evidence": "BSArch.exe, BSArch64.exe, BSArchPro.exe and BSArchPro64.exe are present in both the vendored tree and the xEdit directory. No tooling gap for BA2 remains.",
+      "provenance": [
+        "ai_context/engine/ba2_format/ba2-format-notes.md"
+      ],
+      "notes": "The FORMAT is a separate matter: the name-hash algorithm is undocumented across four independent implementations and blocks a correct writer."
+    },
+    {
+      "id": "provider.commonlib",
+      "kind": "PROVIDER_SOURCE",
+      "direction": "reverse engineering -> ours",
+      "side": "engine",
+      "status": "MET",
+      "transport": "vendored C++ headers, 350 files, indexed",
+      "path": "third_party/CommonLibF4/",
+      "evidence": "RE/Bethesda/BSScript.h holds native declarations in method order; RE/VTABLE_IDs.h is 1.4 MB of vtable inventory. Indexed deliberately, because it is how engine structure is found at all.",
+      "provenance": [
+        "ai_context/systems_core/vendored_libraries.json"
+      ],
+      "notes": "Not F4SE. A layout library: depending on it is depending on facts about the game, not on another mod's loader."
+    },
+    {
+      "id": "provider.zydis",
+      "kind": "PROVIDER_SOURCE",
+      "direction": "disassembler -> ours",
+      "side": "engine",
+      "status": "MET",
+      "transport": "vendored, 641 files",
+      "path": "third_party/zydis/",
+      "evidence": "Compiled by stage 1. Tier 3 of the resolver, and what lets build_vtables.bat confirm RTTI class names against the real executable.",
+      "provenance": [
+        "build_all.bat stage 1"
+      ]
+    },
+    {
+      "id": "provider.xeditscripts",
+      "kind": "PROVIDER_SOURCE",
+      "direction": "working scripts -> our practice",
+      "side": "creation-kit",
+      "status": "MET",
+      "transport": "verbatim capture, indexed",
+      "path": "ai_context/automation/",
+      "evidence": "12 xEditScripts and 9 mxpf .pas files, byte-verified against upstream blobs.",
+      "provenance": [
+        "ai_context/automation/xedit-script-patterns.md"
+      ],
+      "notes": "ALL are headed 'Game: Skyrim'. The Iwb API is shared, the subrecord constants are not validated for FO4. Notably NONE of them save the plugin, so headless saving remains an unfilled gap."
+    },
+    {
+      "id": "provider.ckpe",
+      "kind": "PROVIDER_SOURCE",
+      "direction": "someone else's solution -> our practice",
+      "side": "creation-kit",
+      "status": "MET",
+      "transport": "verbatim source plus a portable-technique assessment",
+      "path": "ai_context/systems/ckpe/",
+      "evidence": "11 of 20 techniques assessed portable with no CKPE infrastructure needed. Best value per line: DisableProcessWindowsGhosting(), one Win32 call.",
+      "provenance": [
+        "ai_context/systems/ckpe/ckpe-insights.md"
+      ],
+      "notes": "IDEAS ONLY. Not included, not depended on. Most promising lead for our large-cell crash is Cell View list virtualisation, which is a candidate and NOT a diagnosis."
+    },
+    {
+      "id": "provider.pyo3",
+      "kind": "PROVIDER_SOURCE",
+      "direction": "official docs -> a PLANNED bridge",
+      "side": "in-house",
+      "status": "MET",
+      "transport": "verbatim capture of the PyO3 guide and the CPython 3.12 C-API",
+      "path": "ai_context/systems_core/pyo3/",
+      "evidence": "14 documents indexed. Documented minimums: Rust 1.83+, CPython 3.8+.",
+      "provenance": [
+        "ai_context/systems_core/pyo3/INDEX.md"
+      ],
+      "notes": "PyO3 is NOT installed. This is reference for a planned bridge. Recorded gap: the IntoPy/FromPyObject trait rules live at /main/conversions/traits and are not yet captured."
+    },
+    {
+      "id": "cross.backend",
+      "kind": "CROSS",
+      "direction": "our code -> agent and CLI",
+      "side": "in-house",
+      "status": "MET",
+      "transport": "overseer_cli plus the Rust vlink-protocol crate",
+      "path": "overseer_cli/",
+      "artifact": "overseer_cli/rust/vlink-protocol",
+      "evidence": "Packaged, 106 checks pass. Shares no process with the game, so it can be stopped and restarted without touching it. That is the whole argument for the backend existing.",
+      "provenance": [
+        "build_all.bat stage 4",
+        "build_all.bat stage 5"
+      ]
+    },
+    {
+      "id": "cross.knowledge_to_code",
+      "kind": "CROSS",
+      "direction": "knowledge -> implementation",
+      "side": "all three",
+      "status": "MET",
+      "transport": "specs, and a gate that reads them",
+      "path": "tools/artifact_gate.py",
+      "specs": [
+        "ai_context/spec/papyrus_constructs.json",
+        "ai_context/spec/xedit_api.json",
+        "ai_context/spec/schema.json"
+      ],
+      "evidence": "The artifact gate scans our .psc and .pas for constructs FO4 cannot run, using detect lists carried in the specs. It caught GetPluginName, AddNewElement and GetActivePlugin in our own code, and proved a canary fails the build.",
+      "provenance": [
+        "ai_context/spec/papyrus_constructs.json",
+        "ai_context/spec/xedit_api.json"
+      ],
+      "notes": "The only surface that runs knowledge against code rather than storing either."
+    }
+  ],
+  "provenance": [
+    {
+      "source": "smoke test 2026-09-30",
+      "note": "each surface's status was read by running it or checking the artefact, not by reading its intent"
+    },
+    {
+      "source": "runs/xedit/fo4edit-4.1.5f-pascal-api.md",
+      "note": "the 2m15s Finalize measurement and the GetPluginName abort"
+    },
+    {
+      "source": "build_all.bat stages 1-6",
+      "note": "every MET status above corresponds to a passing stage"
+    }
+  ],
+  "external_roots": {
+    "game": "C:\\\\Program Files (x86)\\\\Steam\\\\steamapps\\\\common\\\\Fallout 4",
+    "note": "Surfaces do not all live in this repository. A deployed .pex sits in the game folder and CreationKit.exe is beside the game, so those paths are declared game:relative rather than guessed or silently skipped."
+  },
+  "kind": "registry",
+  "collection_field": "surfaces"
+}

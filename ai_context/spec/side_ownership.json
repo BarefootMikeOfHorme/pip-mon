@@ -1,0 +1,173 @@
+{
+  "schema_id": "pipmon.ownership/1",
+  "spec_id": "sides.ownership",
+  "title": "What belongs in retrieval, per side of the aisle, and what deliberately does not",
+  "authority": "measured",
+  "audited": "2026-09-30",
+  "prose": "The retrieval index covers 777 files, so 'in the RAG or out of it' is the wrong cut -- almost everything is in the index. What differs is what a reader should QUERY to answer a question versus what they should go READ. Five buckets, and three of them are checkable: a knowledge file must exist, an excluded path must genuinely be absent from the index, and a not_written path must genuinely not exist yet. That last one is the useful direction -- when somebody creates a file listed as not_written, ownership_gate reports the table as stale, so filling a known gap tells you to update the record instead of silently leaving it lying.",
+  "buckets": {
+    "knowledge": "Synthesised, corrected, provenance-bearing. This is what an agent should QUERY. Ranked, weighted, and the only bucket that should normally answer a question.",
+    "source": "The implementation. Indexed so it can be FOUND, not so it can answer. Reading code is not retrieval.",
+    "captured": "Verbatim upstream reference. Deliberately demoted in ranking by the meta and primary-source rules, so it wins only when the question is explicitly about the upstream source.",
+    "excluded": "Not in the index at all: vendored third-party trees, session artefacts, the derived index. Present on disk, findable by path, never retrieved.",
+    "not_written": "Does not exist. Listed so the gap is visible and so the table can notice when it stops being true."
+  },
+  "sides": [
+    {
+      "side": "engine",
+      "summary": "Anything that runs inside Fallout4.exe: the Papyrus VM, Layer A and B, records, addresses.",
+      "available": false,
+      "knowledge": [
+        "ai_context/spec/papyrus_constructs.json",
+        "ai_context/papyrus_syntax_rules.md",
+        "ai_context/spec/fo4_record_format.json",
+        "ai_context/systems_core/address_blob_schema.json",
+        "ai_context/engine/address_mapping/addresslib-schema.md",
+        "ai_context/spec/xedit_api.json"
+      ],
+      "source": [
+        "vprobe/src/",
+        "vprobe/papyrus/PipMon.psc",
+        "vprobe/papyrus/PipMonTestFacility.psc",
+        "vprobe/libs/"
+      ],
+      "captured": [
+        "ai_context/reference/xedit/13-scripting-functions.md",
+        "ai_context/engine/fopdoc-fallout4-records.md",
+        "ai_context/engine/ba2_format/",
+        "third_party/CommonLibF4/  (indexed: 350 files of engine layout, incl. BSScript.h and VTABLE_IDs.h)"
+      ],
+      "excluded": [],
+      "not_written": [
+        {
+          "gap": "the BSScript vtable slot derivation",
+          "why": "the one unmet engine invariant; needs a class declaration in method order to derive an index. CommonLibF4 holds candidates, nothing is derived yet"
+        },
+        {
+          "gap": "in-engine ring buffer specification",
+          "why": "designed in structural_layers.md as a NOT_MET invariant, but no byte layout, no record size, no drain protocol"
+        },
+        {
+          "gap": "a measurement of the zero-alloc hot path",
+          "why": "the rule is documented in the tier table and asserted by nobody; it is UNVERIFIED, not met"
+        }
+      ],
+      "out_of_side_but_relevant": {
+        "note": "The game itself cannot be in any knowledge base. Fallout4.exe is the authority, and CommonLibF4 is the closest proxy we hold.",
+        "paths": [
+          "PIP-MON_CONSOLIDATED.txt (section 26, tiers and cost ceilings)",
+          "HANDOVER.md (tier table)"
+        ]
+      }
+    },
+    {
+      "side": "in-house",
+      "summary": "PIP-MON's own code and contracts, at either placement: natives, the wire, the backend, the surface, and the tooling.",
+      "available": true,
+      "knowledge": [
+        "ai_context/spec/program_components.json",
+        "ai_context/spec/nomenclature.json",
+        "ai_context/spec/compat_f4se_map.json",
+        "ai_context/systems_core/t5_highway_bus.md",
+        "ai_context/systems_core/structural_layers.md",
+        "ai_context/systems_core/vendored_libraries.json",
+        "ai_context/systems_core/door_registry.json",
+        "ai_context/project_blueprint.md",
+        "ai_context/skyrim_capability_adoption.md",
+        "ai_context/tech_stack.md",
+        "ai_context/goal_alignment.md"
+      ],
+      "source": [
+        "tools/",
+        "overseer_cli/",
+        "launcher/",
+        "pipmon.ps1"
+      ],
+      "captured": [
+        "ai_context/systems/F4SE-Plugins/  (structural reference for an extender; NOT a dependency)",
+        "ai_context/systems_core/pyo3/  (reference for a PLANNED bridge; PyO3 is not installed)",
+        "ai_context/systems/ckpe/  (ideas only; nothing included)",
+        "third_party/zydis/  (vendored disassembler; INDEXED, not excluded -- see note)",
+        "third_party/xedit/  (vendored TES5Edit tree; INDEXED, not excluded -- see note)"
+      ],
+      "excluded": [
+        "rag/index.sqlite3"
+      ],
+      "third_party_note": "All of third_party/ is INDEXED, deliberately. CommonLibF4 is how engine structure is found at all -- the BSScript.h lead exists because that tree is searchable. An earlier draft of this table listed zydis and xedit as excluded; ownership_gate caught it, because 'third_party' was never in the indexer's skip list. Binaries are still filtered by extension, so the 274 MB of xedit executables are not in the corpus -- only its 256 source files, CommonLibF4's 350, and zydis's 641.",
+      "not_written": [
+        {
+          "gap": "a live capability report for the in-house side",
+          "why": "spec_lint can tell a component lies about gate_covered, but nothing can yet measure whether the backend is actually reachable at runtime"
+        },
+        {
+          "gap": "the derivation registry beyond a single live entry",
+          "why": "selfalign.py has exactly one DERIVED entry today; the mechanism is proven but thin, and the count should not imply more automation than exists"
+        }
+      ],
+      "out_of_side_but_relevant": {
+        "note": "The wire contract deliberately sits OUTSIDE the corrected layer, because it is partly fiction.",
+        "paths": [
+          "docs/IPC_PROTOCOL.md (three of ten payload sizes were wrong on audit; still documents a priority-drop scheme, a control channel and a config file that do not exist)"
+        ]
+      }
+    },
+    {
+      "side": "creation-kit",
+      "summary": "Anything at authoring time: the CK, its addons, headless xEdit, and the validation tooling.",
+      "available": false,
+      "knowledge": [
+        "testfacility/DOOR-SPEC.md",
+        "tasks/session-profiles.json",
+        "ai_context/automation/xedit-script-patterns.md",
+        "ai_context/automation/xedit-11-appendix.md"
+      ],
+      "source": [
+        "testfacility/xedit/",
+        "testfacility/ck/"
+      ],
+      "captured": [
+        "ai_context/engine/modding-wiki-fallout4.md",
+        "ai_context/engine/modding-wiki-plugin-load-order.md",
+        "ai_context/engine/ck-wiki-papyrus.md",
+        "ai_context/engine/papyrus-index-fallout4.md"
+      ],
+      "excluded": [],
+      "not_written": [
+        {
+          "gap": "a working headless record generator",
+          "why": "the load is proven at ~2m15s but no run has ever produced a report; the corrected script is unproven end to end"
+        },
+        {
+          "gap": "an in-house CK render-window replacement",
+          "why": "CKPE is absent, three crash dumps are on record, and Cell View list virtualisation is a candidate rather than a diagnosis"
+        },
+        {
+          "gap": "any unattended authoring path",
+          "why": "the CK has no scriptable interface on this machine, so every editor-facing tool is read-only by necessity"
+        }
+      ],
+      "out_of_side_but_relevant": {
+        "note": "The creation-kit x L-IN cell is empty and cannot be filled: authoring-time and running-game are different worlds.",
+        "paths": [
+          "HANDOVER.md (the tier table's cost ceilings)"
+        ]
+      }
+    }
+  ],
+  "provenance": [
+    {
+      "source": "git ls-files and the retrieval index",
+      "note": "used to establish which paths are actually present and which are actually indexed"
+    },
+    {
+      "source": "ai_context/systems_core/door_registry.json",
+      "note": "the door inventory, which is the knowledge bucket's own index"
+    },
+    {
+      "source": "tools/side_gate.py",
+      "note": "per-side availability, which this table must not contradict"
+    }
+  ],
+  "kind": "ownership",
+  "collection_field": "sides"
+}

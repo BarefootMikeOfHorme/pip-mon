@@ -354,6 +354,60 @@
       "authority": "measured",
       "keeper": "tools/spec_lint.py",
       "notes": "The PLACEMENT axis: L-IN / L-HOST / L-BE, orthogonal to the T0-T5 data-flow axis. Records why four Papyrus scripts are misplaced rather than broken, and the ring-buffer design that makes a verbose backend safe next to a frame-budgeted engine."
+    },
+    {
+      "id": "plans",
+      "question": "How is a multi-step job choreographed, with what preconditions and rollback",
+      "path": "ai_context/plans/schema.json",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": "tools/orchestrate.py",
+      "notes": "A plan is not a script. It declares goal, context, invariants required, phases in a fixed order, what verifies each phase, and what to do on failure. The separation matters because a plan can be reviewed and diffed while an orchestrator stays small and boring."
+    },
+    {
+      "id": "orchestrator",
+      "question": "What has each plan actually done, and where did it stop",
+      "path": "tools/orchestrate.py",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": null,
+      "notes": "Executes plans. Enforces preconditions, verifies every phase, halts on first failure and prints the rollback. Allowlists what a plan may name, so a plan cannot invoke an arbitrary command. Records an append-only transcript. Deliberately does not reorder, parallelise, retry or decide -- an orchestrator that decides for itself is a script wearing a plan's clothes."
+    },
+    {
+      "id": "gate-conversation",
+      "question": "What changed between gate runs, and when",
+      "path": "tools/gate_watch.py",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": null,
+      "notes": "The conversational counterpart to the one-way gates. Speaks ONLY on change, writes runs/watch/gate-history.jsonl, and answers --since and --why. A gate that talks constantly is a gate nobody reads, so silence is the normal case and is not a failure to report."
+    },
+    {
+      "id": "surface-material",
+      "question": "How are materials, impacts and footstep records actually laid out",
+      "path": "ai_context/spec/surface_material.json",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": "tools/spec_lint.py",
+      "notes": "Engine-derived from CommonLibF4, with static_assert sizes: MATT is BGSMaterialType at sizeof 0x80, FSTP is BGSFootstep at 0x30, IPCT is BGSImpactData. Corrects an incoming Skyrim-flavoured reference on three points and records that four of its proposed struct fields do not exist in the engine at all."
+    },
+    {
+      "id": "scaling-ladder",
+      "question": "How does a bit become a file, in each paradigm",
+      "path": "ai_context/spec/scaling_ladder.json",
+      "state": "BUILT",
+      "authority": "derived",
+      "keeper": "tools/spec_lint.py",
+      "notes": "Seven rungs mapped across native, Python and Creation Engine. The CE column is CORRECTED: CE has four rungs where the ladder has seven, no arrays of records, no 2D grids in a plugin, and the file rung carries a master/override dimension no memory paradigm has. Also records the struct padding arithmetic that a proposed zero-copy design got wrong."
+    },
+    {
+      "id": "blockers",
+      "question": "What is actually stopping us, sorted by what unblocks it soonest",
+      "path": "ai_context/spec/blockers_to_environment.json",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": null,
+      "notes": "B1-B4 are the whole critical path to a testable environment and all four are tractable today. B5, Layer A, is the most important open question in the project and is NOT on that path -- it blocks using the environment in-game, not creating it."
     }
   ],
   "not_a_door": [

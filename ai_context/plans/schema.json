@@ -1,0 +1,45 @@
+{
+  "schema_id": "pipmon.plan/1",
+  "purpose": "Format for a choreographed, staged plan. A plan is not a script: it declares the goal, the context it is valid in, the preconditions that must already hold, the phases in a fixed order, what verifies each phase, and what to do when it fails. The orchestrator executes it. Writing the plan separately from executing it is the whole point, because a plan can be reviewed, argued with, and diffed -- and a script cannot.",
+  "why_this_shape": "These operations are rarely a straight line. Startup, shutdown, creating an environment and entering one are each a matrix of decisions conditioned on the actual state. Encoding that as imperative code buries the reasoning in control flow, where it cannot be reviewed. Encoding it as a plan puts the reasoning in data, where it can be, and leaves the orchestrator to be small and boring.",
+  "required": ["plan_id", "goal", "side", "surfaces", "requires", "determinism", "phases"],
+
+  "fields": {
+    "plan_id": "stable identifier, referenced by gates and by history",
+    "goal": "what this plan achieves, in one sentence. Not a step list.",
+    "side": "engine | in-house | creation-kit. Determines which invariants apply.",
+    "surfaces": "the surface ids from ai_context/spec/surfaces.json this plan exercises. A plan that touches an undeclared surface is a plan whose context was not thought through.",
+    "requires": "invariant ids from ai_context/spec/side_invariants.json that must be MET before the plan runs. The orchestrator refuses to start if one is not.",
+    "determinism": {"idempotent": "bool - running twice leaves the same state", "ordering": "why this phase order and not another", "no_implicit_state": "what the plan assumes and does not create"},
+    "phases": "ordered. The orchestrator does not reorder, parallelise, or skip.",
+    "decision_points": "named places where the plan branches on observed state. Each must name what it reads and what each branch does."
+  },
+
+  "phase_fields": {
+    "id": "stable within the plan",
+    "name": "short",
+    "purpose": "why this phase exists, in one sentence",
+    "preconditions": "checks that must hold BEFORE the phase runs. Enforced, not documented.",
+    "actions": "ordered commands, each with an expected exit code and a `why`",
+    "verify": "gates that must pass AFTER the phase. A phase that cannot be verified is not done, it is attempted.",
+    "on_failure": {"stop": "bool - whether to halt the whole plan", "rollback": "ordered steps to undo this phase", "report": "what a human needs to know"}
+  },
+
+  "invariants_of_a_good_plan": [
+    "Every phase is verifiable. A phase whose success cannot be observed is a phase that will silently rot.",
+    "Every failure has a defined outcome. 'It failed' is not a plan; 'it failed, do not proceed, undo X, report Y' is.",
+    "No phase assumes state a previous phase did not create. If it does, that dependency is a precondition, written down.",
+    "Ordering is justified, not incidental. If two phases could swap, either the order does not matter and that is said, or one of them has an unstated dependency.",
+    "The plan names its surfaces. Undeclared side effects are how a plan becomes a hazard."
+  ],
+
+  "example_minimum": {
+    "plan_id": "example",
+    "goal": "one sentence",
+    "side": "in-house",
+    "surfaces": ["ai.retrieval"],
+    "requires": [],
+    "determinism": {"idempotent": true, "ordering": "because", "no_implicit_state": "assumes"},
+    "phases": [{"id": "P1", "name": "n", "purpose": "p", "preconditions": [], "actions": [{"run": "...", "expect_exit": 0, "why": "w"}], "verify": [{"gate": "tools/rag_selftest.py", "expect_exit": 0}], "on_failure": {"stop": true, "rollback": [], "report": "r"}}]
+  }
+}

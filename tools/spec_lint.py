@@ -69,7 +69,12 @@ def main():
             bad(name, "parses", str(e))
             continue
 
-        for f in required:
+        # A registry keeps its records under a declared field of its own, so the
+        # globally-required `entries` key does not apply to it. Checking it anyway
+        # would force a catalogue of surfaces to pretend it is a list of fields.
+        _kd = (schema.get("kinds") or {}).get(spec.get("kind")) or {}
+        req = [f for f in required if not (_kd.get("collection_field") and f == "entries")]
+        for f in req:
             if f not in spec:
                 bad(name, "required_common", "missing field %r" % f)
         if not spec.get("prose") or len(str(spec["prose"]).strip()) < 40:
@@ -85,15 +90,23 @@ def main():
             bad(name, "kind", "unknown kind %r" % kind)
             continue
 
-        entries = spec.get("entries")
+        # A registry keeps its records under a declared field of its own rather
+        # than in `entries`, because it is a catalogue of things rather than a
+        # list of fields. Inventing an `entries` array to satisfy this linter
+        # would make the document lie about its own shape.
+        coll_field = kdef.get("collection_field")
+        if not coll_field or coll_field.startswith("REQUIRED") or ":" in coll_field:
+            coll_field = spec.get("collection_field", "entries")
+        entries = spec.get(coll_field or "entries")
+        rec_required = kdef.get("entry_required") or kdef.get("record_required") or []
         if not isinstance(entries, list) or not entries:
-            bad(name, "entries", "entries must be a non-empty list")
+            bad(name, "collection", "collection %r must be a non-empty list" % (coll_field or "entries"))
             continue
         entry_count += len(entries)
 
         for i, e in enumerate(entries):
-            where = "%s#%d(%s)" % (name, i, e.get("name", "?"))
-            for f in kdef["entry_required"]:
+            where = "%s#%d(%s)" % (name, i, e.get("id") or e.get("name") or e.get("side") or "?")
+            for f in rec_required:
                 if f not in e:
                     bad(where, "entry_required", "missing %r" % f)
             if f_name := e.get("name"):
@@ -114,8 +127,21 @@ def main():
                 if kind == "api_function" and "(" not in sig and "(" in sig.replace("(global", "("):
                     bad(where, "signature", "looks like a call with no argument list: %r" % sig)
 
-            if "provenance" in kdef["entry_required"] and not e.get("provenance"):
+            if "provenance" in rec_required and not e.get("provenance"):
                 bad(where, "provenance", "entry requires provenance")
+
+# Ownership records are where arrays and booleans are legitimate, so both are
+        # checked for real type rather than mere presence. `available: "yes"` as
+        # a string would be unbranchable, and a missing bucket reads as "checked
+        # and there are none" when it actually means "nobody looked".
+        for b in kdef.get("bucket_required", []):
+            if b not in e:
+                bad(where, "bucket_missing",
+                    "missing bucket %r; an absent bucket is indistinguishable from an empty one" % b)
+            elif not isinstance(e[b], list):
+                bad(where, "bucket_type", "bucket %r must be a list, got %r" % (b, type(e[b]).__name__))
+        if "available" in e and not isinstance(e["available"], (bool, str)):
+            bad(where, "type", "available must be a boolean or one of the three availability words")
 
             # A component that is not working must not claim gate coverage.
             if kind == "component" and e.get("gate_covered") is True:

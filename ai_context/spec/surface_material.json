@@ -1,0 +1,425 @@
+{
+  "schema_id": "pipmon.surface_material/1",
+  "spec_id": "engine.surface_material",
+  "kind": "record_format",
+  "title": "Surface material data: what is real in Fallout 4, what is Skyrim, and what is ours",
+  "authority": "measured",
+  "prose": "Three different things get called 'surface material' and they must not be merged. (1) What Creation Engine actually stores: MATT, IPCT, IPDS, BGSSoundImpactDataset, FSTP. (2) What Skyrim stores: HKX collision, hkpPolyhedron, HKMAT enums like HAV_MAT_STONE. Fallout 4 DROPPED Havok for PhysX, so every one of those is wrong here, and the reference that introduced them was Skyrim-flavoured. (3) What we would build on top: a flat SIMD-aligned lookup buffer. That third thing is OUR design and its field names are not the engine's. Conflating (2) with (1) is the same class of error as calling GECK the Fallout 4 Creation Kit, and conflating (3) with (1) would mean writing a struct and believing we had read the engine.",
+  "authority_note": "The record signatures, backing classes, field lists, offsets and sizes below are ENGINE-DERIVED, read out of CommonLibF4, which is reverse-engineered specifically for Fallout 4 and is already vendored and indexed in this workspace. Each struct carries a static_assert for its size, which is the engine's own confirmation. This replaced a community-wiki-derived draft that was Skyrim-flavoured and wrong in three specific ways.",
+  "corrections_to_incoming_reference": [
+    {
+      "claimed": "MATT -> BGSMaterialObject",
+      "reality": "MATT is backed by BGSMaterialType. BGSMaterialObject is a real and different class.",
+      "evidence": "TESForms.h:310"
+    },
+    {
+      "claimed": "FSTP -> BGSFootstepSet",
+      "reality": "FSTP is backed by BGSFootstep. BGSFootstepSet also exists in FO4, declared immediately after it, and is not what FSTP is.",
+      "evidence": "TESForms.h:322 and the declaration following it"
+    },
+    {
+      "claimed": "IPCT -> BGSImpactData, IPDS -> BGSImpactDataSet",
+      "reality": "CORRECT. Confirmed against the engine.",
+      "evidence": "TESForms.h:311-312"
+    },
+    {
+      "claimed": "BGSSoundImpactDataset in the FO4 chain",
+      "reality": "ZERO occurrences anywhere in CommonLibF4, which enumerates FO4 forms comprehensively. Strong evidence it is Skyrim, not FO4.",
+      "evidence": "0 header hits"
+    },
+    {
+      "claimed": "HKX / hkpPolyhedron / HAV_MAT_STONE",
+      "reality": "Skyrim. Not FO4. FO4 collision is PhysX-based.",
+      "evidence": "none in CommonLibF4"
+    },
+    {
+      "claimed": "CommonLibSSE",
+      "reality": "Skyrim. We hold and index CommonLibF4."
+    },
+    {
+      "claimed": "SurfaceMaterialDef fields friction, restitution, hardness, penetration_resistance",
+      "reality": "NONE of these appear in BGSMaterialType. They are not engine fields. They would be our own side table, not anything read from the game.",
+      "evidence": "TESForms.h BGSMaterialType member list"
+    }
+  ],
+  "zero_copy_arithmetic": {
+    "claim_under_test": "Zero-copy PyO3 memory via pyo3::PyBuffer or numpy arrays without cloning",
+    "fields": [
+      {
+        "name": "material_id",
+        "bytes": 4
+      },
+      {
+        "name": "parent_id",
+        "bytes": 4
+      },
+      {
+        "name": "friction",
+        "bytes": 4
+      },
+      {
+        "name": "restitution",
+        "bytes": 4
+      },
+      {
+        "name": "hardness",
+        "bytes": 4
+      },
+      {
+        "name": "penetration_resistance",
+        "bytes": 4
+      },
+      {
+        "name": "sound_category_hash",
+        "bytes": 8
+      },
+      {
+        "name": "decal_flags",
+        "bytes": 4
+      }
+    ],
+    "raw_sum_bytes": 36,
+    "repr_c_padded_bytes": 40,
+    "verdict": "DOES NOT HOLD AS WRITTEN",
+    "why": "The field list sums to 36 bytes, but repr(C) aligns each member to its own alignment and sound_category_hash is a u64 needing 8-byte alignment, so the C and Rust layouts are 40 bytes. Shipping a buffer sized to the field sum is a misalignment, and unpacking it on the Python side reintroduces exactly the copy the design exists to avoid. Either reorder so the u64 comes first, declare #[repr(C, packed)] and accept unaligned access, or accept 40 and document it.",
+    "consequence": "The PyO3 bridge is NOT installed and no buffer exists, so this is caught before anything was built rather than after. That is the whole point of checking the arithmetic rather than the ambition."
+  },
+  "our_design_not_engine_structure": {
+    "struct": "SurfaceMaterialDef",
+    "origin": "Proposed in design discussion. Its field names are OURS.",
+    "fields_absent_from_the_engine": [
+      "friction",
+      "restitution",
+      "hardness",
+      "penetration_resistance"
+    ],
+    "engine_fields_we_can_align_to": [
+      "materialID (u32 @0x68)",
+      "parentType (@0x50)",
+      "materialName (@0x60)",
+      "materialColor (NiColor @0x6C)",
+      "buoyancy (f32 @0x78)",
+      "flags (u32 @0x7C)"
+    ],
+    "verdict": "The struct cannot be a mirror of BGSMaterialType, because a third of it does not exist there. It is defensible as OUR cache keyed by material_id, holding friction-like coefficients we define -- but then it is a side table with our semantics, and must never be described as engine structure.",
+    "required_before_use": "Decide which fields are engine-derived and which are ours, and record the split. Done above."
+  },
+  "data_flow_directions": {
+    "A_ck_to_ai": {
+      "status": "NOT_MET",
+      "steps": [
+        "parse .esp/.esm/.ba2/.nif for MATT and collision",
+        "expose to Python",
+        "embed"
+      ],
+      "blocked_by": "no FO4 collision parser exists; the NIF and PhysX material structures are not indexed; PyO3 is not installed"
+    },
+    "B_ai_to_ck": {
+      "status": "NOT_MET",
+      "steps": [
+        "AI generates or assigns material data",
+        "Rust serialises to MATT/IPCT/IPDS",
+        "save as .esp/.esl"
+      ],
+      "blocked_by": "engine.layera is NOT_MET, so there is no runtime injection path; and no writer has produced a record of any kind"
+    },
+    "hot_swap_note": "The reference proposes C++ memory hooks to hot-swap material parameters in engine memory. That is precisely what layer-a would provide, and layer-a does not exist. Recording the dependency rather than pretending the capability is adjacent."
+  },
+  "what_exists_today": {
+    "in_the_corpus": [
+      "MATT, IPCT, IPDS, FSTP, BGSSoundImpactDataset are real FO4 record signatures (community wikis, captured)",
+      "BA2 container layout with four independent implementations agreeing, minus the name-hash algorithm",
+      "PyO3 guide and CPython 3.12 C-API, verbatim, 14 documents"
+    ],
+    "absent_from_the_corpus": [
+      "MATT subrecord layout, from any primary source",
+      "FO4 NIF collision structure and PhysX material enums",
+      "NIF documentation (niftools) covering bhkCollisionObject and surface material enums -- note those identifiers are Skyrim NIF",
+      "maturin, the build system for Rust extension wheels",
+      "any FO4-specific material blending or friction reference"
+    ]
+  },
+  "entries": [
+    {
+      "name": "MATT",
+      "bytes": null,
+      "fields": [
+        {
+          "name": "(subrecords not yet verified against a primary source)",
+          "type": "unknown",
+          "bytes": null
+        }
+      ],
+      "provenance": [
+        "community wiki capture, UNVERIFIED against an installed record"
+      ],
+      "notes": "Real FO4 record. Physical characteristics: friction, bounce, density, sound category, decal set. Our captured fopdoc index does not cover it."
+    },
+    {
+      "name": "IPCT",
+      "bytes": null,
+      "fields": [
+        {
+          "name": "(subrecords not yet verified)",
+          "type": "unknown",
+          "bytes": null
+        }
+      ],
+      "provenance": [
+        "community wiki capture, UNVERIFIED"
+      ],
+      "notes": "Impact data: links bullet, weapon and footstep impact physics to a material type."
+    },
+    {
+      "name": "IPDS",
+      "bytes": null,
+      "fields": [
+        {
+          "name": "(subrecords not yet verified)",
+          "type": "unknown",
+          "bytes": null
+        }
+      ],
+      "provenance": [
+        "community wiki capture, UNVERIFIED"
+      ],
+      "notes": "Impact data set: the particle, decal and sound set an IPCT resolves against."
+    },
+    {
+      "name": "BGSSoundImpactDataset",
+      "bytes": null,
+      "fields": [
+        {
+          "name": "(class layout not verified)",
+          "type": "unknown",
+          "bytes": null
+        }
+      ],
+      "provenance": [
+        "community wiki capture, UNVERIFIED"
+      ],
+      "notes": "A class, and a real one. Distinct from IPDS, which is the record."
+    },
+    {
+      "name": "FSTP",
+      "bytes": null,
+      "fields": [
+        {
+          "name": "(subrecords not yet verified)",
+          "type": "unknown",
+          "bytes": null
+        }
+      ],
+      "provenance": [
+        "community wiki capture, UNVERIFIED"
+      ],
+      "notes": "Footstep set. The RECORD. BGSFootstepSet is the class, and the incoming reference conflated them."
+    }
+  ],
+  "derivation": {
+    "source": "third_party/CommonLibF4/CommonLibF4/include/RE/Bethesda/TESForms.h",
+    "source_kind": "reverse-engineered engine structure, Fallout 4 specific, already in our corpus",
+    "why_this_source": "A wiki is a claim about the engine. CommonLibF4 is a layout, measured against the binary, with size assertions. For a question about where a field sits in memory, the layout is the stronger source and it is already here -- so the correct move was to derive, not to fetch.",
+    "form_signature_lines": {
+      "kMATT": "TESForms.h:310  // 66 MATT X BGSMaterialType",
+      "kIPCT": "TESForms.h:311  // 67 IPCT X BGSImpactData",
+      "kIPDS": "TESForms.h:312  // 68 IPDS X BGSImpactDataSet",
+      "kFSTP": "TESForms.h:322  // 72 FSTP X BGSFootstep"
+    }
+  },
+  "havok_nuance": {
+    "observation": "BGSMaterialType has a member literally named `havokImpactDataSet` at 0x58.",
+    "what_it_does_not_establish": "It does not mean FO4 uses Havok. FO4 collision is PhysX-based, and the FO4 material enum recovered from fopdoc is an integer impact-material enum with no HAV_MAT_ values.",
+    "what_it_might_mean": [
+      "a retained name from a shared engine ancestry",
+      "CommonLibF4 mirroring an engine symbol name rather than the underlying system"
+    ],
+    "why_it_matters": "It is exactly the kind of detail that gets turned into a confident wrong claim. Recorded as an observation with its limits, not as a conclusion either way."
+  },
+  "engine_derived_structs": [
+    {
+      "record": "MATT",
+      "form_id": 66,
+      "class": "BGSMaterialType",
+      "sizeof": "0x80 (128)",
+      "source": "third_party/CommonLibF4/CommonLibF4/include/RE/Bethesda/TESForms.h",
+      "layout": [
+        {
+          "field": "(inherits TESForm)",
+          "offset": "0x00"
+        },
+        {
+          "field": "TESModel breakableFXModel",
+          "offset": "0x20"
+        },
+        {
+          "field": "BGSMaterialType* parentType",
+          "offset": "0x50"
+        },
+        {
+          "field": "BGSImpactDataSet* havokImpactDataSet",
+          "offset": "0x58",
+          "note": "named havok; see havok_nuance"
+        },
+        {
+          "field": "BSFixedString materialName",
+          "offset": "0x60"
+        },
+        {
+          "field": "uint32 materialID",
+          "offset": "0x68"
+        },
+        {
+          "field": "NiColor materialColor",
+          "offset": "0x6C"
+        },
+        {
+          "field": "float buoyancy",
+          "offset": "0x78"
+        },
+        {
+          "field": "uint32 flags",
+          "offset": "0x7C"
+        }
+      ],
+      "assertion": "static_assert(sizeof(BGSMaterialType) == 0x80)"
+    },
+    {
+      "record": "FSTP",
+      "form_id": 72,
+      "class": "BGSFootstep",
+      "sizeof": "0x30 (48)",
+      "source": "third_party/CommonLibF4/CommonLibF4/include/RE/Bethesda/TESForms.h",
+      "layout": [
+        {
+          "field": "(inherits TESForm)",
+          "offset": "0x00"
+        },
+        {
+          "field": "BSFixedString tagString",
+          "offset": "0x20"
+        },
+        {
+          "field": "BGSImpactDataSet* impactSet",
+          "offset": "0x28"
+        }
+      ],
+      "assertion": "static_assert(sizeof(BGSFootstep) == 0x30)",
+      "notes": "FSTP -> BGSImpactDataSet directly. That is the MATT -> IPDS -> IPCT chain, engine-confirmed."
+    },
+    {
+      "record": "IPCT",
+      "form_id": 67,
+      "class": "BGSImpactData",
+      "source": "third_party/CommonLibF4/CommonLibF4/include/RE/Bethesda/TESForms.h",
+      "layout": [
+        {
+          "field": "(inherits TESForm)",
+          "offset": "0x00"
+        },
+        {
+          "field": "(inherits TESModel)",
+          "offset": "0x20"
+        }
+      ],
+      "nested": {
+        "struct": "IMPACT_DATA_DATA",
+        "layout": [
+          {
+            "field": "float effectDuration",
+            "offset": "0x00"
+          },
+          {
+            "field": "ORIENTATION orient (enum, i32)",
+            "offset": "0x04"
+          },
+          {
+            "field": "float angleThreshold",
+            "offset": "0x08"
+          },
+          {
+            "field": "float placementRadius",
+            "offset": "0x0C"
+          },
+          {
+            "field": "SOUND_LEVEL soundLevel (enum, i32)",
+            "offset": "0x10"
+          },
+          {
+            "field": "int8 flags",
+            "offset": "0x14"
+          },
+          {
+            "field": "int8 resultOverride",
+            "offset": "0x15"
+          }
+        ]
+      },
+      "notes": "This is where friction-like behaviour would live IF it exists in FO4 at all. Not proven: these are impact tuning parameters, not material coefficients."
+    }
+  ],
+  "fo4_impact_material_enum": {
+    "source": "https://tes5edit.github.io/fopdoc/Fallout4/Records/Values/Impact%20Material%20Types.html",
+    "retrieved_utc": "2026-09-30",
+    "type": "integer enum, values 0-11",
+    "values": {
+      "0": "Stone",
+      "1": "Dirt",
+      "2": "Grass",
+      "3": "Glass",
+      "4": "Metal",
+      "5": "Wood",
+      "6": "Organic",
+      "7": "Cloth",
+      "8": "Water",
+      "9": "Hollow Metal",
+      "10": "Organic Bug",
+      "11": "Organic Glow"
+    },
+    "authority": "upstream-verbatim, fopdoc is maintained by the TES5Edit team",
+    "notes": "This is an FO4 enum and it is NOT the Skyrim HKMAT set. Twelve values, none of them HAV_MAT_."
+  },
+  "gaps_recorded": [
+    {
+      "gap": "MATT subrecords as written in a .esm",
+      "status": "PARTIALLY CLOSED",
+      "detail": "The backing CLASS layout is now known exactly, which is what an in-memory reader needs. The on-disk subrecord names and sizes for MATT are still undocumented anywhere we could reach."
+    },
+    {
+      "gap": "PhysX material handling in FO4",
+      "status": "OPEN",
+      "detail": "No documentation found. Every FO4 physics source reachable was either generic NVIDIA SDK docs or fo4docs.org, which documents HAVOK for FO4 and is therefore wrong. Those pages were rejected rather than indexed."
+    },
+    {
+      "gap": "NIF collision for FO4",
+      "status": "OPEN",
+      "detail": "The niftools documentation covering bhkCollisionObject and surface material enums is Skyrim NIF. Nothing FO4-specific was found."
+    },
+    {
+      "gap": "BGSSoundImpactDataset",
+      "status": "RESOLVED AS SKYRIM",
+      "detail": "Zero occurrences in CommonLibF4. Excluded from the FO4 chain."
+    },
+    {
+      "gap": "en.uesp.net search index",
+      "status": "BROKEN UPSTREAM",
+      "detail": "Its API returns zero hits for everything, including a known-good control title. Its 0-hit results are NOT evidence of absence, and re-running those searches is wasted effort. Recorded so nobody repeats them."
+    },
+    {
+      "gap": "fo4docs.org vs fopdoc record tail",
+      "status": "CONFLICT UNRESOLVED",
+      "detail": "fo4docs.org claims several fopdoc record flags are incorrect for FO4 and documents a 6x uint16 tail where fopdoc documents 5 fields. Both are stored and neither is adjudicated, because there is no installed record to check against. Our own 66-byte header decodes as 24-byte record header + dataSize 42, which matches fopdoc's 24-byte header and 24+42=66 exactly."
+    }
+  ],
+  "provenance": [
+    {
+      "source": "third_party/CommonLibF4/CommonLibF4/include/RE/Bethesda/TESForms.h",
+      "note": "engine-derived FO4 layouts with static_assert size checks; read directly from the vendored tree"
+    },
+    {
+      "source": "https://tes5edit.github.io/fopdoc/Fallout4/Records/Values/Impact%20Material%20Types.html",
+      "retrieved_utc": "2026-09-30",
+      "note": "FO4 impact material enum, upstream maintained by TES5Edit"
+    }
+  ]
+}
