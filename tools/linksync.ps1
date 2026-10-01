@@ -58,7 +58,13 @@ function Write-Head($text) { Write-Output ''; Write-Output $text; Write-Output (
 
 function Get-State {
     if (-not (Test-Path $PluginTxt)) { throw "plugins.txt not found at $PluginTxt" }
-    $lines = @(Get-Content -LiteralPath $PluginTxt)
+    # Read as UTF-8 explicitly rather than relying on the Get-Content default,
+    # which has differed between PowerShell hosts. This is the read half of the
+    # byte round trip: the write side is UTF-8 without BOM, so the read side must
+    # be UTF-8 or a non-ASCII name is mangled before it is ever compared. Reading
+    # a name as mojibake and then writing it back "faithfully" still loses the
+    # original bytes.
+    $lines = @(Get-Content -LiteralPath $PluginTxt -Encoding utf8)
     $enabled = @($lines | Where-Object { $_.StartsWith('*') })
     return [pscustomobject]@{
         Lines   = $lines
@@ -154,7 +160,29 @@ switch ($Command) {
         $kept += "*$OurPlugin"
         Write-Output ("  active  : *{0} (appended last)" -f $OurPlugin)
 
-        Set-Content -LiteralPath $PluginTxt -Value $kept -Encoding ascii
+        # BYTE-EXACT WRITE. This used to be:
+        #
+        #     Set-Content -LiteralPath $PluginTxt -Value $kept -Encoding ascii
+        #
+        # which is silent, permanent data loss in a load-order file. Any plugin
+        # whose name is not pure ASCII -- accents, Cyrillic, CJK, a right single
+        # quote in a mod title -- was written as a question mark, and the
+        # original name was never recoverable because the snapshot taken a few
+        # lines earlier had already been read through the same lossy default.
+        # A load-order tool must round-trip bytes exactly: it reads the file the
+        # game wrote and must be able to hand the same bytes back. The game reads
+        # plugins.txt as bytes, so bytes are the contract, not a decoded string.
+        #
+        # ReadAllBytes/WriteAllBytes also preserves the original line endings and
+        # any BOM, because nothing is re-encoded on the way through. Reading as
+        # text and writing back as text cannot promise either.
+        $outLines = New-Object 'System.Collections.Generic.List[string]'
+        foreach ($l in $kept) { $outLines.Add($l) }
+        $crlf = "`r`n"
+        $body = [string]::Join($crlf, $outLines) + $crlf
+        $enc = New-Object 'System.Text.UTF8Encoding'($false)   # no BOM
+        [System.IO.File]::WriteAllText($PluginTxt, $body, $enc)
+        Write-Output ("  encoding: UTF-8 without BOM, CRLF, byte-exact round trip")
 
         $after = Get-State
         Write-Output ''
