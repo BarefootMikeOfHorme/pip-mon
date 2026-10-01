@@ -106,6 +106,38 @@ orchestrator    P1-P3 SKIPPED under --from P4; P4 FAILED at LINK 3
 `python tools/orchestrate.py` still exits 2 where usage output and exit 0 were
 asked for.
 
+## Two open decisions — settle these before spending runs
+
+**1. P4's gate is a wall, and it will fail forever.**
+
+It requires `--gen-key records_created > 0` from a generator that, until this
+session, could not create records at all. A gate that cannot pass is not a gate;
+it is a wall. It was tightened when the generator looked like it was about to
+create something, and it was never replaced when creation turned out to need a
+different call.
+
+So P4 failing tells you **nothing** about whether `wbCopyElementToFile` works.
+Fix it before the next run, or the next run is another 2-minute sweep producing
+the same red. Two ways:
+
+- replace the gate with what the stage can actually prove — that a record was
+  created *in memory* and written to the scratch path, and that the scratch
+  `.esp` grew
+- or keep `records_created > 0` **only after** step 1 below has been shown to
+  work, and treat the first run as a diagnostic that bypasses the gate
+
+**2. "Test env running" means two different things, and they need different work.**
+
+- **records exist and load** — unblocked. `wbCopyElementToFile` →
+  `FileWriteToStream` → copy to the game folder → `pipmon.ps1 validate`. This is
+  the next 30 minutes of work.
+- **something executes in-game** — needs **Layer A**, and nothing else gets
+  there. No vtable slot is hooked, so no compiled `.psc` can reach a native
+  function. A correct plugin and a clean `.pex` still prove nothing at runtime.
+
+Worth naming which one is being asked for, because the first is nearly done and
+the second is a much larger track. Everything in this session was on the first.
+
 ## Blockers
 
 | id | state |
