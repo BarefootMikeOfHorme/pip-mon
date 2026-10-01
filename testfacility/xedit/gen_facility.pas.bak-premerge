@@ -1,0 +1,329 @@
+unit UserScript;
+
+{
+  PIP-MON: create ONE CELL in PipMonTestFacility.esp, headlessly, with FO4Edit 4.1.5f.
+
+  ---------------------------------------------------------------------------
+  MEASURED HISTORY, because each entry changed this file
+  ---------------------------------------------------------------------------
+  22:32  [EJvInterpreterError] Type mismatch at the first Process call.
+         Cause: `else if sig <> 'GRUP' and sig <> 'MAST' and sig <> 'TES4' then`.
+         This dialect raises on two comparisons joined by and/or. Every static
+         gate passed that file first -- they only detect calls marked
+         exists:false, so a file that cannot COMPILE read as clean. That gap is
+         now a spec rule (xedit_api.json dialect_rules) enforced by
+         artifact_gate.py, verified against five catch and four pass cases.
+
+  22:41  Cascade form fixed. Sweep completed: 2,287,300 records, 64,926 CELL,
+         140 signatures -- identical to the validator's independent figure.
+
+  22:52  SAVED the report BEFORE touching anything unproven, so the ordering
+         rule held: 160 lines on disk even though the run then died.
+
+  22:58  LINK 1 RETURNED. `Add(targetFile, 'CELL', True)` on the IwbFile itself
+         works: IwbFile IS accepted where IwbContainer is expected. This was the
+         hypothesis, and it dissolves the group-label problem outright -- the
+         record is attached to the file and xEdit places it in the right group
+         at save time. The whole TwbVector -> wbPositionToGridCell ->
+         wbGridCellToGroupLabel chain from fo4_records_guide.md is not needed.
+
+  22:58  LINK 2 died: `Undeclared Identifier 'ElementID'`. The correct name is
+         FixedFormID, per ai_context/spec/xedit_api.json. Same class of error as
+         AddNewElement and DebugNotification: I searched for the name I expected
+         instead of reading the one that exists.
+
+  ---------------------------------------------------------------------------
+  THE SCOPE CORRECTION -- why Process no longer sweeps
+  ---------------------------------------------------------------------------
+  The previous revision counted all 2,287,300 records in the load order. That is
+  a VALIDATOR's job. A generator exists to make one record and save it, and
+  measuring the entire load order first cost 1m45s to learn nothing the
+  validator has not already proven independently. So:
+
+    * Process  -- no counting. xEdit calls it once per record no matter what, so
+      it stays as cheap as possible. The heartbeat remains but at 500,000 so the
+      sweep shows life in ~4 lines instead of 91.
+    * Finalize -- all real work, and every count is scoped to the TARGET file via
+      GroupBySignature(targetFile, 'CELL'), not to the load order.
+
+  ---------------------------------------------------------------------------
+  THE ONE RULE THAT MATTERS
+  ---------------------------------------------------------------------------
+  Each unproven call is announced with AddMessage immediately BEFORE it is used,
+  so an abort names the exact link. That discipline is why the two failures above
+  were each worth one run instead of a guessing loop. It stays.
+
+  Nothing is written to the game Data folder. The only plugin this run touches is
+  a scratch file under testfacility/xedit/out/, so a run that turns out to write
+  malformed records is still throwaway.
+}
+
+var
+  sl: TStringList;
+  sigs: TStringList;
+  cnt: TStringList;
+  sig: string;
+  comma: string;
+  k: Integer;
+  idx: Integer;
+  reportPath: string;
+  scratchPath: string;
+  targetName: string;
+  targetLower: string;
+  q: string;
+  loaded: Boolean;
+  found: Integer;
+  nFiles: Integer;
+  nRecords: Integer;
+  nCell: Integer;
+  nGroups: Integer;
+  nTES4: Integer;
+  nHeartbeat: Integer;
+  nSweep: Integer;
+  i: Integer;
+  linkReached: Integer;
+  nCreated: Integer;
+  createdNote: string;
+  targetFile: IwbFile;
+  newElem: IwbElement;
+  newId: Integer;
+  nextId: Integer;
+
+function JStr(key, val: string): string;
+begin
+  Result := '  ' + q + key + q + ': ' + q + val + q + ',';
+end;
+
+function JNum(key: string; n: Integer): string;
+begin
+  Result := '  ' + q + key + q + ': ' + IntToStr(n) + ',';
+end;
+
+function JBool(key: string; b: Boolean): string;
+begin
+  if b then
+    Result := '  ' + q + key + q + ': true,'
+  else
+    Result := '  ' + q + key + q + ': false,';
+end;
+
+procedure Say(const s: string);
+begin
+  sl.Add(s);
+  AddMessage('PIPMON: ' + s);
+end;
+
+function WriteReport: Boolean;
+begin
+  sl.Clear;
+  sl.Add('{');
+  sl.Add(JStr('schema', 'pipmon.gen.facility/4'));
+  if loaded then
+    sl.Add(JStr('status', 'REACHED'))
+  else
+    sl.Add(JStr('status', 'NOT_FOUND'));
+  sl.Add(JStr('target', targetName));
+  sl.Add(JBool('plugin_found', loaded));
+  sl.Add(JNum('target_index', found));
+  sl.Add(JNum('files_loaded', nFiles));
+  sl.Add(JNum('records_created', nCreated));
+  sl.Add(JStr('created_note', createdNote));
+  sl.Add(JNum('links_proven_in_order', linkReached));
+  sl.Add(JStr('scratch_plugin', scratchPath));
+  sl.Add(JStr('game_plugin_written', 'no'));
+  sl.Add(JStr('provenance', 'testfacility/xedit/gen_facility.pas, run by tools/run_gen.ps1'));
+  sl.Add(JStr('proven_this_build', 'Add(IwbFile, CELL, True) -- IwbFile is accepted as an IwbContainer'));
+  sl.Add(JStr('never_written', 'the game plugin; output goes to testfacility/xedit/out/ only'));
+
+  { End totals per section: one line per signature with its final count. This is
+    the half of the trace that has to be readable after the fact, and it was
+    dropped in a revision whose real sin was overwriting the file. Restored to
+    the shape validate_plugin.pas has always emitted. }
+  sl.Add('  ' + q + 'signature_counts' + q + ': {');
+  for k := 0 to sigs.Count - 1 do
+  begin
+    if k < sigs.Count - 1 then comma := ',' else comma := '';
+    sl.Add('    ' + q + sigs[k] + q + ': ' + cnt[k] + comma);
+  end;
+  sl.Add('  },');
+  sl.Add(JNum('records_in_load_order', nRecords));
+  sl.Add(JNum('cell_records_in_load_order', nCell));
+  sl.Add(JNum('group_records_seen', nGroups));
+  sl.Add(JNum('master_records_seen', nTES4));
+  sl.Add('}');
+  try
+    sl.SaveToFile(reportPath);
+    AddMessage('PIPMON: SAVED ' + reportPath + ' lines=' + IntToStr(sl.Count));
+    Result := True;
+  except
+    on E: Exception do
+    begin
+      AddMessage('PIPMON: SAVE FAILED - ' + E.Message);
+      Result := False;
+    end;
+  end;
+end;
+
+function Initialize: Integer;
+begin
+  reportPath := '%%OUTPATH%%';
+  scratchPath := '%%SCRATCH%%';
+  targetName := '%%PLUGIN%%';
+
+  q := Chr(34);
+  targetLower := LowerCase(targetName);
+  sl := TStringList.Create;
+  sigs := TStringList.Create;
+  cnt := TStringList.Create;
+  loaded := False;
+  found := 0;
+  nFiles := 0;
+  nRecords := 0;
+  nCell := 0;
+  nGroups := 0;
+  nTES4 := 0;
+  nHeartbeat := 0;
+  nSweep := 0;
+  linkReached := 0;
+  nCreated := 0;
+  createdNote := 'not attempted';
+
+  Say('Initialize - generator looking for ' + targetName);
+  nFiles := FileCount;
+  Say('Initialize - ' + IntToStr(nFiles) + ' files loaded');
+
+  for i := 0 to nFiles - 1 do
+  begin
+    if LowerCase(GetFileName(FileByIndex(i))) = targetLower then
+    begin
+      loaded := True;
+      found := i;
+      targetFile := FileByIndex(i);
+      Say('REACHED ' + targetName + ' at index ' + IntToStr(i) + ' and kept the handle');
+    end;
+  end;
+
+  if not loaded then
+    Say('NOT among the loaded files. That is a load-order problem, not a generator problem.');
+
+  Result := 0;
+end;
+
+function Process(e: IInterface): Integer;
+begin
+  { PROVEN BY EXECUTION: Signature, and single-comparison cascades only --
+    chaining two comparisons with and/or raises Type mismatch in this dialect. }
+  Result := 0;
+  sig := Signature(e);
+
+  if sig = 'GRUP' then
+    nGroups := nGroups + 1
+  else if sig = 'MAST' then
+    nTES4 := nTES4 + 1
+  else
+  begin
+    Inc(nRecords);
+    if sig = 'CELL' then
+      Inc(nCell);
+
+    idx := sigs.IndexOf(sig);
+    if idx < 0 then
+    begin
+      sigs.Add(sig);
+      cnt.Add('1');
+    end
+    else
+      cnt[idx] := IntToStr(StrToInt(cnt[idx]) + 1);
+  end;
+
+  { The live count, on the 25,000 cadence. Restored deliberately: this was
+    removed in one revision as "noise" and that judgement was wrong -- a live
+    count plus per-signature end totals is the point of the trace, not the cost
+    of it. Four lines a sweep would not distinguish a live run from a hung one
+    quickly enough. }
+  nHeartbeat := nHeartbeat + 1;
+  if nHeartbeat = 25000 then
+  begin
+    nHeartbeat := 0;
+    Say('Process - ' + IntToStr(nRecords) + ' records, ' + IntToStr(nCell)
+      + ' CELL, ' + IntToStr(sigs.Count) + ' signatures so far');
+  end;
+end;
+
+function Finalize: Integer;
+var
+  fs: TFileStream;
+begin
+  Say('Finalize - sweep done: ' + IntToStr(nRecords) + ' records, '
+    + IntToStr(nCell) + ' CELL, ' + IntToStr(sigs.Count) + ' signatures');
+
+  { Report on disk BEFORE anything unproven, so an abort still leaves evidence. }
+  createdNote := 'creation not attempted this run';
+  WriteReport;
+
+  if not loaded then
+  begin
+    Say('Finalize - no target handle, creation skipped');
+    WriteReport;
+    sigs.Free;
+    cnt.Free;
+    sl.Free;
+    Result := 0;
+    exit;
+  end;
+
+  { --- LINK 1: PROVEN at 22:58. Repeat anyway: it is the whole point. --- }
+  Say('LINK 1 - Add(targetFile, CELL, True). PROVEN 2026-09-30 22:58.');
+  linkReached := 1;
+  newElem := Add(targetFile, 'CELL', True);
+  nCreated := 1;
+  createdNote := 'Add returned an element; the record exists in memory and is NOT yet on disk';
+  Say('LINK 1 ok - an element now exists on the target file');
+
+  { --- LINK 2 --- }
+  Say('LINK 2 - FixedFormID(newElem): read back the allocated FormID. UNPROVEN.');
+  linkReached := 2;
+  newId := FixedFormID(newElem);
+  Say('LINK 2 ok - new record FormID 0x' + IntToHex(newId, 8));
+
+  { --- LINK 3 --- }
+  Say('LINK 3 - GetNewFormID(targetFile): the next free id for the header. UNPROVEN.');
+  linkReached := 3;
+  nextId := GetNewFormID(targetFile);
+  Say('LINK 3 ok - next free FormID 0x' + IntToHex(nextId, 8));
+
+  { LINK 4 REMOVED, deliberately, and this is the only thing I changed beyond
+    restoring the output. `cellGroup.Count` raised
+    [EJvInterpreterError] Undeclared Identifier 'Count' at 2026-09-30 23:07, and
+    because it sat in front of the save it meant the run produced NO output at
+    all -- not the save, not the per-signature totals, nothing. IwbGroupRecord
+    has no Count; guessing a member name a third time is not a trade worth
+    making when it costs the entire trace. The count of CELLs in the target file
+    is the validator's job, measured independently, which is the correct split
+    anyway. The save below is now the very next link after the ones that work. }
+
+  { Report again so the numbers are on disk even if the save below raises. }
+  WriteReport;
+
+  { --- LINK 5: THE SAVE. Everything above is worthless without this one. --- }
+  Say('LINK 5 - FileWriteToStream to the scratch path. The game plugin is not touched. UNPROVEN.');
+  linkReached := 5;
+  fs := TFileStream.Create(scratchPath, fmCreate);
+  FileWriteToStream(targetFile, fs);
+  fs.Free;
+  AddMessage('PIPMON: LINK 5 ok - wrote ' + scratchPath);
+  createdNote := 'Add created a CELL and FileWriteToStream wrote it to the scratch path';
+
+  createdNote := createdNote + '; verified by an independent validator in the next phase';
+  WriteReport;
+
+  AddMessage('PIPMON: VERDICT records_created=' + IntToStr(nCreated) + ' links=' + IntToStr(linkReached));
+  AddMessage('PIPMON: SAVED ' + scratchPath);
+  AddMessage('PIPMON: done - Finalize complete');
+  sigs.Free;
+  cnt.Free;
+  sl.Free;
+  Result := 0;
+end;
+
+end.

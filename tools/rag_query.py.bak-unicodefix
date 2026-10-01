@@ -1,0 +1,426 @@
+"""BM25 retrieval over the local PIP-MON index, with provenance on every hit.
+
+Standard library only. Prints the source path, line range, mtime and hash for
+each result so an answer can always be checked against the file it came from.
+
+    python tools/rag_query.py --stats
+    python tools/rag_query.py "xEdit Pascal undeclared identifier"
+    python tools/rag_query.py "load order" --kind state --limit 5 --json
+"""
+import argparse
+import json
+import math
+import re
+import sqlite3
+import sys
+import time
+from collections import Counter
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from rag_index import DB, REPO, RANKING, tokenize  # noqa: E402
+
+# Stdout on a Windows console defaults to cp1252, which cannot represent
+# U+2192 (RIGHTWARDS ARROW), U+2014 (EM DASH), U+2265 and a few others that
+# appear constantly in reference material. Printing a hit containing one of
+# them raised UnicodeEncodeError from inside the result loop, so the process
+# exited 1 AFTER the hit had already been found and ranked.
+#
+# That failure is invisible from the caller's side and reads exactly like a
+# retrieval miss: `pipmon.ps1 rag query` reports "rag_query.py returned a
+# nonzero exit" and shows no hits. Two freshly indexed documents were
+# unretrievable for this reason alone -- the ranker had them at position 1.
+#
+# errors="replace" rather than strict on purpose. A character that cannot be
+# shown should cost one glyph, not the whole query.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+# Subject tags: "@ck navmesh" boosts the files registered for "ck" in
+# ai_context/ranking.json. Boost, never filter -- see the block in main().
+_tag_re = re.compile(r"(?:^|\s)@([A-Za-z0-9_.\-]+)")
+
+K1 = 1.2
+B = 0.75
+
+AUTH = RANKING.get("authority") or {}
+KIND_W = RANKING.get("kind_weights") or {}
+OBJECTIVES = {k: v for k, v in (RANKING.get("objectives") or {}).items() if not k.startswith("_")}
+OBJ_MARKERS = {k: v for k, v in (RANKING.get("objective_markers") or {}).items() if not k.startswith("_")}
+CONSTRAINT = RANKING.get("constraint_evidence") or {}
+STALE = RANKING.get("staleness") or {}
+META = RANKING.get("meta_scope") or {}
+PRIMARY = RANKING.get("primary_source") or {}
+CURATED_BOOST = RANKING.get("curated_boost", 1.35)
+
+STOPWORDS = {
+    "an", "and", "are", "as", "at", "be", "but", "by", "can", "could", "did",
+    "do", "does", "for", "from", "had", "has", "have", "how", "if", "in", "into",
+    "is", "it", "its", "of", "on", "or", "our", "should", "so", "than", "that",
+    "the", "their", "them", "then", "there", "these", "they", "this", "to", "was",
+    "we", "were", "what", "when", "where", "which", "who", "why", "will", "with",
+    "would", "you", "your",
+}
+
+# curated_boost, authority tiers, objectives, constraint bonus and staleness
+# penalty all come from ai_context/ranking.json via RANKING above. Nothing here
+# hardcodes a weight, so the model is tunable as data and cannot silently drift
+# away from the policy it claims to implement.
+CURATED_BOOST = RANKING.get("curated_boost", 1.35)
+
+
+def is_curated(path: str) -> bool:
+    p = path.lower()
+    return p.startswith("ai_context/") and not p.startswith("ai_context/reference/")
+
+
+def load(con, kind=None, path_prefix=None):
+    sql = ("SELECT c.path, c.idx, c.start_line, c.end_line, c.text, f.mtime, f.sha, f.kind, "
+           "f.authority, f.scope FROM chunks c JOIN files f ON f.path = c.path")
+    where = []
+    args = []
+    if kind:
+        where.append("f.kind = ?")
+        args.append(kind)
+    if path_prefix:
+        where.append("c.path LIKE ?")
+        args.append(path_prefix + "%")
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    return sql, args
+
+
+def best_line(lines, terms, weights):
+    """Index of the line carrying the rarest query terms.
+
+    Centring on raw term count drifts toward whichever line repeats common words:
+    querying "AddNewFileName creates a new empty plugin" centred on a passage about
+    AddMasterIfMissing, because that line also said "creates", "new" and "file".
+    The rare term is the reason the chunk matched, so the rare term picks the
+    window.
+    """
+    best_i, best_n = 0, -1.0
+    for i, line in enumerate(lines):
+        low = line.lower()
+        n = sum(weights.get(t, 0.0) for t in terms if t in low)
+        if n > best_n:
+            best_n, best_i = n, i
+    return best_i
+
+
+VOCAB_PATH = Path(__file__).resolve().parent.parent / "ai_context" / "vocabulary.json"
+
+
+def load_vocab():
+    """Load the query vocabulary. Absent or malformed is not fatal: retrieval
+    still works, it just stops knowing that 'psc' and 'Papyrus' are one thing."""
+    if not VOCAB_PATH.exists():
+        return {}
+    try:
+        return json.loads(VOCAB_PATH.read_text(encoding="utf-8")).get("terms", {})
+    except (OSError, ValueError):
+        return {}
+
+
+VOCAB = load_vocab()
+
+
+def form_present(form, low):
+    """Whole-word containment, not substring.
+
+    Substring matching made "BSScript" contain "script", so a query about a
+    vtable slot silently pulled in the entire Papyrus group and a compile-verified
+    Papyrus file outranked the engine headers that actually answer it. A two-word
+    overlap was enough to reroute the query. Multi-word forms fall back to plain
+    containment, which is specific enough to be safe.
+    """
+    f = form.lower()
+    if " " in f:
+        return f in low
+    return re.search(r"(?<![a-z0-9])" + re.escape(f) + r"(?![a-z0-9])", low) is not None
+
+
+def expand_query(text, vocab):
+    """Add every surface form of any concept group the query already touches.
+
+    The index is lexical, so 'how do I make a papyrus event fire' and 'OnTimer
+    ScriptName Event' retrieve completely different things despite describing
+    one subsystem. Expansion is symmetric on purpose: no group has a privileged
+    direction, because which form a given file happens to use is not something
+    the queryer can be expected to know.
+
+    Single pass only. Chaining expansions is how one overlapping token becomes a
+    whole vocabulary group.
+    """
+    low = text.lower()
+    added = []
+    for forms in vocab.values():
+        if sum(1 for f in forms if form_present(f, low)) and len(forms) > 1:
+            for f in forms:
+                if not form_present(f, low) and f not in added:
+                    added.append(f)
+    return (text + " " + " ".join(added) if added else text), added
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("query", nargs="*")
+    ap.add_argument("--db", default=str(DB))
+    ap.add_argument("--kind")
+    ap.add_argument("--path", dest="path_prefix")
+    ap.add_argument("--limit", type=int, default=5)
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--stats", action="store_true")
+    ap.add_argument("--min-score", type=float, default=0.0)
+    ap.add_argument("--max-lines", type=int, default=0,
+                    help="cap body lines per hit, centred on page 1; 0 = whole chunk (default)")
+    ap.add_argument("--page", type=int, default=1,
+                    help="1-based page index when --max-lines is set; a chunk shows page=P/total")
+    ap.add_argument("--roll", type=int, default=0,
+                    help="fine line delta applied after paging, for nudging off a boundary")
+    ap.add_argument("--format", choices=["dense", "tsv", "paths", "json"], default="dense",
+                    help="dense=line-numbered body (default), tsv=metadata rows, paths=rank+path only, json=full")
+    ap.add_argument("--vocabulary", action="store_true",
+                    help="print the retrieval vocabulary and exit; lets a program discover query terms at runtime")
+    ap.add_argument("--no-expand", action="store_true",
+                    help="do not expand the query across vocabulary.json synonym groups")
+    ap.add_argument("--explain", action="store_true",
+                    help="print the full weight breakdown per hit, so ranking is auditable")
+    ap.add_argument("--no-weights", action="store_true",
+                    help="score on BM25 alone, ignoring ai_context/ranking.json (for A/B comparison)")
+    args = ap.parse_args()
+    if args.json:
+        args.format = "json"
+
+    if args.vocabulary:
+        groups = sorted(VOCAB.items())
+        if args.format == "json":
+            print(json.dumps({"version": 1, "source": str(VOCAB_PATH), "terms": VOCAB}, indent=2))
+        else:
+            print("vocabulary file=%s groups=%d" % (VOCAB_PATH, len(groups)))
+            for key, forms in groups:
+                print(" %-22s %s" % (key, " | ".join(forms)))
+        return 0
+
+    if not Path(args.db).exists():
+        print("no index at %s -- run: python tools/rag_index.py" % args.db, file=sys.stderr)
+        return 2
+
+    con = sqlite3.connect(args.db)
+    if args.stats or not args.query:
+        nf = con.execute("SELECT COUNT(*) FROM files").fetchone()[0]
+        nc = con.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+        print("index files=%d chunks=%d db=%s" % (nf, nc, args.db))
+        for kind, kf, kc in con.execute(
+            "SELECT f.kind, COUNT(DISTINCT f.path), COUNT(c.id) FROM files f"
+            " LEFT JOIN chunks c ON c.path = f.path GROUP BY f.kind ORDER BY 3 DESC"
+        ):
+            print("kind %-8s files=%-5d chunks=%-6d share=%.1f%%"
+                  % (kind, kf, kc, (100.0 * kc / nc) if nc else 0.0))
+        print("newest:")
+        for path, mt in con.execute("SELECT path, indexed_utc FROM files ORDER BY indexed_utc DESC LIMIT 8"):
+            print("  %s %s" % (mt, path))
+        sizes = sorted(x[0] for x in con.execute("SELECT end_line-start_line FROM chunks"))
+        if sizes:
+            def pct(q):
+                return sizes[min(len(sizes) - 1, int(len(sizes) * q))]
+            print("chunk_lines p50=%d p90=%d p99=%d max=%d (cap ~%d chars, so one chunk "
+                  "cannot reach hundreds of lines; bulk output comes from hit count)"
+                  % (pct(.5), pct(.9), pct(.99), sizes[-1], 1400))
+        con.close()
+        return 0
+
+    raw = " ".join(args.query)
+    query_low = raw.lower()
+    query_is_meta = any(m in query_low for m in OBJ_MARKERS.get("retrieval", []))
+    added = []
+    if not args.no_expand:
+        raw, added = expand_query(raw, VOCAB)
+    terms = tokenize(raw)
+    if not terms:
+        print("query produced no searchable tokens", file=sys.stderr)
+        return 2
+    content = [t for t in terms if t not in STOPWORDS]
+    if content:
+        terms = content
+    uniq = sorted(set(terms))
+    sql, sqlargs = load(con, args.kind, args.path_prefix)
+    rows = con.execute(sql, sqlargs).fetchall()
+    con.close()
+
+    n = len(rows)
+    if n == 0:
+        print("index is empty for the given filters")
+        return 0
+
+    docs = []
+    df = Counter()
+    for row in rows:
+        toks = set(tokenize(row[4]))
+        docs.append((row, toks))
+        for t in uniq:
+            if t in toks:
+                df[t] += 1
+
+    lens = []
+    for row, _ in docs:
+        lens.append(len(tokenize(row[4])))
+    avgdl = sum(lens) / n or 1.0
+
+    def weight_parts(row):
+        """Every multiplier applied to one hit, named. Kept inspectable on purpose:
+        a ranker whose weights cannot be explained cannot be argued with, and an
+        unexplainable ranker is how a workspace starts confidently wrong."""
+        path, text, kind = row[0], row[4], row[7]
+        auth = row[8] if len(row) > 8 else None
+        scope = row[9] if len(row) > 9 else None
+        parts = {"authority[%s]" % (auth or "derived"): AUTH.get(auth, 1.0) if auth else 1.0}
+        kw = KIND_W.get(kind, 1.0)
+        if kw != 1.0:
+            parts["kind[%s]" % kind] = kw
+        if is_curated(path):
+            parts["curated"] = CURATED_BOOST
+        for pref in PRIMARY.get("paths", []):
+            if path.startswith(pref):
+                parts["primary-source"] = PRIMARY.get("boost", 1.0)
+                break
+        if scope == "meta" and not query_is_meta:
+            # A file documenting the tooling answers questions about the tooling.
+            # Quoting the S0 objective to justify a weight is not a claim about
+            # S0, so on a domain question it must lose to domain files.
+            parts["meta:off-domain"] = META.get("off_domain_penalty", 0.6)
+        low = text.lower()
+        hits = [k for k, marks in OBJ_MARKERS.items() if any(mm in low for mm in marks)]
+        if hits:
+            best = max(hits, key=lambda k: OBJECTIVES.get(k, 1.0))
+            if scope == "meta":
+                # Discussing an objective is not advancing it.
+                parts["objective[%s]:meta-suppressed" % best] = 1.0
+            else:
+                parts["objective[%s]" % best] = OBJECTIVES.get(best, 1.0)
+        if any(mm in low for mm in CONSTRAINT.get("markers", [])):
+            parts["constraint"] = CONSTRAINT.get("bonus", 1.0)
+        if any(mm in low for mm in STALE.get("markers", [])):
+            parts["stale"] = STALE.get("penalty", 1.0)
+        return parts
+
+    scored = []
+    for (row, toks), dl in zip(docs, lens):
+        tf = Counter(tokenize(row[4]))
+        score = 0.0
+        for t in uniq:
+            f = tf.get(t, 0)
+            if not f:
+                continue
+            idf = math.log(1 + (n - df[t] + 0.5) / (df[t] + 0.5))
+            score += idf * (f * (K1 + 1)) / (f + K1 * (1 - B + B * dl / avgdl))
+        parts = {"bm25": score} if score > 0 else {}
+        if score > 0 and not args.no_weights:
+            parts = weight_parts(row)
+        total = 1.0
+        for v in parts.values():
+            total *= v
+        cap = RANKING.get("max_total_multiplier", 3.0)
+        if isinstance(cap, dict):
+            cap = cap.get("value", 3.0)
+        if cap and total > cap:
+            # Without a ceiling the tiers stack: one compile-verified curated file
+            # reached 5.95x and became the answer to questions it had nothing to
+            # do with. The ordering the tiers express is preserved; only the
+            # runaway stacking is capped.
+            scale = cap / total
+            parts = {k: v * scale for k, v in parts.items()}
+            parts["capped"] = scale
+        for v in parts.values():
+            score *= v
+        if score > args.min_score:
+            scored.append((score, row, parts))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top = scored[: args.limit]
+
+    weights = {}
+    for t in uniq:
+        if df.get(t):
+            weights[t] = math.log(1 + (n - df[t] + 0.5) / (df[t] + 0.5))
+
+    if not top:
+        print("no chunk matched %s" % " ".join(uniq))
+        return 0
+
+    if args.json:
+        print(json.dumps([
+            {
+                "score": round(s, 4),
+                "path": r[0],
+                "chunk": r[1],
+                "lines": [r[2], r[3]],
+                "kind": r[7],
+                "sha": r[6],
+                "indexed": time.strftime("%Y-%m-%d", time.localtime(r[5])),
+                "text": r[4],
+            }
+            for s, r, _wp in top
+        ], indent=2))
+        return 0
+
+    if args.format == "paths":
+        for rank, (s, r, wp) in enumerate(top, 1):
+            print("%d\t%.3f\t%s\tL%d-%d" % (rank, s, r[0], r[2], r[3]))
+        print("hits=%d chunks=%d" % (len(top), n))
+        return 0
+
+    if args.format == "tsv":
+        for rank, (s, r, wp) in enumerate(top, 1):
+            print("%d\t%.3f\t%s\tL%d-%d\t%d\t%s\t%s\t%s" % (
+                rank, s, r[0], r[2], r[3], len(r[4].splitlines()), r[7], r[6],
+                ",".join(sorted({t for t in uniq if t in r[4].lower()})) or "-"))
+        print("hits=%d chunks=%d" % (len(top), n))
+        return 0
+
+    for rank, (s, r, wp) in enumerate(top, 1):
+        path, idx, start, end, text, mtime, sha, kind, auth, scope = r
+        lines = text.splitlines()
+        total = len(lines)
+        cap = args.max_lines if args.max_lines > 0 else total
+        pages = max(1, -(-total // cap))
+        if total > cap:
+            # Page 1 is centred on the rarest term so the evidence is never the
+            # thing you have to go looking for; later pages are plain offsets.
+            if args.page <= 1 and not args.roll:
+                s0 = max(0, min(best_line(lines, uniq, weights) - cap // 2, total - cap))
+            else:
+                s0 = (args.page - 1) * cap
+            s0 = max(0, min(s0 + args.roll, total - cap))
+            window = list(enumerate(lines[s0:s0 + cap], s0))
+        else:
+            window = list(enumerate(lines))
+            pages = 1
+        matched = sorted({t for t in uniq if t in text.lower()})
+        head = "%d score=%.3f %s L%d-%d/%d kind=%s sha=%s mtime=%s m=%s" % (
+            rank, s, path, start, end, total, kind, sha,
+            time.strftime("%Y-%m-%dT%H:%M", time.localtime(mtime)),
+            ",".join(matched) or "-")
+        if total > cap:
+            shown_page = min(max(1, args.page), pages)
+            head += " page=%d/%d win=%d-%d roll=%+d" % (
+                shown_page, pages, window[0][0] + 1, window[-1][0] + 1, args.roll)
+        if added:
+            head += " x=%d[%s]" % (len(added), ",".join(added[:6]))
+        print(head)
+        if args.explain:
+            print("  w=" + " ".join("%s=%.3f" % (k, v) for k, v in wp.items()))
+        for i, line in window:
+            low = line.lower()
+            print(" %d%s|%s" % (i + start, "*" if any(t in low for t in uniq) else " ", line))
+    if args.page > 1 and args.max_lines <= 0:
+        print("note: --page needs --max-lines; showing whole chunks")
+    print("hits=%d chunks=%d" % (len(top), n))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
