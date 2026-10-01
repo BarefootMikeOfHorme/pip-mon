@@ -158,6 +158,18 @@ REM after deliberately reviewing the current findings.
 python "%R%tools\artifact_gate.py"
 if errorlevel 1 ( set FAILED=1 & echo [FAIL] artifact gate )
 
+REM Does the artifact gate actually DISCRIMINATE? A green artifact gate above
+REM only means no detect list matched. It cannot tell the difference between a
+REM list that catches the thing and a list that has quietly stopped matching --
+REM and the "array length intrinsic" entry shipped a 'Count' stem of
+REM 'array.Count', which word_hit() matches literally, so it fired only on a
+REM variable named 'array' and let Roster.Count through. Green gate, spec
+REM reading correctly, nothing enforced. This stage asserts the behaviour on a
+REM synthetic file in a temp dir, so a stem that matches nothing and an
+REM exemption that is one step too wide both fail here instead of passing quietly.
+python "%R%tools\gate_selftest.py"
+if errorlevel 1 ( set FAILED=1 & echo [FAIL] gate self-test )
+
 REM Per-side status. Every other stage is GLOBAL, which is its weakness: a green
 REM gate says the thing builds, not that any side of the work functions. Two of
 REM three sides are currently unavailable while the gate is green. This stage
