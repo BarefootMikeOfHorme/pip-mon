@@ -46,6 +46,13 @@ int property PingCount = 0 auto readonly
 int property TerminationRequests = 0 auto readonly
 int property StackDumpRequests = 0 auto readonly
 
+; Soft-cancel requests, counted separately from TerminationRequests. The two
+; mean different things to the runner: TerminationRequests means "stop, skipping
+; cleanup", this means "unwind if you can, letting the script release its locals".
+; Papyrus cannot perform either -- see RequestTerminate -- so the split is what
+; preserves the distinction across the boundary.
+int property SoftTerminationRequests = 0 auto readonly
+
 ; Custom events are raised with the no-argument form. A CustomEvent is declared
 ; with no parameters and its payload travels in the Var[] passed to
 ; SendCustomEvent, read back by cast in the receiver's
@@ -57,6 +64,7 @@ CustomEvent OverseerPing
 CustomEvent OverseerStatusChanged
 CustomEvent OverseerRequestStackDump
 CustomEvent OverseerRequestTerminate
+CustomEvent OverseerRequestTerminateSoft
 CustomEvent OverseerError
 Event OnInit()
     ; Fired once at cell load. OverseerCLI treats the first ping as proof that
@@ -98,19 +106,41 @@ Function RequestTerminate(int aThreadId, bool aForce)
         SendCustomEvent("OverseerRequestTerminate")
         Utility.Wait(0.0)   ; yield so the native runner sees the counter
     else
-        ; Soft cancel: ask the owning form to cancel itself. Pure Papyrus, so
-        ; it is safe from anywhere.
-        ObjectReference owner = GetOwningObjectOfThread(aThreadId)
-        if owner != 0
-            owner.Cancel()
-            SendCustomEvent("OverseerStatusChanged")
-        else
-            SendCustomEvent("OverseerError")
-        endif
+        ; Soft cancel. FO4 Papyrus cannot do this from script: there is no
+        ; GetOwningObjectOfThread, so a script cannot ask a thread who owns it,
+        ; and no Cancel method on ScriptObject, so it cannot ask that owner to
+        ; stop. Both were compile-verified absent on 2026-10-01 against compiler
+        ; 2.8.0.4; see ai_context/papyrus_syntax_rules.md section 1.
+        ;
+        ; So the distinction is RECORDED rather than performed, and the native
+        ; main-thread runner performs whichever unwind it can. That is the right
+        ; owner anyway: only the runner is allowed to touch VM thread structures,
+        ; and only from the main thread (docs/ENGINEERING_RULES.md Rule 3). The
+        ; soft path asks the runner to unwind with cleanup; the force path at
+        ; :92 skips that. Both are requests. Neither is a lie about what script
+        ; code can do.
+        SoftTerminationRequests += 1
+        PendingTerminationCount += 1
+        MarkedForTermination = true
+        SendCustomEvent("OverseerRequestTerminateSoft")
+        Utility.Wait(0.0)   ; yield so the native runner sees the counter
     endif
 EndFunction
 
-Function ConsumeTerminationRequests()
+; Return type placement, verified against compiler 2.8.0.4 on 2026-10-01 by
+; compiling five variants of a two-line function. Only ONE spelling compiles:
+;
+;   Int Function GetCount()          <- correct
+;   Function GetCount() int          -> no viable alternative at input 'int'
+;   Function Int GetCount()          -> extraneous input 'Int' expecting ID
+;   Function GetCount() Integer      -> Unknown user flag integer
+;   Function GetCount()              -> cannot return a int, the function does
+;                                        not return a value
+;
+; The type precedes the whole declaration, not the name and not the parameter
+; list. A function that returns a value NEEDS one; leaving it off is the error
+; "cannot return a int from <name>, the function does not return a value".
+Int Function ConsumeTerminationRequests()
     ; Drained by the main-thread runner. Returns the count and resets, so a
     ; request can never be executed twice.
     int n = TerminationRequests
@@ -131,7 +161,7 @@ Function RequestStackDump(int aThreadId)
     Utility.Wait(0.0)
 EndFunction
 
-Function ConsumeStackDumpRequests()
+Int Function ConsumeStackDumpRequests()
     int n = StackDumpRequests
     StackDumpRequests = 0
     return n
@@ -143,15 +173,25 @@ EndFunction
 ; Papyrus exposes no way to enumerate script properties from C++ generically, so
 ; the bridge publishes the specific values OverseerCLI needs as plain events.
 ; This is the "dumb producer" boundary (Rule 4): facts out, no judgement.
-
-Event OnGetGlobalState()
-    ; One round-trip: a script name and its FormID. OverseerCLI uses this to
-    ; resolve the FormID it sees in telemetry to something a human recognises,
-    ; which is the difference between "05005678" and "SkyFC06.esp Script_TCMain".
+;
+; This is a FUNCTION, not `Event OnGetGlobalState()`. A script that is not
+; flagged Native cannot declare a new event at all: the compiler rejects it with
+; "new event ongetglobalstate cannot be defined because the script is not
+; flagged as native" (compile-verified 2026-10-01). This script must stay
+; non-native, because the Native flag is what forces you to hand-write the
+; ABI and gives up the compiler's checking. So the two former events became
+; functions, and the one in-build event that does exist,
+; OnMenuOpenCloseEvent, dispatches to them by property -- the same shape
+; BridgeAction already uses below for the menu.
+;
+; One round-trip: a script name and its FormID. OverseerCLI uses this to resolve
+; the FormID it sees in telemetry to something a human recognises, which is the
+; difference between "05005678" and "SkyFC06.esp Script_TCMain".
+Function PublishGlobalState()
     SendCustomEvent("OverseerStatusChanged")
-        ; The state string belongs in a Var[] payload; the no-argument form is
-        ; the compile-green shape and is documented at the top of this file.
-EndEvent
+    ; The state string belongs in a Var[] payload; the no-argument form is
+    ; the compile-green shape and is documented at the top of this file.
+EndFunction
 
 ; ---------------------------------------------------------------------------
 ; Test Bench integration
@@ -160,8 +200,9 @@ EndEvent
 ; them separate is what makes the TestLab usable WITHOUT the bridge installed,
 ; which matters because a user debugging a broken probe should still be able to
 ; generate a known signal.
-
-Event OnTestLabEvent(int aEventKind)
+;
+; A function, for the same non-Native reason as PublishGlobalState above.
+Function NoteTestLabEvent(int aEventKind)
     if aEventKind == 1
         ; LoopTest started
         SendCustomEvent("OverseerStatusChanged")
@@ -172,7 +213,7 @@ Event OnTestLabEvent(int aEventKind)
         ; LeakTest cleaned up
         SendCustomEvent("OverseerStatusChanged")
     endif
-EndEvent
+EndFunction
 
 ; ---------------------------------------------------------------------------
 ; Menu
@@ -188,6 +229,11 @@ EndEvent
 ;
 ;   BridgeAction  0 = ping   1 = publish global state   2 = cancel all
 int property BridgeAction = 0 auto
+
+; Argument for BridgeAction == 4. A property rather than an event parameter
+; because the event that could carry it (OnTestLabEvent) cannot be declared in
+; a non-Native script.
+int property TestLabEventKind = 0 auto
 
 Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
       ; OnMenuOpenCloseEvent is the in-build terminal hook: it is declared on
@@ -209,12 +255,23 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
             SendCustomEvent("OverseerPing")
             Debug.Notification("Global state published. Check the OverseerCLI log.")
         elseif BridgeAction == 2
-            ; self.Cancel() is the only universally safe way for a script to stop
-            ; itself. Offered because it is the action a user reaches for in the
-            ; console, and having it discoverable prevents them reaching for
-            ; force-kill instead.
-            SendCustomEvent("OverseerStatusChanged")
-            self.Cancel()
+            ; A script cannot stop itself in FO4 Papyrus. self.Cancel() is the
+            ; Skyrim idiom and this build declares no Cancel on ScriptObject
+            ; (compile-verified absent 2026-10-01; papyrus_syntax_rules.md
+            ; section 1). So the action is routed the same way every other
+            ; termination is: recorded, and performed by the native main-thread
+            ; runner. Offering it as BridgeAction 2 rather than removing it
+            ; matters -- it is the action a user reaches for, and a discoverable
+            ; request is better than an undeclared feature.
+            RequestTerminate(-1, true)
+            Debug.Notification("Cancel requested. The native runner performs it; Papyrus cannot.")
+        elseif BridgeAction == 3
+            ; Dispatch point for PublishGlobalState, which cannot be an event.
+            PublishGlobalState()
+        elseif BridgeAction == 4
+            ; Dispatch point for NoteTestLabEvent, which cannot be an event.
+            ; Kind 1=LoopTest started, 2=LeakTest started, 3=LeakTest cleaned up.
+            NoteTestLabEvent(TestLabEventKind)
         endif
     endif
 EndEvent

@@ -64,6 +64,12 @@ CustomEvent LoopTestStarted
 CustomEvent LoopTestIteration
 CustomEvent LoopTestStopped
 CustomEvent LoopTestAborted
+; Declared at script scope, next to the other custom events. SpawnThreadFromCustomEvent
+; at :93 needs a CustomEvent, and the handler it starts is Event OnLoopThread() at :103.
+; An Event is not a CustomEvent; pairing them is what the compiler rejected as
+; "required (...)+ loop did not match anything at input '('", pointing at :93 and
+; :182 rather than at the declaration that was actually missing.
+CustomEvent LoopThread
 Event OnInit()
     ; Runs once at cell load. Report the FormID so a test run can be tied to an
     ; exact script instance -- FormIDs shift with load order, so recording the
@@ -90,6 +96,12 @@ Function StartLoop(int aThreads)
     ; single test cannot validate both rules.
     int i = 0
     while i < aThreads
+        ; SpawnThreadFromCustomEvent needs a CustomEvent, and the handler below is
+        ; declared `Event OnLoopThread()` -- an event, not a custom event. The two
+        ; are not interchangeable: the compiler rejected the mismatched pair with
+        ; "required (...)+ loop did not match anything at input '('" at :93 and again
+        ; at :182, both pointing at innocent call sites far from the real fault.
+        ; Declared at script scope, next to the other custom events at :63.
         SpawnThreadFromCustomEvent LoopThread(self)
         i += 1
     endwhile

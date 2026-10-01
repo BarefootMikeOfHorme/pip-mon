@@ -193,11 +193,37 @@ than a missing artefact. See `vprobe/papyrus/build_papyrus.bat`.
 `Event OnSomething(type arg)` take no trailing `;`. The same is true of the
 `end...` keywords: one terminator per line, never two. A stray `;` on a
 declaration does not error where it is — the parser loses its place and reports
-the damage somewhere else entirely, usually as a loop or a type error hundreds of
-lines downstream. This is the single most expensive typo in this codebase and it
+the damage somewhere else entirely, usually as a loop or a type error hundreds
+of lines downstream. This is the single most expensive typo in this codebase and it
 has now been made twenty times across four files. If the compiler blames a line
 that looks obviously correct, look for a `;` or a doubled terminator *earlier* in
 the same file.
+
+**A return type goes BEFORE the whole declaration, and it is required.**
+Verified on 2026-10-01 by compiling five spellings of the same two-line function
+against compiler 2.8.0.4. Exactly one compiles:
+
+```papyrus
+Int Function ConsumeTerminationRequests()      ; correct
+    int n = Something
+    return n
+EndFunction
+```
+
+| Spelling | Compiler says |
+| --- | --- |
+| `Int Function Name()` | compiles, and a caller may consume the result |
+| `Function Name() int` | no viable alternative at input `'int'` |
+| `Function Int Name()` | extraneous input `'Int'` expecting ID |
+| `Function Name() Integer` | Unknown user flag `integer` — `Integer` is not a type here |
+| `Function Name()` (no type) | cannot return a int from Name, the function does not return a value |
+
+The type precedes the declaration; it does not follow the name and it does not
+follow the parameter list. The last row is the trap: omitting the type looks like
+"Papyrus has no return types" and it does not — an untyped function simply
+cannot return a value, and the error names the `return` rather than the missing
+type. Note that `Int` is correct and `Integer` is not.
+
 
 `Game.GetPlayer()` returns an Actor.
 `ObjectReference.PlaceAtMe(akOrigin, aiCount, aiOverrideBehavior)` returns a
