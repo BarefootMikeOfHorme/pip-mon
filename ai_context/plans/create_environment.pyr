@@ -141,6 +141,17 @@
       "preconditions": [
         "P3 verify passed"
       ],
+      "placement_requirements_2026_10_01": {
+        "note": "Discovered while repairing the Papyrus test scripts. NOT yet done in the CK, so the cell this plan builds will not be playable until it is. Each item is a placement instruction, not a code change.",
+        "PipMon_LoopTest": "Scriptname is now 'extends ObjectReference', because self.GetFormID() is the only way to report a FormID and it requires a real static type on self -- a bare Scriptname self is a ScriptObject that cannot be cast to ObjectReference and has no GetFormID. Cost of the fix: the CK must ATTACH this script to an object in the cell rather than leave it on the quest. It also needs a value for its AbortRequested property to be settable from the console.",
+        "PipMon_LeakTest": "Needs ObjectReference properties ActorSettler, ActorRaider and Workbench assigned to placed objects in the cell. Every one of them is optional at runtime -- the tick falls through Workbench -> ActorSettler -> ActorRaider and skips if all are none -- but with none assigned the test spawns nothing and reports a healthy zero, which is a false pass. Assign at least one.",
+        "PipMon_TerminalTest": "Unchanged placement. Property-dispatched from OnMenuOpenCloseEvent via its own action property, same pattern as the other two."
+      },
+      "capability_gaps_2026_10_01": {
+        "note": "Real absences found by compiling against PapyrusCompiler 2.8.0.4, not by reading documentation. Both are recorded so a future attempt does not re-litigate them as typos. Neither blocks P4; both block parts of the test scripts' stated purpose.",
+        "no_script_thread_spawn": "SpawnThreadFromCustomEvent does not exist in FO4 Papyrus -- it is SKSE. NO script can start a second thread. This is a missing capability, not a missing wrapper: no spelling works, with or without a (self) argument. Consequence: PipMon_LoopTest cannot exercise the vm_starvation path from script alone, because that needs N>=2 concurrent threads. It now records RequestedThreads and ThreadsSpawned separately so a run reports the gap rather than silently testing N=1 while claiming N. Fixing this needs the native side, so it is Layer A work.",
+        "no_script_side_unwind": "self.Cancel() and GetOwningObjectOfThread do not exist either, so a script cannot stop itself. Every termination is therefore recorded as a request (OverseerBridge's RequestTerminate, with TerminationRequests for force and SoftTerminationRequests for unwind) and performed by the native main-thread runner. Also Layer A work."
+      },
       "actions": [
         {
           "run": "tools/run_gen.ps1 -Async",
@@ -166,6 +177,13 @@
           "gate": "tools/xedit_log.py --report generator --gen-key",
           "expect_exit": 0,
           "why": "The number, not the file. A generator that reaches Finalize and creates nothing is the most likely way this phase reports green while the environment still does not exist, so the gate asks the report for records_created > 0. xedit_log.py gained --report and --gen-key for exactly this: one tool, two artefacts, no silent substitution between them."
+        },
+        {
+          "gate": "FIRST-RUN MODE: run the records_created gate with --expect 0, and treat a red as INCONCLUSIVE rather than failed",
+          "expect_exit": 0,
+          "status": "REPAIR REQUIRED BEFORE THE FIRST wbCopyElementToFile RUN, 2026-10-01",
+          "why": "This gate is a WALL as written. It demands records_created > 0 from a generator that could not create records at all -- every link in the group-addressing chain was documented but unproven, and an unproven call aborts the run with nothing written. So the gate cannot pass, which means P4 reporting red tells you NOTHING about whether the creation call now works. That is the trap: run wbCopyElementToFile, have it succeed, and a red P4 would read as the create having failed. Fix before the run, not after. Two ways. (a) Replace the gate with what the stage can actually prove: a record created in memory, written to the scratch path, and the scratch .esp measurably larger than the 66-byte header. (b) Keep records_created > 0 but only AFTER wbCopyElementToFile has been shown to work, and run the first attempt as a diagnostic that bypasses this gate. Either way the diagnostic run must be labelled in the log, or the next session will read a red P4 as a create failure -- which is exactly the wrong conclusion and costs another cycle.",
+          "also": "This gate is also the one place a green P4 could be a false pass in the other direction: if --gen-key is satisfied by a leftover generator report from an earlier run, P4 goes green without this run having created anything. xedit_log.py must therefore be reading THIS run's report; check the report's mtime against the job start before trusting a green."
         }
       ],
       "on_failure": {
