@@ -180,6 +180,13 @@ def main():
                     help="also require the generator report to declare records_created > 0")
     ap.add_argument("--stale-after", type=int, default=900,
                     help="seconds after which the evidence is called out as stale")
+    ap.add_argument("--diagnostic", action="store_true",
+                    help=("first-run mode: --gen-key reports INCONCLUSIVE (exit 3) instead of "
+                          "FAILED when the generator ran but created nothing. Use for the first "
+                          "wbCopyElementToFile attempt, where records_created > 0 is not yet "
+                          "reachable and a red would be misread as the create having failed. "
+                          "Exit 3 is deliberately distinct from 1 so an inconclusive diagnostic "
+                          "can never be mistaken for a pass or for a real failure."))
     args = ap.parse_args()
 
     s = survey(args.report)
@@ -242,8 +249,23 @@ def main():
         # pass, and it is the single most likely way this phase could report
         # green while the environment still does not exist. So the gate asks the
         # report for the number, not for its existence.
+        #
+        # FRESHNESS, checked before the number. The report is a file on disk and
+        # survives between runs, so a green from a previous job is a green for a
+        # job that never happened. survey() already computes a `stale` flag from
+        # --stale-after, but the gen-key branch never consulted it, which left
+        # exactly the false pass this gate exists to prevent. A stale report is
+        # now refused outright rather than reported as a number.
         created = None
         if GEN_REPORT.exists():
+            age = time.time() - GEN_REPORT.stat().st_mtime
+            if age > args.stale_after:
+                if not args.json:
+                    print("\n  NOT MET: the generator report is %.0fs old (limit %ds)." % (age, args.stale_after))
+                    print("  It describes an EARLIER run, so a pass here would be evidence")
+                    print("  for a job that did not just happen. Re-run tools/run_gen.ps1 -Async")
+                    print("  and -Collect, or raise --stale-after deliberately.")
+                return 1
             try:
                 created = int(json.loads(GEN_REPORT.read_text(encoding="utf-8")).get("records_created", 0))
             except Exception as e:
@@ -259,6 +281,19 @@ def main():
                     print("  The generator ran and wrote its report, and created no record.")
                 print("  Either way this is a real result about a real gap -- not a pass,")
                 print("  and not something to re-run hoping for a different answer.")
+            # Diagnostic mode: the generator demonstrably RAN and wrote a fresh
+            # report, and created nothing. That is exactly the expected shape of
+            # the first wbCopyElementToFile attempt, so it is inconclusive
+            # rather than failed -- but only when the report was actually found
+            # and is fresh. A missing report is still a failure in any mode.
+            if args.diagnostic and created is not None:
+                if not args.json:
+                    print()
+                    print("  INCONCLUSIVE (--diagnostic): the generator ran and reported, and")
+                    print("  created 0 records. This says the create call did not work yet. It")
+                    print("  does NOT say the create call cannot work. Read the exception log for")
+                    print("  the actual failure before concluding anything.")
+                return 3
             return 1
         if not args.json:
             print("  OK  generator created %d record(s)" % created)

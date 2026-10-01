@@ -176,14 +176,16 @@
         {
           "gate": "tools/xedit_log.py --report generator --gen-key",
           "expect_exit": 0,
+          "status": "STRICT MODE, and it is a WALL until record creation is proven. Diagnostic mode is what the first run uses -- see the next entry.",
           "why": "The number, not the file. A generator that reaches Finalize and creates nothing is the most likely way this phase reports green while the environment still does not exist, so the gate asks the report for records_created > 0. xedit_log.py gained --report and --gen-key for exactly this: one tool, two artefacts, no silent substitution between them."
         },
         {
-          "gate": "FIRST-RUN MODE: run the records_created gate with --expect 0, and treat a red as INCONCLUSIVE rather than failed",
-          "expect_exit": 0,
-          "status": "REPAIR REQUIRED BEFORE THE FIRST wbCopyElementToFile RUN, 2026-10-01",
-          "why": "This gate is a WALL as written. It demands records_created > 0 from a generator that could not create records at all -- every link in the group-addressing chain was documented but unproven, and an unproven call aborts the run with nothing written. So the gate cannot pass, which means P4 reporting red tells you NOTHING about whether the creation call now works. That is the trap: run wbCopyElementToFile, have it succeed, and a red P4 would read as the create having failed. Fix before the run, not after. Two ways. (a) Replace the gate with what the stage can actually prove: a record created in memory, written to the scratch path, and the scratch .esp measurably larger than the 66-byte header. (b) Keep records_created > 0 but only AFTER wbCopyElementToFile has been shown to work, and run the first attempt as a diagnostic that bypasses this gate. Either way the diagnostic run must be labelled in the log, or the next session will read a red P4 as a create failure -- which is exactly the wrong conclusion and costs another cycle.",
-          "also": "This gate is also the one place a green P4 could be a false pass in the other direction: if --gen-key is satisfied by a leftover generator report from an earlier run, P4 goes green without this run having created anything. xedit_log.py must therefore be reading THIS run's report; check the report's mtime against the job start before trusting a green."
+          "gate": "tools/xedit_log.py --report generator --gen-key --diagnostic",
+          "expect_exit": 3,
+          "first_run_only": true,
+          "status": "IMPLEMENTED in tools/xedit_log.py on 2026-10-01",
+          "why": "This is the gate the FIRST wbCopyElementToFile run must use. The strict gate demands records_created > 0 from a generator that could not create records, so it cannot pass, and a red from it says nothing about whether the create call now works. --diagnostic reports exit 3 (INCONCLUSIVE) when the generator demonstrably ran, wrote a fresh report, and created nothing -- which is the expected shape of a first attempt -- and exit 1 when there is no report or it is unreadable. Exit 3 is deliberately distinct from both 0 and 1 so an inconclusive diagnostic can never be read as a pass or as a real failure. Switch to the strict gate once creation is proven.",
+          "stale_report_fixed_2026_10_01": "The strict gate also had a false pass, now closed. The generator report is a file on disk that survives between runs, and survey() already computed a stale flag from --stale-after that the --gen-key branch never consulted. So a records_created=5 report from a PREVIOUS job would have turned P4 green without this run creating anything -- the precise failure this gate exists to prevent. The branch now refuses a report older than --stale-after outright. Verified: a backdated positive report is refused with exit 1, a fresh one passes with exit 0."
         }
       ],
       "on_failure": {
