@@ -167,6 +167,29 @@ if ($Collect) {
     Write-Output ("xEdit pid {0} exited after {1}s" -f $job.pid, $elapsed)
     $e = Get-Exc
     Show-Exc $e
+
+    # Promote the staging file now that xEdit has exited and released its handle
+    # on the loaded plugin. Until this point the CELL existed only in xEdit's
+    # memory and the staging file was transport; the plugin in the game folder is
+    # still the pre-run snapshot until the copy below succeeds.
+    $stageEsp = Join-Path (Split-Path -Parent $Template) 'out\PipMonTestFacility.staging.esp'
+    $gameTarget = Join-Path 'C:\Program Files (x86)\Steam\steamapps\common\Fallout 4\Data' $job.plugin
+    if (Test-Path -LiteralPath $stageEsp) {
+        $sz = (Get-Item -LiteralPath $stageEsp).Length
+        Write-Output ("staging file: {0} B" -f $sz)
+        if ($sz -le 66) {
+            Write-Output 'NOT PROMOTED: staging file is header-only (66 B), so there is no CELL to install.'
+            Write-Output '  Promoting it would replace a working plugin with an empty one.'
+        } else {
+            Copy-Item -LiteralPath $stageEsp -Destination $gameTarget -Force
+            $now = (Get-Item -LiteralPath $gameTarget).Length
+            Write-Output ("PROMOTED -> {0} ({1} B)" -f $gameTarget, $now)
+            if ($now -le 66) { Write-Output '  WARNING: installed plugin is still 66 B. Verify before trusting it.' }
+        }
+    } else {
+        Write-Output 'no staging file: the generator did not write one.'
+    }
+
     if (Test-Path $ReportOut) {
         Copy-Item -LiteralPath $ReportOut -Destination $Report -Force
         Write-Output 'PASS: the generator wrote its report'
@@ -206,24 +229,39 @@ $gameData = 'C:\Program Files (x86)\Steam\steamapps\common\Fallout 4\Data'
 $target = Join-Path $gameData $Plugin
 
 # ---------------------------------------------------------------- WRITE TARGET
-# The generator writes back to the plugin it was handed, i.e. the real one in the
-# game Data folder. That is the whole point of the testfacility: it is a named,
-# loadable plugin that must work both in-game and in-engine, not a throwaway.
+# xEdit CANNOT write the plugin in place, and this is not a workaround for
+# something else. xEdit has the file open -- it loaded it, it is the load-order
+# target -- and TFileStream.Create(..., fmCreate) needs exclusive access. The
+# 2026-10-01 03:22 run proved it exactly:
+#   [EFCreateError] Cannot create file "...\Data\PipMonTestFacility.esp".
+#   The process cannot access the file because it is being used by another process
+# The CELL was created first and only the write failed, so the create is fine and
+# the destination was wrong.
 #
-# It used to write to a scratch 'PipMonTestFacility.probe.esp' beside the source,
-# on the reasoning that an experiment which wrote malformed records should be
-# disposable. That was wrong twice over, and the second run proved it:
-#   1. The CELL was created on the LOADED plugin in memory, then serialised to a
-#      file that is not in the load order. The record group was never populated
-#      by the loader, so the output was a bare 66-byte TE header with no CELL in
-#      it -- and validating that file reports "empty", which reads as a generator
-#      failure when the generator actually succeeded.
-#   2. A 'probe' suffix on the artifact is exactly the misnaming this project is
-#      not supposed to leave behind: a file called probe that the game cannot load
-#      and the validator cannot meaningfully read.
-# So the write target is the plugin itself. The safety that mattered is kept by
-# snapshotting the original before every run, which is a real rollback rather than
-# a rename.
+# This is also why the shipped SaveAs.pas always saves to a DIFFERENT filename via
+# a Save As dialog: xEdit has no in-place save, by construction. So the generator
+# writes a STAGING file beside the source, and this runner promotes it into the
+# game folder once xEdit has exited and released the handle. The plugin keeps its
+# real name and real location; the staging file is a transport, not the artefact,
+# and it is never the thing the game or the validator reads.
+#
+# The earlier arrangement wrote the staging file and left it there as
+# 'PipMonTestFacility.probe.esp'. That was wrong twice: the file was not in the
+# load order, so only the loaded plugin had a populated record group and the
+# staging write serialised empty; and a '.probe' name for the output of a
+# testfacility that must work in-game and in-engine is misnaming.
+#
+# The rollback that matters is the snapshot below, taken before every run.
+$StageDir = Join-Path (Split-Path -Parent $Template) 'out'
+if (-not (Test-Path -LiteralPath $StageDir)) {
+    New-Item -ItemType Directory -Path $StageDir -Force | Out-Null
+}
+$StageEsp = Join-Path $StageDir 'PipMonTestFacility.staging.esp'
+if (Test-Path -LiteralPath $StageEsp) { Remove-Item -LiteralPath $StageEsp -Force }
+
+$gameData = 'C:\Program Files (x86)\Steam\steamapps\common\Fallout 4\Data'
+$target = Join-Path $gameData $Plugin
+$WriteEsp = $StageEsp
 if (Test-Path -LiteralPath $target) {
     $snapDir = Join-Path $Repo 'runs\tasks\facility-v0\snapshots'
     New-Item -ItemType Directory -Path $snapDir -Force | Out-Null
@@ -233,8 +271,6 @@ if (Test-Path -LiteralPath $target) {
     Write-Output "snapshot: $snap ($((Get-Item -LiteralPath $snap).Length) B)"
     Write-Output "restorable with: Copy-Item -LiteralPath '$snap' -Destination '$target' -Force"
 }
-$WriteEsp = $target
-foreach ($p in @($WriteEsp)) { if ((Test-Path -LiteralPath $p) -and ((Get-Item -LiteralPath $p).Length -gt 4096)) { Remove-Item -LiteralPath $p -Force } }
 
 $src = Get-Content -LiteralPath $Template -Raw
 $src = $src.Replace('%%OUTPATH%%', $ReportOut).Replace('%%PLUGIN%%', $Plugin).Replace('%%SCRATCH%%', $WriteEsp)

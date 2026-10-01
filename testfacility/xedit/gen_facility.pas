@@ -35,16 +35,19 @@ unit UserScript;
        used, so an abort names the link. Two failures were each worth one run
        instead of a guessing loop, and that is the only reason this progressed.
 
-  This script WRITES the testfacility plugin -- that is its job. PipMonTestFacility.esp
-  is a real, named, loadable plugin meant to work both in-game and in-engine, so the
-  output has to be that plugin and not a copy of it. It previously wrote a separate
-  'PipMonTestFacility.probe.esp' in testfacility\xedit\out\ instead, on the reasoning
-  that a throwaway experiment should be disposable. That was wrong: the CELL is created
-  on the LOADED plugin, and only the loaded plugin has a populated record group, so
-  writing it elsewhere produced a bare 66-byte TE header with no CELL and a validator
-  result of "empty" -- indistinguishable from a create that never worked. The rollback
-  that actually matters is the snapshot run_gen.ps1 takes before every run, not a
-  different filename.
+  This script does NOT write the game plugin in place -- it cannot. xEdit holds the
+  loaded plugin open, so creating the stream on its own path raises EFCreateError,
+  which the 2026-10-01 03:22 run measured. It writes a staging file beside the source
+  and tools/run_gen.ps1 promotes that into the game folder after xEdit exits, so the
+  deliverable is the real, correctly-named, loadable PipMonTestFacility.esp.
+
+  It used to write a separate 'PipMonTestFacility.probe.esp' and leave it there.
+  That was wrong: only the LOADED plugin has a populated record group, so the
+  staging write serialised as a bare 66-byte TE header with no CELL, and validating
+  that file reported "empty" -- indistinguishable from a create that never worked.
+  It also misnamed the output of a testfacility that must work both in-game and
+  in-engine. The rollback that matters is the snapshot run_gen.ps1 takes before
+  every run, not a different filename.
 }
 
 var
@@ -78,9 +81,47 @@ var
   nextId: Integer;
   fs: TFileStream;
 
+{ Escape a value for a JSON string. The report is read by every gate, by
+  xedit_log.py, and by anything else that wants the numbers, and it was
+  unreadable by every one of them: JStr interpolated the value raw, so the
+  Windows path in the scratch_plugin field arrived as C:\Program Files\... and
+  JSON permits only the escapes for quote, backslash, solidus, and the control
+  characters. Every backslash there is followed by a letter that is not one of
+  those, so json.loads failed on the first one, and after a partial repair on a
+  later one -- the same line, the same cause, reported at whichever escape the
+  repair happened to reach first.
+
+  This is why two diff attempts printed fifty phantom missing mods: the parse
+  failed, the comparison ran on an empty list, and every real entry looked
+  absent. A report that cannot be parsed is worse than no report, because it
+  looks like an answer. }
+function JEsc(val: string): string;
+var
+  i: Integer;
+  c: Char;
+begin
+  Result := '';
+  for i := 1 to Length(val) do
+  begin
+    c := val[i];
+    if c = '\' then
+      Result := Result + '\\'
+    else if c = '"' then
+      Result := Result + '\"'
+    else if c = #13 then
+      Result := Result + '\r'
+    else if c = #10 then
+      Result := Result + '\n'
+    else if c = #9 then
+      Result := Result + '\t'
+    else
+      Result := Result + c;
+  end;
+end;
+
 function JStr(key, val: string): string;
 begin
-  Result := '  ' + q + key + q + ': ' + q + val + q + ',';
+  Result := '  ' + q + key + q + ': ' + q + JEsc(val) + q + ',';
 end;
 
 function JNum(key: string; n: Integer): string;
@@ -125,19 +166,29 @@ begin
   for k := 0 to loadOrder.Count - 1 do
   begin
     if k < loadOrder.Count - 1 then comma := ',' else comma := '';
-    sl.Add('    ' + q + loadOrder[k] + q + comma);
+    sl.Add('    ' + q + JEsc(loadOrder[k]) + q + comma);
   end;
+  { No comma on the closer. signature_counts follows, so this one keeps it. }
   sl.Add('  ],');
-
-
 
   sl.Add('  ' + q + 'signature_counts' + q + ': {');
   for k := 0 to sigs.Count - 1 do
   begin
     if k < sigs.Count - 1 then comma := ',' else comma := '';
-    sl.Add('    ' + q + sigs[k] + q + ': ' + cnt[k] + comma);
+    sl.Add('    ' + q + JEsc(sigs[k]) + q + ': ' + cnt[k] + comma);
   end;
-  sl.Add('  },');
+  { signature_counts is the LAST member of the document, so its closer takes no
+    comma. The old report ended with a comma here followed by the final brace,
+    and a comma there is illegal JSON -- the second of the two parse failures.
+
+    NOTE, learned the hard way: no apostrophes in comments in this file. xEdit
+    Pascal has no line comment; a braced comment ends at the first apostrophe,
+    so a quote in prose silently truncates the comment and desynchronises the
+    parser. That is exactly what happened here: the compiler reported an error
+    on a line that was nothing but a comment, which is what made it look like
+    the JSON change was wrong when the change was fine. Say "the closer" rather
+    than quoting a brace, and never use a contraction. }
+  sl.Add('  }');
   sl.Add('}');
   try
     sl.SaveToFile(reportPath);
@@ -284,12 +335,22 @@ begin
     flag is False so the modified status we just set survives the write.
 
     Reference: third_party/xedit/Edit Scripts/SaveAs.pas, procedure SavePlugin,
-    lines 53-75. Copied shape. The stream path is now the plugin itself, NOT a
-    scratch file: writing a loaded plugin's in-memory form to a different file
-    produces a header with no records in it, because only the loaded plugin has
-    a populated record group. A .probe.esp is not in the load order, so the
-    loader never fills it and validation of it reads "empty" regardless of
-    whether the create succeeded. }
+    lines 53-75. Copied shape.
+
+    The stream path is a STAGING file, not the plugin itself, and that is forced
+    by xEdit rather than chosen: xEdit holds the loaded plugin open, so
+    TFileStream.Create(..., fmCreate) on it raises
+      [EFCreateError] Cannot create file ... being used by another process
+    which is exactly what the 2026-10-01 03:22 run did. The shipped SaveAs.pas
+    never saves in place for the same reason -- it always goes through a Save As
+    dialog to a different filename. tools/run_gen.ps1 promotes the staging file
+    into the game folder after xEdit exits, so the plugin keeps its real name and
+    location and the game and the validator both read the promoted file.
+
+    An earlier version wrote to a 'PipMonTestFacility.probe.esp' and left it
+    there. That produced a 66-byte header with no CELL, because only the LOADED
+    plugin has a populated record group; a file that is not in the load order
+    never does, and validating it reads "empty" whether or not the create worked. }
   AddMessage('PIPMON: LINK 3 - FileWriteToStream(file, fs, False). Three args, per SaveAs.pas:63. UNPROVEN.');
   linkReached := 3;
   fs := TFileStream.Create(scratchPath, fmCreate);

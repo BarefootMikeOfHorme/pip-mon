@@ -162,6 +162,164 @@ makes NPC assignment work, and it is independent of the marker chain.
 
 ---
 
+## 1c. Build order, and the cohort
+
+Owner direction, 2026-10-01. This supersedes the ordering in section 4 where the
+two disagree.
+
+**Paradise first, alone, until it is boring.** Built, recorded, validated, marked
+stable, with a backup that reverts it. Only then does anything get attached to it.
+A half-built environment plus an attached door is two variables changing at once,
+and then a regression belongs to neither.
+
+**Then the bunker door**, as a separate, independently revertible step.
+
+**Bunker identity, resolved from the load order:** it is
+`Cotozic's Bunker Ravine.esp` — already entry 61 in `dplugins.txt` and installed
+in `Data\`. It is a mod, not vanilla. So:
+
+- **Does it already have a door in its own cell?** Answerable by dumping that
+  plugin's records with xEdit. Cheap, and it settles the question instead of
+  guessing. If it has one, use it. If not, source a door asset and place it.
+- **Is it in a ravine?** Unverified, and it decides the dependency direction. A
+  ravine bunker has no world-facing entrance, so paradise must be shaped around
+  it rather than the bunker being placed in paradise. Do not decide this by
+  assumption.
+- Native doors, windows and openings on the existing model would be the cheapest
+  path, since geometry and collision already exist and only the link is new.
+
+**Fast travel to the bunker**, mat-style, using the chain in section 2. Not a
+first step — it needs a destination that already exists.
+
+### NPC cohort
+
+Purpose: something for the tooling to observe. Pathing, behaviour, interaction
+with the environment, and dialogue as an avenue.
+
+| Property | Value | Why |
+|---|---|---|
+| Pool size | 10 | enough for variation |
+| Loaded at a time | 3–5 | keeps a run readable and attributable |
+| Selection | **ordered, not random** | a reproducible comparison needs a fixed cohort; random selection makes two runs non-comparable |
+| Load timing | at environment load, the bunker | the cohort is part of the instance, not spawned on demand |
+| Vendor | a bartender-style NPC | gives a working trade avenue to test |
+| Workshop | required, must function | a workshop that does not work is not a test environment |
+| Terminal | required, must function | the in-game surface PIP-MON exposes |
+
+**Named starting cast**, each chosen because it exercises a different axis:
+
+- **Metro** — long, specific, repetitive traversal. His paths and patterns are
+  the cleanest available signal for the loop and pathing detectors.
+- **Codsworth** — the observation and interaction baseline, and the natural
+  "does the scripted-actor surface work" case.
+- **The bartender** — the vendor avenue, and a dialogue-dense case.
+
+Cohort membership per run is a declared input, not a discovery, so a result
+attributes to the cast that produced it. The full roster of ten is a succession
+of these, expanded as the environment supports it.
+
+**Bunker adaptation is unresolved and gated on inspection.** Whether it sits in a
+ravine, whether it has windows, and whether it has native door mechanisms all
+change what paradise has to be. Inspect the plugin before designing paradise
+around it.
+
+### Method
+
+The CK command list and the build recipes are refined *against* environment
+output — what a run actually produced — not in the abstract. Slow and steady: one
+module, recorded, validated, backed up, then the next.
+
+---
+
+### Paradise size — unresolved, and the unit matters
+
+Stated as "600, about the same diameter width as the paradise env". The unit is
+load-bearing, because the CK scale is:
+
+> Each exterior cell is 4096×4096 Creation Kit Units, or approximately 192×192
+> ft, or 58.5×58.5 m
+
+So 1 unit ≈ 1.43 cm, and the two readings are wildly different:
+
+| Reading | Actual | Verdict |
+|---|---|---|
+| 600 **units** | 8.6 m across | a closet. No Vertibird, no landing pad, no walking room. |
+| 600 **metres** | ~10 cells across, ~60,000 units | a small valley. Vertibird fits, backdrop works. |
+
+Given a Vertibird landing pad is wanted, it has to be the metres reading. A
+10-cell worldspace and a 1-cell worldspace are entirely different precombine and
+LOD jobs, so this must be settled before `M0` is built.
+
+Modder practice for a small custom worldspace: make the **playable area ~15–20%**
+of the worldspace and let the remainder be unreachable backdrop. FO4 itself does
+this — 15–20% playable, the rest mountains and ocean.
+
+### The fog border is not a walk-blocker
+
+Hiding terrain and blocking movement are different operations:
+
+> Quad (1–4): Which Quad of the Exterior Cell you want hidden. **Note that even
+> though the landscape is invisible the collision still remains.**
+
+So `Force Hide Land` and hidden quads give visual fog while the player can still
+walk off the edge. "Cannot walk past the border" needs real collision —
+invisible walls, or worldspace bounds plus a navmesh and land-data edge. That is
+a build step with its own module, not a field checkbox.
+
+### Planned but not now
+
+A Vertibird landing pad inside paradise — placed somewhere realistic, explicitly
+**not on the door** — plus a Vertibird cutscene entrance, for exercising
+Vertibird variables. Deferred; recorded so it is not rediscovered later.
+
+---
+
+## 2. Fast travel into an interior — the actual rules
+
+This is the part that constrains the design most, and it is not "make the door
+fast travel".
+
+**A door is not a fast travel point.** Doors have no destination of their own:
+> Doors themselves aren't set up to take you to a specific location… you do so by
+> placing both ends in the editor, and then modifying both of those References to
+> link them together.
+
+**Fast travel into an interior needs a three-part chain:**
+
+| Part | Where it lives | What it is |
+|---|---|---|
+| the map marker | **exterior** cell | the point the player selects on the map |
+| the XMarkerHeading | **interior** cell | where the player actually arrives |
+| the link | between them | marker → marker heading |
+
+> To allow fast travel into an interior settlement the map marker must be in an
+> exterior cell, then linked to an XMarkerHeading in the interior cell. That can
+> either be a specific fast travel marker, or the center marker. A dedicated
+> marker is recommended.
+
+**Fast travel back OUT is a cell flag:**
+> right click the cell name in the Cell window, choose Edit, then make sure that
+> "Can't travel from here" is **NOT** checked.
+
+`CELL` and `WRLD` both carry a "Can't Fast Travel From Here" field, and both must
+be clear or travel out is blocked.
+
+**Settlers do not use the map marker.** This is the trap:
+> Settlers are not looking for the MapMarker, they are looking for the XMarker…
+> As long as the exterior cell and the interior cell **share the same Location and
+> Encounter Zone** settlers have no problem walking through the load door.
+
+So player fast travel and settler pathing are satisfied by **different** records.
+Matching `LOCATION` + `ENCOUNTER ZONE` is what makes NPC assignment work, and it
+is independent of the marker chain. **Navmesh must be finalised** for NPCs to
+path to the marker at all.
+
+**Vanilla allows exactly five interior fast-travel locations**: the Railroad HQ,
+Home Plate, the Institute, the Mechanist's Lair, and Vault 88. Anything beyond
+that is mod territory, which is why this is a deliberate build and not a checkbox.
+
+---
+
 ## 3. Doables and not-doables
 
 | Thing | Verdict | Why |
