@@ -59,6 +59,24 @@ OVERLAP = 200
 # `rag vocabulary`; it just must never come back as a hit.
 NOT_INDEXED = {"ai_context/vocabulary.json", "ai_context/ranking.json", "rag/index.sqlite3"}
 
+# Registries, not knowledge. Every ai_context/spec/*.json is a pointer table: a
+# name, a type, aliases, a `note` string, and a `spec` field naming the file that
+# actually holds the answer. Chunked, they read as authoritative prose -- a
+# registry entry saying "Papyrus. The scripting language" outranked
+# ai_context/papyrus_syntax_rules.md, which is compile-verified against the real
+# 2.8.0.4 compiler, because the registry chunk also contained the word "absent"
+# and so earned the constraint-evidence bonus. That bonus exists for negatives
+# found by compiling against the real compiler; a registry that happens to use
+# the word must not collect it.
+#
+# They stay readable and stay authoritative for the gates: spec_lint, the side
+# gate and the ownership gate all read these files directly, and
+# `rag_ownership.py` verifies each is reachable some other way. Excluding them
+# from *retrieval* does not make them unreachable, which is the distinction the
+# vocabulary.json note above was making.
+for _spec in (REPO / "ai_context" / "spec").glob("*.json"):
+    NOT_INDEXED.add(_spec.relative_to(REPO).as_posix())
+
 CODE_EXTS = {".py", ".ps1", ".pas", ".psc", ".ppc", ".cpp", ".c", ".h", ".hpp", ".bat", ".sh"}
 
 
