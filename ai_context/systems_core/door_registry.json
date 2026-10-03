@@ -408,6 +408,69 @@
       "authority": "measured",
       "keeper": null,
       "notes": "B1-B4 are the whole critical path to a testable environment and all four are tractable today. B5, Layer A, is the most important open question in the project and is NOT on that path -- it blocks using the environment in-game, not creating it."
+    },
+    {
+      "id": "program-components",
+      "question": "What are the parts of this program, what proves each one, and what does each take over",
+      "path": "ai_context/spec/program_components.2.json",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": "tools/spec_lint.py",
+      "notes": "AUTHORITATIVE VERSION. Supersedes ai_context/spec/program_components.json, which stays on disk unedited as the record of the state before the replacement map existed (tasks/roadmap/VERSIONING.md, Class B). Version 2 adds a `replaces` array to all 14 entries and moves the Creation Kit out of a `role` string into `replaces`, where a program can join it; the map's own NOT_PLANNED verdict for the CK sits in the same entry's notes. Read `replaces` together with `notes`: the array names the JOB a component takes over, not coverage it has, and 7 of the 14 are explicitly empty because the map is PRODUCT level. CAUTION, found 2026-10-03 and NOT fixed here because it is another agent's file: spec_lint's honesty rule for gate_covered does not execute. The bucket/available block at tools/spec_lint.py:189-200 is indented to the level of the entry loop, so the check at line 203 sits inside the `available` branch and no entry in the spec layer has an `available` field. Masked proof: status set to `absent` with gate_covered true, lint stayed GREEN at exit 0. So this file's booleans are honest by hand, not by gate."
+    },
+    {
+      "id": "replacement-map",
+      "question": "Which legacy product do we replace, how, and what do we add beyond parity",
+      "path": "ai_context/spec/legacy_replacement.json",
+      "state": "BUILT",
+      "authority": "derived",
+      "keeper": "tools/spec_lint.py",
+      "notes": "PRODUCT level, 31 rows, one per legacy Fallout 4 mod-tooling product: 1 COVERED, 2 DECLARED, 14 PLANNED, 5 DIFFERENT_MECHANISM, 8 NOT_PLANNED, 1 REJECTED. By host: 19 need no game and no editor, 8 need the game, 4 need the CK, so 'the program runs without either host' is countable rather than aspirational. The capability-level companion is the `compat` door above and the two granularities are not interchangeable. Read `requires_host` before quoting this file as a scope statement. Added as a door on 2026-10-03: the map existed with no way in from here, which is the exact failure this registry exists to prevent."
+    },
+    {
+      "id": "surfaces",
+      "question": "What surfaces exist, by kind and direction, and which are actually proven",
+      "path": "ai_context/spec/surfaces.json",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": "tools/spec_lint.py",
+      "notes": "Seven kinds, and lumping them together is how a working mechanism gets mistaken for a working feature: OPERATOR, AI, ENGINE_PROGRAM, ENGINE_MOD, PROVIDER_SOURCE, CREATION, CROSS. Audited 2026-09-30 by smoke-testing each surface rather than reading its intent. Its own closed status vocabulary is MET / PARTIALLY_MET / DECLARED / NOT_MET / UNVERIFIED. Known drift, found 2026-10-03, NOT fixed here: three surfaces carry evidence strings quoting '106 python checks pass' and the real number is 108, so this file is the wrong side of that drift and the two evidence strings should be corrected by whoever owns it."
+    },
+    {
+      "id": "side-invariants",
+      "question": "Which preconditions each side of the work requires, and is each one actually met",
+      "path": "ai_context/spec/side_invariants.json",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": "tools/spec_lint.py",
+      "notes": "Three sides: engine, in-house, creation-kit. An invariant is not a capability -- it is true or it is not, and while it is false the whole side is unavailable, which is why a global green gate is never allowed to imply a working side. The engine side fails at exactly one invariant, Layer A, and that single failure is why S0 is unproven. Known drift, found 2026-10-03, NOT fixed here: the file declares status_vocabulary MET / NOT_MET / UNVERIFIED / NOT_APPLICABLE and then uses PARTIALLY_MET in three entries, which is the value this registry's own sibling surfaces.json declares. Nothing enforces either vocabulary, so the leak is silent."
+    },
+    {
+      "id": "capabilities",
+      "question": "What can a human or an agent actually DO here, and what observable proves it",
+      "path": "tasks/capabilities.json",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": null,
+      "notes": "23 capabilities in 9 groups, each with requires, exercise and evidence. The separation it enforces is ACHIEVED versus merely discussed: a task group moves capabilities from BLOCKED to AVAILABLE and the newly available set is how you know the task worked. tools/taskrun.ps1 computes $missing from `requires` and blocks, which makes this the only genuinely ENFORCED requires field in the repository -- contrast ai_context/plans/schema.json, which declares the same field and whose enforcement only prints. No keeper is named because no linter checks this file. Known gap, found 2026-10-03 and NOT fixable by me: there is NO provenance field anywhere in this file, which breaks the project's non-negotiable that a fact with no provenance may not exist, and runtime.layerA's exercise field literally reads '(not built -- needs a BSScript declaration in method order)', so a capability can be listed with no way to run it."
+    },
+    {
+      "id": "facility-v0",
+      "question": "What is the smallest test facility that can answer S0, one step at a time",
+      "path": "tasks/facility-v0.json",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": null,
+      "notes": "Steps are added ONE AT A TIME between runs, because a group that must be written all at once before anything can run will not get written. Resume is decided by the checks and never by the journal, so a Creation Kit crash costs at most the step in flight. Each step names what it unlocks, which is the join into the `capabilities` door above. No keeper is named: nothing lints this file, and its checkpoint path is inside the game Data folder, which is outside the project."
+    },
+    {
+      "id": "session-profiles",
+      "question": "Which plugins load in a CK session, and which are excluded on purpose",
+      "path": "tasks/session-profiles.json",
+      "state": "BUILT",
+      "authority": "measured",
+      "keeper": null,
+      "notes": "The curated 'core' profile: 35 entries plus 5 documented exclusions, each with a reason. It is deliberately not maximal, because every master is load time and crash surface in the CK -- and the CK has three crash dumps on record. SimSettlements 2 is excluded BY DECISION to resolve the workshop-hook conflict rather than defer it, which is the difference between excluding and forgetting. After a load, read EditorWarnings.txt for missing masters: that is how a curated list gets corrected rather than guessed at. No keeper is named; nothing lints this file."
     }
   ],
   "not_a_door": [
