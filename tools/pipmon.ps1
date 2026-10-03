@@ -484,22 +484,48 @@ switch ($Command) {
         if ($Plugin) { $a += @('-Plugin', $Plugin) }
         $r = Run-Tool 'tools\validate_plugin.ps1' $a
         $rep = Read-Report 'xedit-latest.json' (Get-XeditInputs)
-        # Same reasoning as build: the validator has just run, so a report older
-        # than the plugin it describes is a leftover, not this run's verdict.
-        $status = if (-not $rep) { 'SKIP' }
-                  elseif ($rep.freshness.stale) { 'SKIP' }
-                  else { $rep.status }
+        # MAPPED, NOT PASSED THROUGH -- F2.12.
+    #
+    # The old line was `$status = $rep.status`, straight into Emit. But
+    # validate_plugin.ps1 writes only PASS / FAIL / SKIP -- an exhaustive set
+    # across all 18 of its Write-Report sites, and $EXIT contains NONE of the
+    # three. So a failed validation produced "status":"FAIL","ok":false and
+    # exit 0: the JSON said one thing and the exit code, which the contract
+    # calls authoritative, said the opposite. F2.1a caught it and made it exit
+    # 2; 2 is loud but it is wrong, because it means "a precondition is missing"
+    # and in fact the validation RAN and the plugin was wrong. That is RED.
+    #
+    # The three values are mapped onto the surface vocabulary rather than added
+    # to it. PASS -> GREEN, FAIL -> RED, SKIP -> SKIP. Anything else is not one
+    # of the three, and is BROKEN rather than a guess.
+    $reportStatus = if ($rep) { $rep.status } else { $null }
+    $status = if ($r.missing) { 'BROKEN' }
+              elseif (-not $rep) { 'SKIP' }
+              elseif ($rep.freshness.stale) { 'SKIP' }
+              elseif ($reportStatus -eq 'PASS') { 'GREEN' }
+              elseif ($reportStatus -eq 'FAIL') { 'RED' }
+              elseif ($reportStatus -eq 'SKIP') { 'SKIP' }
+              else { 'BROKEN' }
         # The report's own reason string is only quoted when it is fresh. A stale
         # report's reason describes a run that is not this one, and repeating it
         # verbatim as the surface's reason is the same lie one level up.
-        $why = if (-not $rep) { 'no validation report produced' }
+        $why = if ($r.missing) { "validate_plugin.ps1 not found at $($r.path), so nothing was validated" }
+               elseif (-not $rep) { 'no validation report produced' }
                elseif ($rep.freshness.stale) {
                    "validation produced no fresh report: runs\watch\xedit-latest.json is older than $($rep.freshness.input), so the plugin is UNVERIFIED rather than fine"
                }
                elseif ($rep.reason) { $rep.reason }
                else { 'no validation report produced' }
+        # The validator's own vocabulary is carried, not flattened. Its exit codes
+        # are 0 PASS / 1 FAIL / 2 BROKEN / 3 SKIP / 4 RUNNING / 5 LOCKED, which is
+        # a different vocabulary from this surface's and must not be conflated
+        # with it. 4 and 5 mean a job is in flight or a lock is held, which is
+        # "try later", not "wrong"; this surface has no state for that yet
+        # (F2.1b is owed), so it is reported here as data rather than guessed at.
         Emit $status $why `
-            ([ordered]@{ report = $rep; output = $r.output })
+            ([ordered]@{ report = $rep; output = $r.output
+                         validatorExit = $r.exit
+                         reportStatus = $reportStatus })
     }
 
     # ------------------------------------------------------------ ck-session
