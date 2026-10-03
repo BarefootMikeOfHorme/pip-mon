@@ -441,7 +441,7 @@ specification.
 
 ## R4 — revertability, actually tested
 
-### `7d03986` → verified in a throwaway worktree, no commit of its own to the code
+### `e7f7453` — verified in a throwaway worktree, no commit of its own to the code
 
 The owner asked for revertability to be *verified* rather than asserted. Done in
 a detached `git worktree` under `%TEMP%`, at HEAD `7d03986`, then removed. **The
@@ -522,6 +522,205 @@ not asked for.
 
 **VERIFIED:** all four results above, by command, in a worktree that has since
 been removed. `git worktree list` shows one entry — the main tree.
+
+---
+
+## R5–R8 — four code cycles, logged in one pass
+
+**This section exists because the audit in R9 found the changelog seven commits
+behind git log.** That is the *second* time this has happened; the first was
+fixed in `7d03986` and then allowed to recur. Root cause: changelog content was
+being written into **commit messages**, which is per-commit, instead of into
+this file, which is the walkable index. `R9` adds a gate so it cannot drift
+silently a third time.
+
+### `e103b6e` — R5: `$EXIT` made total, and `-Enable`/`-Disable` forwarded
+
+**F2.1a.** *The mechanism in the plan was wrong, and verifying corrected it.*
+The F2 doc said "`$EXIT[$status]` returns `$null`". It does not: it raises a
+**non-terminating `NullArrayIndex`**, the assignment is skipped, and
+`$script:surfaceExit` **retains its prior value** — 0, set at line 101. Same
+outcome, different mechanism, and worse than documented because the value is
+*sticky*: `prior=3 → stays 3`.
+
+`BROKEN`, not `RED`. The missing precondition is *"this status is in the exit
+table"*, and `BROKEN` already means a missing precondition at line 39.
+
+**My first fix was incomplete and the regression test caught it.**
+`Hashtable.ContainsKey($null)` **throws** `ArgumentNullException` rather than
+returning false, so a null status skipped the guard and reached `$EXIT[$null]` —
+the original silent pass. And null is exactly what `verify` emits for any child
+exit above 3. Fixed with an explicit `$null -eq` test.
+
+**VERIFIED** — all 11 inputs through the real `Emit` and `New-Envelope`,
+extracted from the committed file by regex rather than retyped:
+`GREEN/OK/RED/BROKEN/SKIP` unchanged (0,0,1,2,3); `ATTENTION PASS FAIL NOT RUN
+'' $null` → `BROKEN ok=false exit=2`. stderr clean — no `NullArrayIndex`, no
+`ArgumentNull`. Regression: 6 safe verbs at baseline.
+
+**RESIDUAL:** F2.1a is a **net, not a fix**. `validate` on FAIL now exits 2 —
+loud instead of silent — but should exit 1, because the validation ran and the
+plugin was wrong. That is F2.12, still open. What `ATTENTION` *means* is still
+undecided (F2.1b, owed to the owner). Three separate things.
+
+**F2.6.** The earlier audit said `pipmon.ps1` "declares `$Enable`/`$Disable`
+and never forwards them". **Wrong again** — it declared *nothing*; `caps`
+advertised two parameters the entry point would reject. Worse than a dropped
+wire. Now declared and forwarded; `linksync.ps1` had them at 45-46 / 147-155 all
+along.
+
+**VERIFIED:** parses clean; `link status -Enable X -Disable Y` exits 0 and
+carries `data.toggled = {"enable":[...],"disable":[...]}`.
+**NOT VERIFIED, deliberately:** that `link apply -Enable X` toggles the live
+`plugins.txt`. `linksync.ps1` builds that path from `$env:LOCALAPPDATA` alone and
+ignores `-GameDir` (`HARDCODED_PATHS` L2), so there is no test directory to aim
+at.
+
+### `68af5a3` — correct a fabricated commit sha
+
+The F2 state table added in `e103b6e` carried the sha `e2c4a91`, which does not
+exist — a placeholder written before the commit was made. Committed, it put a
+dangling reference into the document whose job is pointing at commits.
+
+**NOT DONE:** amending. `VERSIONING.md` forbids amending a visible commit, so
+`e103b6e` stays as it is, wrong sha and all. The rule working as intended.
+
+### `c27a0b4` — R6: `snapshot` stops claiming success, door map stops lying
+
+**F2.2, reproduced first:** `snapshot -GameDir <bogus>` returned
+`exit=0 GREEN ok=True reason="snapshot 'probe-test' taken"` with **0 files
+captured**. A silent success on the one verb whose entire job is to be believed.
+
+After: bogus → `exit=2 BROKEN`, reason names the GameDir and all three paths;
+real → `exit=0 GREEN "3 of 3 deployed artefact(s) plus 3 editor backup(s)"`.
+
+Counts went into **data**, not a new status — a `PARTIAL` verdict is a
+vocabulary decision (F2.1b) and data is branchable today.
+
+**My own fix introduced a false ratio and the test caught it.** First version
+emitted `captured=6 expected=3`, because `captured` counted editor backups while
+`expected` counted only deployed artefacts. Six-of-three reads as coverage and
+means nothing. Split into `deployedExpected` / `deployedCaptured` /
+`editorBackups`.
+
+**F2.7.** `'this surface, in prose'` pointed at `PIPMON_INTERFACE.md`, which
+`Test-Path` says is absent. **Checked all fifteen advertised paths, not just
+the one** — 14 resolve, this was the only broken one. Did **not** repoint at
+`docs\ARCHITECTURE.md`: that exists but is architecture, not interface, so it
+would trade one wrong answer for a differently wrong one. The door now names
+`caps` (self-describing, generated from the same source, cannot drift) and the
+absence is declared in a new `data.gaps`.
+
+**VERIFIED:** 9 safe verbs at baseline; probe snapshots gitignored, so no test
+artefact can be committed by accident.
+
+### `9784696` — F2 plan state table, real shas
+
+Marks F2.2 and F2.7 `FIXED` at `c27a0b4`. Written *after* the commit, having
+learned from `68af5a3`.
+
+### `0063a22` — R7: serve `compat`, correct the writes invariant
+
+**F2.8, as an enhancement rather than a shrink.** `surfaces.json` had advertised
+a `compat` verb since before it existed; verified absent — no occurrence of the
+string in `pipmon.ps1`, 11 switch cases against 12 claimed verbs. Deleting the
+claim would make the disagreement permanent and discard the fact that somebody
+wanted this. Serving the map is the improvement and the spec becomes *true*
+instead of smaller.
+
+`compat` · `compat -Status COVERED` (the 1 proven row) · `compat -RequiresHost
+none` (the 19 host-free rows).
+
+**VERIFIED** against the real `surfaces.json` structure — `kind=registry`,
+`collection_field=surfaces`, **not** `entries`, which is why my first probe
+returned 0: claimed 12, advertised 12, `Compare-Object` IDENTICAL,
+`surfaces_gate` 0 problems.
+
+**A bug in the new code, caught before commit:** `-Status COVERED -RequiresHost
+ck` returned `BROKEN "not a host any row uses"`. Each filter's vocabulary was
+validated against the *progressively narrowed* rows, so after `COVERED` left one
+`game` row, the legitimate host `ck` looked invalid — and a valid combination
+matching nothing is an **empty result**, which this project calls `SKIP`. Fixed
+by computing both vocabularies from the full map before narrowing. Now
+`exit=3 SKIP`. **Third time this session that testing found a defect reading did
+not.**
+
+**F2.11.** `caps` claimed *"No command writes to the game folder except build
+and link apply."* Verified against `ck_session.ps1`: `:127-128` writes
+`plugins.txt.proposed.txt` outside the project, and `:160` rewrites the **live**
+`plugins.txt`. Incomplete *and* misleading — a claim scoped to "the game folder"
+cannot express a write outside the project. Corrected to name every writer and
+scoped to the project boundary, which is the boundary `G9` actually cares about.
+
+### `9e16374` — `scripting/`: task board, frozen original, JSON twin
+
+Three new files, nothing existing modified. The board keeps the reviewed A/B/C
+format and adds **D** 35 little tasks in 6 groups, **E** the amendable locations
+index, **F** the versioning rule.
+
+`SCRIPTING-TASKBOARD.original.txt` is guardrail **G3 applied to the board
+itself** — *"a design document that only accumulates successes is not a design
+document; it is a brochure."* Marked DO NOT DELETE / ARCHIVE AND VALIDATION
+ONLY / NEVER AMENDED in header, body and footer, and it declares its own
+validation use: **the original and the live copy are meant to DIFFER.** If they
+match, a board-wide rewrite happened without a snapshot. Hash-verified different.
+
+`scripting_status.json` declares **itself not a source of truth** — the
+authoritative data is `legacy_replacement.json`, spec-lint-clean with per-row
+provenance; this is a derived view that may drift.
+
+**VERIFIED, not assumed:** JSON parses (35 tasks / 5 rungs / 6 layers); task IDs
+compared with `Compare-Object`, **35 vs 35 identical**; headline counts read
+back out of the map file, not retyped (31 entries; 1/2/14/5/8/1; 19/8/4) — all
+match; `scripting/` confirmed **not gitignored** via `git check-ignore` *before*
+creating anything.
+
+### `bae7d00` — R8: F2.13, the ASCII bug `2ad0485` fixed, still live
+
+Commit `2ad0485` fixed an ASCII encoding bug in `linksync.ps1`. The same bug was
+still active in `ck_session.ps1`:
+
+```
+linksync.ps1:165   Set-Content ... -Encoding ascii    <- COMMENTED OUT
+linksync.ps1:183   UTF8Encoding($false), byte-exact   <- the fix
+ck_session.ps1:128 Set-Content ... -Encoding ascii    <- STILL ACTIVE
+```
+
+*"A load-order tool must round-trip bytes."* It did not, in the tool whose entire
+output is a proposed load order for a human to review and then apply.
+
+**The read half was wrong too, and nobody had flagged it:**
+`ck_session.ps1:57` had no `-Encoding utf8` where `linksync.ps1:67` does. Under
+Windows PowerShell 5.1 — which is what `Run-Tool` invokes — `Get-Content` with
+no encoding falls back to the system ANSI codepage, so a UTF-8 `plugins.txt` with
+no BOM is **misread** and every downstream decision is made about plugin names
+that do not exist. Same bug, both directions, two files, one fix in each.
+
+**VERIFIED AT BYTE LEVEL, which is the only level that counts.** The first
+attempt reported a contradiction — the round-trip printed `Caf…` and `???` while
+a string comparison said the characters survived. Resolved by reading bytes:
+
+```
+new file : 2A 43 61 66 C3 A9 ...          <- *Caf + correct e-acute
+           2A E6 97 A5 E6 9C AC E8 AA 9E  <- *日本語.esp, correct
+           zero 0x3F bytes anywhere
+old path : four 0x3F ('?') bytes, E6 97 A5 absent - destroyed
+round-trip via ReadAllText with UTF8Encoding($false): 4 lines, both
+  non-ASCII lines exact, codepoints confirm U+00E9
+```
+
+The mangled display was the **console** failing to render UTF-8, not the file.
+My first grep pattern was also wrong — I searched for the asterisk adjacent to
+e-acute when it is five bytes earlier — so the pattern said `NO` while the file
+was correct. **Both failures were in the verification, not the fix.**
+
+**NOT RUN, deliberately:** `ck-session prepare` for real. It writes
+`%LOCALAPPDATA%\Fallout4\plugins.txt.proposed.txt`, outside the project.
+**And it was then shown to be worthless anyway:** the live `plugins.txt` is 173
+lines with **zero non-ASCII plugin names**, so the test would pass with the bug
+still present. A test that cannot fail proves nothing. The write path was
+unit-proved in scratch with an accented and a Japanese plugin name instead.
+
 
 
 

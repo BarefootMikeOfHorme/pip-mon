@@ -24,11 +24,17 @@ independently fixable and independently revertable.
 | F2.7 | `docs` advertises a file that does not exist | **FIXED** `c27a0b4` |
 | F2.3 | `status` decides its verdict from unrefreshed report files | open |
 | F2.4 | `verify` cannot return SKIP or BROKEN | open |
-| F2.8 | `surfaces.json` lists a `compat` verb that exists in no code path | open |
+| F2.5 | `link` reports a missing precondition as RED | open — needs a decision, see below |
+| F2.8 | `surfaces.json` lists a `compat` verb that exists in no code path | **FIXED** `0063a22` — closed by **serving** the verb, not deleting the claim |
 | F2.9 | `plans.schema.json` documents enforcement that does not exist | open |
 | F2.10 | `caps` has no `provenance` block, violating its own invariant | open |
-| F2.11 | the "no writes outside" invariant omits `ck-session prepare` | open |
+| **F2.11** | the "no writes outside" invariant omits `ck-session prepare` | **FIXED** `0063a22` |
 | **F2.12** | `validate` exits 0 when validation FAILS | open — F2.1a made it loud, not right |
+| **F2.13** | `ck_session.ps1` writes the proposal as ASCII and reads `plugins.txt` with the ANSI codepage | **FIXED** `bae7d00` — the bug `2ad0485` fixed in `linksync.ps1`, still live here |
+
+**7 of 14 closed.** Two are deliberately not defects-yet: **F2.1b** is a contract
+decision owed to the owner, and **F2.5** needs a change inside `linksync.ps1`
+before the surface can tell a thrown precondition from a wrong result.
 
 **F2.1a was a net, not a fix, and the distinction matters.** After it, `validate`
 on a FAIL exits **2 — loud instead of silent** — but it should be **RED/1**,
