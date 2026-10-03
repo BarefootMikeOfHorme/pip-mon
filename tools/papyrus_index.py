@@ -1179,7 +1179,7 @@ def rank_usage(records):
     }
 
 
-def build_output(scan_result, records, root):
+def build_output(scan_result, records, root, fo4_evidence=None):
     fns = records["functions"]
     evs = records["events"]
     usage = records["usage"]
@@ -1310,7 +1310,13 @@ def build_output(scan_result, records, root):
                 "correct data."
                 % (len(SKYRIM_ONLY_MARKERS), scan_result["file_count"])),
             "skyrim_only_markers": SKYRIM_ONLY_MARKERS,
-            "fo4_only_structure": FO4_ONLY_STRUCTURE,
+            # The MEASURED evidence, as booleans. An earlier draft recorded
+            # FO4_ONLY_STRUCTURE here, which is a table of explanatory strings,
+            # and tools/papyrus_index_gate.py went RED on the committed index for
+            # it: the section claimed to be the evidence was a description of
+            # what evidence would look like. Descriptions live beside it now.
+            "fo4_only_structure": fo4_evidence or {},
+            "fo4_only_structure_meaning": FO4_ONLY_STRUCTURE,
             "marker_hits": scan_result["marker_hits"],
         },
         "scan": {
@@ -1489,7 +1495,7 @@ def main():
               "FO4. Nothing was written.", file=sys.stderr)
         return 2
 
-    output = build_output(result, records, root)
+    output = build_output(result, records, root, struct_evidence)
 
     if args.json:
         print(json.dumps({
