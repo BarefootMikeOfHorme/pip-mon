@@ -188,6 +188,40 @@ REM documented gaps have not quietly stopped being gaps.
 python "%R%tools\ownership_gate.py"
 if errorlevel 1 ( set FAILED=1 & echo [FAIL] ownership gate )
 
+REM ---------------------------------------------------------------------------
+REM Three gates added 2026-10-03 by a delegated agent, wired here by the
+REM coordinator because build_all.bat was not the agent's file to change.
+REM
+REM Each exists because a MISSING CHECK, not a missing fix, let a defect
+REM through: the changelog drifted twice, an undeclared spec field survived a
+REM clean revert, and surfaces.json advertised a verb that existed in no code
+REM path for eight months.
+REM
+REM They run in the default, non-strict mode on purpose. Each carries a table
+REM of KNOWN open defects with tracking ids, reported rather than failed,
+REM because a permanently red gate is decoration and gets ignored. Drain the
+REM tables with --strict; each entry names its fix.
+REM ---------------------------------------------------------------------------
+REM An entry may not use a field its kind does not declare. Found by reverting
+REM the schema commit alone: clean revert, spec_lint green, spec layer lying.
+python "%R%tools\entry_field_gate.py"
+if errorlevel 1 ( set FAILED=1 & echo [FAIL] entry field gate )
+
+REM Claimed / advertised / implemented verb sets must be equal. A verb is not
+REM a path, so surfaces_gate could not see this class of drift.
+python "%R%tools\verb_parity_gate.py"
+if errorlevel 1 ( set FAILED=1 & echo [FAIL] verb parity gate )
+
+REM Every status reaching Emit must have a key in $EXIT, and $EXIT, caps and
+REM the published contract must agree. An unknown status used to exit 0.
+python "%R%tools\exit_table_gate.py"
+if errorlevel 1 ( set FAILED=1 & echo [FAIL] exit table gate )
+
+REM The changelog is the walkable index; a commit message is per-commit. This
+REM gate exists because that index drifted twice before the gate existed.
+python "%R%tools\changelog_gate.py"
+if errorlevel 1 ( set FAILED=1 & echo [FAIL] changelog gate )
+
 echo.
 echo ############################################################
 if %FAILED% EQU 0 (

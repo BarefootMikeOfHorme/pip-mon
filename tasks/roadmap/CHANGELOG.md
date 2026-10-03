@@ -721,6 +721,201 @@ lines with **zero non-ASCII plugin names**, so the test would pass with the bug
 still present. A test that cannot fail proves nothing. The write path was
 unit-proved in scratch with an accented and a Japanese plugin name instead.
 
+---
+
+## R9 — the self-audit, and the machinery it forced
+
+### `bd31e57` — a self-audit found four failures, including a repeated one
+
+The owner asked whether the revertable protocol had actually been followed.
+Audited rather than asserted. Four failures:
+
+1. **The changelog had drifted seven commits. Again.** `7d03986` had caught the
+   first drift and fixed it as a one-off; it happened again. Root cause was
+   specific: changelog content was going into **commit messages**, which are
+   per-commit, instead of into `CHANGELOG.md`, which is the walkable index.
+2. **F2.13 was missing from the defect list** — found *and* fixed in one commit
+   and recorded nowhere, so "how many are closed" was unmeasurable.
+3. **The plan contradicted the work.** Its fix-order table still said *"F2.8 —
+   remove `compat` from `surfaces.json`"* (closed by **serving** the verb) and
+   *"F2.1 — add `ATTENTION` to `$EXIT`"* (split into 1a/1b, and 1a did something
+   else). A plan that tells the next reader to undo your work is worse than none.
+   My first fix used line-index surgery and **duplicated three table rows** —
+   caught by reading the result back rather than trusting the write.
+4. **Two commits carried no not-verified statement** (`0063a22`, `9bfb5c5`).
+
+**What held:** 29 commits ahead of `origin/main`, **0 pushed**; 0 uncommitted;
+12 of 14 commits carried both VERIFIED and NOT VERIFIED; every commit reverts
+independently.
+
+**The response to (1) was a gate, not a promise:** `tools/changelog_gate.py`.
+Two failures of the same kind means the discipline was a habit, and habits are
+not gates. It checks `HEAD~1` forward, because a commit cannot contain its own
+sha. Verified it **discriminates** — masking every sha gives 13 problems and
+exit 1; restored, 0 and exit 0. What it does **not** check is whether an entry
+is any good; it enforces the index, not the writing.
+
+### `22b06ea` — R9b: the unattended queue
+
+`tasks/roadmap/UNATTENDED-QUEUE.md`. The safety line is three testable
+conditions: every write inside the project · no third-party process launched ·
+verifiable with no host by something with a known exit code. 22 tasks in five
+tiers. Named exclusions: F2.5 (writes the live `plugins.txt`), S20–S24 (xEdit,
+2–3 min), S17 (needs the compiler), `build_all.bat`, `git push`, and **any
+status-vocabulary change — F2.1b is the owner's decision**.
+
+### `576aa8b` — R9c: the delegated-agent policy
+
+`tasks/roadmap/AGENT-POLICY.md`, written **before** fanning work out because
+three agents committing to one repo collide on `.git/index.lock`. Partitioning:
+absolute disjoint file ownership · explicit pathspecs, never `git add -A` ·
+commit prefixes `A1:`/`A2:`/`A3:`. Also recorded because they were being applied
+from memory: one commit per verified task with **both** VERIFIED and NOT
+VERIFIED · no deletes, no amend, no reset, no push · small repair in place
+versus numbered variant · and the verify bar — parse, gates, a before/after
+pair per defect, and proof that a new gate discriminates by breaking what it
+checks.
+
+---
+
+## R10 — three delegated agents, eleven commits
+
+Work fanned out under `AGENT-POLICY.md`. Disjoint file ownership, so no two
+agents touched the same file:
+
+- **A1** — `tools/pipmon.ps1`, `tools/agent_watchdog.ps1`, `tools/orchestrate.py`,
+  `ai_context/plans/schema.json`
+- **A2** — `tools/spec_lint.py` plus three new gates
+- **A3** — `docs/POSITIONING.md`, `ai_context/systems_core/door_registry.json`,
+  `ai_context/spec/blockers_to_environment.json`, `program_components.2.json`
+
+**All agent work below was re-verified by the coordinator before being logged.**
+A report is not evidence.
+
+### `849e18c` — A1 · F2.3: `Read-Report` dates a report against its inputs
+
+The envelope now carries `freshness` with a `stale` flag, and the cascade treats
+a stale report as SKIP (`pipmon.ps1:362`, `:365`). **Verified independently:** the
+field is present and the cascade reads it.
+
+Staleness goes in **`data`, not a new status** — the vocabulary is closed and
+`ATTENTION`'s meaning is the owner's. Getting that wrong would have invented a
+state.
+
+### `2b065ae` — A1 · F2.4: `verify` can fail
+
+Two defects in one: `agent_watchdog.ps1` had **no `exit`**, so it returned 0 and
+`verify` was unconditionally GREEN; and the exit map covered only 0–3, so any
+higher exit resolved to `$null` and `exit $null` was 0.
+
+### `3d1e7c2` — A1 · F2.12: `validate` maps `PASS`/`FAIL`/`SKIP`
+
+`validate_plugin.ps1` writes only those three, none of which were in `$EXIT`, so
+line ~334 passed them straight through to a `$null` lookup. **`FAIL` now maps to
+RED/1** — the validation ran and the plugin was wrong — which is what the net in
+`e103b6e` was making loud but not right.
+
+### `5ef1a85` — A3 · F1.3: `replaces` on the component entries
+
+`ai_context/spec/program_components.2.json` — **a numbered variant; the original
+is untouched**, per VERSIONING.md. 14 entries, all required `component` fields
+retained, `gate_covered` still a real boolean (10 true, 4 false).
+
+**CORRECTION TO MY OWN COMMIT MESSAGE:** it says *"replaces on all 14
+component entries"*. **7 of 14 carry the field.** The other seven are correct to
+omit — `zydis`, `CommonLibF4`, `retrieval layer`, `ai_watcher`, `test facility`,
+and our own `PipMon.psc` / `PipMonTestFacility.psc` replace no product, because
+they *are* the surface. The message overstated; the work did not.
+
+Also worth recording: the claim *"Replace the CK for record validation"* lived
+in a `role` string, so the Creation Kit was never named in a structured field.
+It is now in `replaces`.
+
+### `13784cd` — A3 · F1.5: the false F4SE claim in POSITIONING.md §4
+
+That section opened *"F4SE is a HARD RUNTIME DEPENDENCY TODAY…"* — contradicted
+by four sources including the binding `f4se_prohibition.md`.
+
+**Verified:** the section now opens `CORRECTED 2026-10-03`, states the new truth,
+and **keeps the failed claim at the end of the section rather than deleting it**,
+saying it was true when written and is false now. That is guardrail **G3** — *a
+design document that only accumulates successes is a brochure.* A document edited
+to look as though it was never wrong teaches the reader nothing.
+
+### `cb7dd6e` — A3 · F1.4: seven doors added
+
+`door_registry.json` is the *"which document answers which question"* map, and
+it is the only registry besides `blockers` and `compat` that had entries at all.
+`program_components`, `surfaces`, `side_invariants`, and the three task
+registries now have doors, using the existing closed five-value legend.
+
+### `32d9b2f` — A3 · D2 and D3: the blocker registry stops contradicting itself
+
+Its summary `critical_path_to_a_cell_on_disk` listed `["B1","B2","B3"]` while B4
+also carried `blocks_the_critical_path: true`. The two now agree, with the
+reasoning recorded. And the free-prose `status` problem — **no program can branch
+on it**, while every other registry in the project uses a closed vocabulary — is
+now stated explicitly as a known limitation rather than left to be discovered.
+
+### `e6d2815` — A3 · D5 recorded
+
+Why no component carries a `path` field, and what adding one would require.
+Recorded rather than forced, because forcing it would mean editing
+`ai_context/spec/schema.json`, which no agent owned.
+
+### `b586d2f`, `865d7d8`, `41cf916` — A2: the three missing checks, as gates
+
+The highest-leverage work available: three of the four failures in the R9 audit
+were a **missing check**, not a missing fix.
+
+| gate | catches |
+|---|---|
+| `entry_field_gate.py` | an entry using a field its kind does not declare — the R4 revert gap, where a clean revert of the schema commit left the map using four undeclared fields with `spec_lint` still reporting 0 problems |
+| `verb_parity_gate.py` | claimed / advertised / implemented verb sets diverging — the eight-month `compat` defect |
+| `exit_table_gate.py` | a status reaching `Emit` with no key in `$EXIT`, plus `$EXIT` ↔ `caps` ↔ contract disagreement |
+
+**A2 proved each one discriminates, which is the whole point of a gate:**
+
+- entry-field: GREEN on the tree; **RED 135 problems** against `schema.json` as
+  of `9bfb5c5^` read out of git — the five pairs it names are exactly the five R4
+  named; GREEN restored
+- verb-parity: GREEN 12/12/12; **RED** against the tree at `0063a22^` —
+  claimed 12, advertised 11, implemented 11, claimed-only `['compat']` — the
+  original defect reproduced against the historical files
+- exit-table: GREEN; **RED** with `BROKEN` dropped from `$EXIT` (16 problems);
+  **RED** when caps and `$EXIT` disagree on a value
+
+**A2 reported, and did not fix:** 65 undeclared `(kind, field)` pairs already in
+the tree across six kinds; `ATTENTION` (F2.1b); and that its gates are **not
+wired into `build_all.bat`**, which is the build's file and not its own.
+
+It also noted something worth keeping: `tools/pipmon.ps1` **changed under it
+twice** while it worked (667 → 800 → 832 lines), so every hard-coded line number
+in a gate written over that file goes stale. Keying by status word and computing
+the location is the durable approach.
+
+### `20b8819` — F2.10 and the `default` case: no verb hand-builds its response
+
+`caps` adopted from A1's interrupted working tree, **re-verified independently**
+rather than trusted, then committed. A verb that writes its own JSON has no
+`status`, `ok`, `reason` or `provenance` — and `caps` was the discovery document,
+the one a caller reads when it has nothing else, breaking the rule in its own
+invariants list.
+
+The payload moves into `data`. That is a shape change, so it was checked rather
+than assumed: **nothing reads `caps` at the old top level**, and the move is
+*conformant* to the published envelope contract, which always had `data` as
+command-specific. `caps` was the outlier.
+
+The `default` case was the last hand-built envelope — a raw JSON string, no `ok`,
+no `data`, no provenance, and an error that did not say which command was wrong.
+
+**Verified:** `exit_table_gate`'s knowns went **2 → 1**. `F2.10` and
+`hand_built_envelope` both **resolved**. The one remaining is
+`ATTENTION → pipmon.ps1:393`, which is **F2.1b — the owner's decision** — so no
+gate may quietly declare it. That is the acknowledgment behaving correctly.
+
+
 
 
 
