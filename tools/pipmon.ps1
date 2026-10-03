@@ -265,6 +265,14 @@ switch ($Command) {
     'caps' {
         # The discovery document. An agent that reads nothing else can call this
         # and learn every command, every exit code and every current blocker.
+        #
+        # ROUTED THROUGH THE ENVELOPE -- F2.10. This used to Write-Output its own
+        # literal and set $script:surfaceExit = 0, so it was the one verb with no
+        # status, no ok, no reason and no provenance -- while publishing, in its
+        # own invariants list, the rule "Every fact in a response names the script
+        # or file it came from." The discovery document was the response that
+        # broke the rule it published, and it is the document a caller reads when
+        # it has nothing else, which makes it the worst place for the exception.
         $caps = [ordered]@{
             schema     = 'pipmon.surface/1'
             name       = 'PIP-MON workspace surface'
@@ -305,8 +313,12 @@ switch ($Command) {
                 @{ id = 'xedit-load-width'; what = 'xEdit loads Fallout4.ccc and the DLC list in addition to plugins.txt, so the 35-entry core does not bound the load'; needs = 'report plugin graph and resource graph separately' }
             )
         }
-        Write-Output ($caps | ConvertTo-Json -Depth 6)
-        $script:surfaceExit = 0
+        # GREEN is not a claim that the workspace is fine. It is the claim that
+        # this document was produced, and every blocker it lists is still a
+        # blocker. `caps` reporting ok:true with `data.blockers` non-empty is the
+        # honest shape: the verb worked, the project is not finished.
+        Emit 'GREEN' $null $caps
+        exit $script:surfaceExit
     }
 
     # ---------------------------------------------------------------- status
@@ -850,7 +862,17 @@ switch ($Command) {
     }
 
     default {
-        Write-Output '{"schema":"pipmon.surface/1","status":"BROKEN","reason":"unknown command; run: tools\\pipmon.ps1 caps"}'
+        # Routed through Emit, like every other verb. This used to hand-write a
+        # JSON string, which made it the last response in the surface with no
+        # `ok`, no `data` and no `provenance` -- so the one message a caller sees
+        # when it got the command name wrong was also the one that could not say
+        # where it came from. Flagged by tools/exit_table_gate.py as
+        # `hand_built_envelope`; that acknowledgment resolves with this commit.
+        Emit 'BROKEN' "unknown command '$Command'; run: tools\pipmon.ps1 caps" `
+            ([ordered]@{ given = $Command; known = @($EXIT.Keys | Sort-Object); knownVerbs = 'see caps' })
+        # Exit 4 is USAGE per the contract header, and usage is not a status.
+        # Setting it here rather than through the table is deliberate: the table
+        # maps STATUSES, and a wrong command line is not one of the five.
         $script:surfaceExit = 4
     }
 }
