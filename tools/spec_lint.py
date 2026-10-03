@@ -24,6 +24,15 @@ What it enforces, and why each rule exists:
   * a spec is BOTH prose and data   -- prose-only pretends to be data, and
                                        data-only cannot be interpreted by a
                                        human reading the corpus
+  * entries use only DECLARED fields -- a key no kind declares describes
+                                       nothing, and R4 proved a declaration can
+                                       be cleanly reverted away with the data
+                                       still using it
+
+The entry-field rule lives in tools/entry_field_gate.py and is called from here,
+so it runs in build_all.bat stage 6 without a second build entry. It is called
+rather than reimplemented because two copies of one rule drift, and a rule that
+drifted between the gate and the lint would be worse than neither.
 
     python tools/spec_lint.py
     python tools/spec_lint.py --json
@@ -37,6 +46,18 @@ REPO = Path(__file__).resolve().parent.parent
 SPEC_DIR = REPO / "ai_context" / "spec"
 SCHEMA = SPEC_DIR / "schema.json"
 
+# The undeclared-entry-field rule. A sibling module rather than a second copy
+# here, because spec_lint runs on every build and a gate that only runs when
+# someone remembers it is not a gate.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    import entry_field_gate
+except Exception as _efg_err:  # noqa: BLE001 - the message is the point
+    entry_field_gate = None
+    _EFG_IMPORT_ERROR = "%s: %s" % (type(_efg_err).__name__, _efg_err)
+else:
+    _EFG_IMPORT_ERROR = None
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -47,6 +68,16 @@ def main():
 
     def bad(spec, rule, detail):
         problems.append({"spec": spec, "rule": rule, "detail": detail})
+
+    # A rule that could not run is reported as not-run, never as fine. Silently
+    # skipping the undeclared-field check because a sibling file failed to import
+    # would leave this lint reporting 0 problems while checking one field less
+    # than it did yesterday, which is exactly the quiet-drift failure mode the
+    # rule was written to catch.
+    if entry_field_gate is None:
+        bad("spec/", "entry_fields_unavailable",
+            "tools/entry_field_gate.py did not import, so the undeclared-entry-field "
+            "rule did not run (%s). This is a SKIP reported as a failure, on purpose." % _EFG_IMPORT_ERROR)
 
     if not SCHEMA.exists():
         print("spec_lint: no schema at %s" % SCHEMA, file=sys.stderr)
@@ -104,6 +135,15 @@ def main():
             continue
         entry_count += len(entries)
 
+        # The declared field set for this kind, resolved ONCE per spec rather than
+        # per entry, and deliberately including entry_optional. Reading only
+        # entry_required and record_required is what made R4's revert invisible:
+        # declaring a field and then removing the declaration were both no-ops,
+        # so entry_optional was documentation rather than a contract.
+        declared_fields = entry_field_gate.declared_fields(kdef) if entry_field_gate else set()
+        audited = (entry_field_gate.AUDITED_UNDECLARED.get(kind, {})
+                   if entry_field_gate else {})
+
         for i, e in enumerate(entries):
             where = "%s#%d(%s)" % (name, i, e.get("id") or e.get("name") or e.get("side") or "?")
             for f in rec_required:
@@ -112,6 +152,22 @@ def main():
             if f_name := e.get("name"):
                 if not isinstance(f_name, str) or not f_name.strip():
                     bad(where, "entry_required", "name must be a non-empty string")
+
+            # An entry may carry no field its kind does not declare. A pair the
+            # 2026-10-03 audit already catalogued is reported as a finding and
+            # counted, not failed: those 65 pairs are in shipped data and the fix
+            # is to declare them in schema.json, which this repository does not
+            # own. A pair nobody has catalogued is a failure, which is what makes
+            # a newly added field, or a quietly deleted declaration, both red.
+            if entry_field_gate is not None:
+                for f in e:
+                    if f in declared_fields or f in audited:
+                        continue
+                    bad(where, "entry_undeclared",
+                        "uses field %r, which kind %r declares in neither "
+                        "entry_required, record_required nor entry_optional. Add "
+                        "it to the schema with a sentence saying what it means, or "
+                        "remove it from the record." % (f, kind))
 
             # Boolean honesty. These fields exist to be branched on.
             for bf in ("exists", "exists_in_fo4", "gate_covered"):
