@@ -317,7 +317,7 @@
       "state": "CURRENT",
       "authority": "measured",
       "keeper": null,
-      "notes": "Names Garden of Eden as a replaceable item, which is the origin of the GECK-versus-CK confusion the nomenclature door exists to prevent."
+      "notes": "Names Garden of Eden as a replaceable item, which is the origin of the GECK-versus-CK confusion the nomenclature door exists to prevent. SECTION 4 CORRECTED 2026-10-03 (A3/F1.5): it asserted F4SE was a hard runtime dependency, which four sources contradicted. It now agrees with them and keeps the superseded claim as a labelled historical record rather than deleting it. Still open in that file: section 6's four-phase F4SE-independence roadmap is described as 'Not scheduled' while its phase A is done, so the document partially disagrees with itself; the replacement map is the current statement of coverage."
     },
     {
       "id": "dashboard",
