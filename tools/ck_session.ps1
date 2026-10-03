@@ -54,7 +54,12 @@ function Get-Profile($name) {
 
 function Get-Live {
     if (-not (Test-Path $PluginTxt)) { return @() }
-    return @(Get-Content -LiteralPath $PluginTxt | Where-Object { $_.Trim() -ne '' })
+    # -Encoding utf8 is required, not cosmetic. Under Windows PowerShell 5.1
+    # Get-Content with no encoding falls back to the system ANSI codepage, so a
+    # UTF-8 plugins.txt with no BOM is MISREAD - and every downstream decision is
+    # then made about a plugin name that does not exist. linksync.ps1:67 already
+    # carries this; this file did not, which is the same bug twice.
+    return @(Get-Content -LiteralPath $PluginTxt -Encoding utf8 | Where-Object { $_.Trim() -ne '' })
 }
 
 function Get-Enabled($lines) {
@@ -125,7 +130,18 @@ switch ($Action) {
         # and says so. Nothing is applied. Restore stays available, and applying
         # a profile is now a separate, deliberate act.
         $proposal = "$PluginTxt.proposed.txt"
-        Set-Content -LiteralPath $proposal -Value $want -Encoding ascii
+        # UTF-8 WITHOUT BOM, written the way linksync.ps1 does it at lines 178-183.
+        # This was `Set-Content -Encoding ascii`, which is the bug commit 2ad0485
+        # fixed in linksync.ps1 and left behind here: a non-ASCII plugin name
+        # becomes "?" in the proposal. The proposal is the file a human reviews
+        # and then applies, so it is the last place to mangle a name.
+        # Set-Content is also avoided entirely - reading text and writing text
+        # cannot promise no BOM and no re-encoding.
+        $outLines = New-Object 'System.Collections.Generic.List[string]'
+        foreach ($l in $want) { $outLines.Add($l) }
+        $body = [string]::Join("`r`n", $outLines) + "`r`n"
+        $enc = New-Object 'System.Text.UTF8Encoding'($false)
+        [System.IO.File]::WriteAllText($proposal, $body, $enc)
 
         $after = $want
         $added = @($want | ForEach-Object { $_.Substring(1) } | Where-Object { $liveEnabled -notcontains $_ })
