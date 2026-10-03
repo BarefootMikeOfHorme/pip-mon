@@ -16,9 +16,9 @@ independently fixable and independently revertable.
 
 | id | defect | state |
 |---|---|---|
-| **F2.1a** | `$EXIT` lookup is not total — an unknown status keeps the previous value | **FIXED** `e2c4a91` |
+| **F2.1a** | `$EXIT` lookup is not total — an unknown status keeps the previous value | **FIXED** `e103b6e` |
 | **F2.1b** | what `ATTENTION` *means* in the vocabulary | **owed to the owner** |
-| **F2.6** | `caps` advertises `-Enable`/`-Disable` that the entry point did not accept | **FIXED** `e2c4a91` |
+| **F2.6** | `caps` advertises `-Enable`/`-Disable` that the entry point did not accept | **FIXED** `e103b6e` |
 | F2.2 | `snapshot` returns GREEN having copied nothing | open |
 | F2.5 | `link` reports a missing precondition as RED | open — needs a decision, see below |
 | F2.7 | `docs` advertises a file that does not exist | open |
