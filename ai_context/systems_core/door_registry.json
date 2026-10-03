@@ -403,11 +403,11 @@
     {
       "id": "blockers",
       "question": "What is actually stopping us, sorted by what unblocks it soonest",
-      "path": "ai_context/spec/blockers_to_environment.json",
+      "path": "ai_context/spec/blockers_to_environment.2.json",
       "state": "BUILT",
       "authority": "measured",
       "keeper": null,
-      "notes": "B1-B4 are the whole critical path to a testable environment and all four are tractable today. B5, Layer A, is the most important open question in the project and is NOT on that path -- it blocks using the environment in-game, not creating it."
+      "notes": "AUTHORITATIVE VERSION. Supersedes ai_context/spec/blockers_to_environment.json, which stays on disk unedited (tasks/roadmap/VERSIONING.md, Class B); version 1's `critical_path_to_a_cell_on_disk` read [B1,B2,B3] while four records carried blocks_the_critical_path true, so it contradicted itself and the array was the error. B1-B4 are the whole critical path to a testable environment and all four are tractable today. B5, Layer A, is the most important open question in the project and is NOT on that path -- it blocks using the environment in-game, not creating it. BRANCH ON blocks_the_critical_path, a real boolean on all eight records; do NOT branch on `status`, which is still free prose. Version 2 records why no closed vocabulary was invented (status-vocabulary changes are F2.1b, the owner's decision) and shows that the two existing closed sets measure a different axis. No keeper is named and no lint checks this file, which is why the internal contradiction survived: it is an invariant nothing enforces."
     },
     {
       "id": "program-components",

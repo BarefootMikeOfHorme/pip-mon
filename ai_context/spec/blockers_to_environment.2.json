@@ -1,0 +1,168 @@
+{
+  "schema_id": "pipmon.blockers/1",
+  "spec_id": "status.blockers_to_environment",
+  "kind": "registry",
+  "collection_field": "blockers",
+  "title": "What is actually stopping a testable environment, sorted by what unblocks it soonest",
+  "authority": "measured",
+  "version": 2,
+  "audited": "2026-09-30, corrected 2026-10-03 (agent A3, tasks D2 and D3)",
+  "supersedes": "ai_context/spec/blockers_to_environment.json",
+  "supersedes_reason": "Version 1 contradicted itself about the critical path, and its status field could not be branched on. Both are fixes to a block, not to a line, so per tasks/roadmap/VERSIONING.md this is a numbered variant and the original stays on disk unedited. Authoritative pointer: the `blockers` door in ai_context/systems_core/door_registry.json.",
+  "prose": "A buildable test environment needs exactly three things: a plugin that holds at least one record, a tool that can write that record, and a save. Everything else -- Layer A, CKPE, the Papyrus surface, the four testlab scripts -- is real work but none of it is on the critical path to getting a cell on disk and a thing to walk into. Sorting by dependency rather than by severity is the point, because the most important open question in the project, Layer A, does not block the environment at all. It blocks USING the environment in-game, which is a later gate. VERSION 2 CORRECTED THE CRITICAL PATH. Version 1 listed B1, B2 and B3 in `critical_path_to_a_cell_on_disk` while carrying `blocks_the_critical_path: true` on FOUR records including B4. One of the two was wrong and it was the array, for three reasons that all come from inside this file. The prose above names the save as one of the three things an environment needs, and B4 is the save: `what` reads 'No documented headless SAVE for a plugin'. `the_one_thing_that_matters` already says 'B1 through B4 are the whole job, and all four are tractable today'. And B4's own `fix` describes the nearest documented path, IwbFile.FileWriteToStream, used by the shipped SaveAs.pas -- a mechanism, not a difficulty, which is what a tractable blocker looks like. A cell that cannot be written to disk is not a cell on disk, so B4 belongs on the list. VERSION 2 ALSO RECORDS WHY `status` IS STILL PROSE, which is the honest half of a task that wanted a closed vocabulary and could not have one without inventing it. Read the `status_vocabulary` block below before writing a program against this file.",
+  "critical_path_to_a_cell_on_disk": [
+    "B1",
+    "B2",
+    "B3",
+    "B4"
+  ],
+  "critical_path_note": "Version 1 read [B1, B2, B3]. The array was wrong, not the flags: B4 carries blocks_the_critical_path true, its `what` is the missing SAVE, and this file's own prose and its own the_one_thing_that_matters both count four. The flag is the derived fact and the array was the hand-typed one, so the array was corrected. Kept as a note rather than applied silently, because a corrected list nobody can audit is just a different lie.",
+  "status_vocabulary": {
+    "_state": "NO CLOSED VOCABULARY EXISTS FOR THIS FIELD, AND THAT IS RECORDED RATHER THAN PAPERED OVER. Read this before branching on `status`.",
+    "_what_a_program_can_branch_on_today": "`blocks_the_critical_path`, which is a real boolean on all eight records. That is the axis that answers 'what is on the path to a cell on disk', and it is the one the file is actually sorted by. Nothing else here is machine-readable.",
+    "_observed_prose_values": [
+      "FIXABLE NOW",
+      "NEXT",
+      "AVOIDABLE",
+      "PARTIALLY SOLVED",
+      "THE BIG ONE, BUT NOT ON THIS PATH",
+      "MISPLACED, NOT BROKEN",
+      "AVOIDABLE FOR NOW",
+      "PLANNED, 0 OF 10 PROVEN"
+    ],
+    "_why_no_vocabulary_was_invented": "ai_context/spec/schema.json closes every other status vocabulary in this project and says why: 'a status nobody can branch on is decoration'. That reasoning is right and it is why this block exists. It is also not permission to invent one. Policy section 6 says never invent a status, a schema field, or a vocabulary value, and tasks/roadmap/UNATTENDED-QUEUE.md records the consequence explicitly: status-vocabulary changes are F2.1b, the owner's decision, and not an agent's. So the evidence is put in data here and the state is asked for in the report rather than assumed.",
+    "_the_two_existing_closed_sets_were_measured_and_rejected": "schema.json `compat_status_vocabulary` (COVERED / DECLARED / PLANNED / NOT_PLANNED / REJECTED / DIFFERENT_MECHANISM) answers 'how much of a legacy product's job do we cover'. side_invariants.json `status_vocabulary` (MET / NOT_MET / UNVERIFIED / NOT_APPLICABLE) answers 'does a precondition hold right now'. Neither answers 'how close is this blocker to resolved'. Forcing either one on would be worse than prose, because a reader would branch on it: every unresolved blocker is NOT_MET under the invariant vocabulary, so B1 and B5 would come out identical, and B5 is 'the most important open question in the project' while B1 is a pair of renamed function calls.",
+    "_what_is_actually_wrong_today": "The prose values encode at least three different axes at once - how tractable it is (FIXABLE NOW, AVOIDABLE), how urgent it is (NEXT, THE BIG ONE), and whether it is solved (PARTIALLY SOLVED). A program cannot sort on that, and a human cannot either without reading all eight. The three axes are separable, and separating them is the shape a future vocabulary should take: tractability, urgency, and solved-ness are three booleans or three small closed sets, not one string.",
+    "_known_defect_in_the_sibling_vocabulary": "side_invariants.json declares MET / NOT_MET / UNVERIFIED / NOT_APPLICABLE and then uses PARTIALLY_MET in three of its entries. surfaces.json declares MET / PARTIALLY_MET / DECLARED / NOT_MET / UNVERIFIED. Two files, two vocabularies, and one of them leaks its own. Neither is machine-checked today, which is the same failure this block is about. Reported, not fixed: both files belong to another owner.",
+    "_what_would_close_it": "Three fields per blocker, each from an existing declared vocabulary where one exists, plus one lint rule per field. Until then `status` is prose and a program that matches on its text will break the first time someone improves a sentence."
+  },
+  "blockers": [
+    {
+      "id": "B1",
+      "what": "gen_facility.pas calls two functions that do not exist in FO4Edit 4.1.5f",
+      "blocks": "writing any cell",
+      "status": "FIXABLE NOW",
+      "detail": "GetActivePlugin and AddNewElement. Neither is in any documented class; both were guesses. The real calls are known from the fetched signatures: use FileByLoadOrder or FileByIndex, or IwbElement.GetFile, to reach the ALREADY LOADED plugin -- and note that AddNewFileName and AddNewFile do the opposite of what their names suggest, creating a new empty plugin in the game Data folder and appending to the plugin list.",
+      "fix": "Rewrite against ai_context/spec/xedit_api.json. The create is IwbContainer.Add(container, 'CELL', false), which is idempotent. AddElement attaches an already-constructed element and THROWS if that element already has a container, so it is the wrong call for record creation.",
+      "blocks_the_critical_path": true,
+      "provenance": [
+        "ai_context/spec/xedit_api.json",
+        "tools/artifact_gate.py"
+      ]
+    },
+    {
+      "id": "B2",
+      "what": "No headless xEdit run has ever produced a report",
+      "blocks": "proving the validator works at all, and therefore proving the generator's output can be read back",
+      "status": "NEXT",
+      "detail": "The mechanism is PROVEN and this matters: a full 35-plugin core load reached the script's Finalize at 2m15s and executed it. It then aborted on GetPluginName, which does not exist. The corrected script substitutes %%OUTPATH%% and %%PLUGIN%% as literals precisely because of that, but has not yet completed a run. A working mechanism with a bug in it, not a broken tool.",
+      "fix": "Run tools/validate_plugin.ps1 -Async, poll with -Collect. Timeouts below about 4 minutes are false negatives; the default is 420s.",
+      "blocks_the_critical_path": true,
+      "provenance": [
+        "runs/xedit/fo4edit-4.1.5f-pascal-api.md"
+      ]
+    },
+    {
+      "id": "B3",
+      "what": "wbPositionToGridCell takes a TwbVector and no constructor for one is documented",
+      "blocks": "placing a cell at a chosen world position",
+      "status": "AVOIDABLE",
+      "detail": "The function exists and the conversion is documented as dividing coordinates by 4096. But its argument type is a TwbVector and no documented way to construct one was found, so calling it from script may be unreachable.",
+      "fix": "Do NOT solve this to start. Place the cell in a known existing cell or group first, which needs no vector, and confirm a record lands. Treat the placement problem as a second step once writing works at all. The 4096 constant is recorded either way.",
+      "blocks_the_critical_path": true,
+      "provenance": [
+        "ai_context/spec/xedit_api.json"
+      ]
+    },
+    {
+      "id": "B4",
+      "what": "No documented headless SAVE for a plugin",
+      "blocks": "persisting anything generated",
+      "status": "PARTIALLY SOLVED",
+      "detail": "Not one of the 21 upstream xEditScripts saves the plugin -- every AddNewFile creates a patch in-session and the human saves through the UI. So this gap is real and upstream does not fill it. VERSION 2 ADDITION, no claim changed: this record was already flagged blocks_the_critical_path true in version 1 while the summary array omitted it, and it is now in the array. See critical_path_note at the top of this file for which of the two was wrong and why.",
+      "fix": "The closest documented path is IwbFile.FileWriteToStream, used by the shipped SaveAs.pas, which constructs a TFileStream and writes the loaded file. Read that script rather than inventing a save.",
+      "blocks_the_critical_path": true,
+      "provenance": [
+        "ai_context/automation/xedit-script-patterns.md",
+        "version 2: ai_context/spec/blockers_to_environment.json line 10 carried [B1,B2,B3] while this record carried blocks_the_critical_path true at line 60"
+      ]
+    },
+    {
+      "id": "B5",
+      "what": "Layer A: no BSScript vtable slot is hooked",
+      "blocks": "S0, every Papyrus-to-native call, the wire's engine end, and therefore running the environment IN-GAME",
+      "status": "THE BIG ONE, BUT NOT ON THIS PATH",
+      "detail": "This is the central open question of the whole project and it does NOT block creating a cell. A cell on disk is produced entirely by xEdit. Layer A only blocks getting a verdict out of a live game session.",
+      "fix": "CommonLibF4 RE/Bethesda/BSScript.h holds native declarations in method order, and RE/VTABLE_IDs.h is the vtable inventory. Both are vendored and indexed. That is the lead the blocker note has always asked for.",
+      "blocks_the_critical_path": false,
+      "provenance": [
+        "ai_context/spec/side_invariants.json",
+        "third_party/CommonLibF4/CommonLibF4/include/RE/Bethesda/BSScript.h"
+      ]
+    },
+    {
+      "id": "B6",
+      "what": "The four testlab Papyrus scripts cannot compile in FO4",
+      "blocks": "nothing on the environment path",
+      "status": "MISPLACED, NOT BROKEN",
+      "detail": "OverseerBridge and the three pip_mon_testlab scripts use CustomEvent, SendEvent, MenuButton and OnMenuClick, none of which exist in FO4 Papyrus. They are also doing L-BE work -- measurement, counting, routing -- from inside L-IN, which both perturbs what they measure and spends the frame budget the thing under test needs.",
+      "fix": "Reduce each to a thin in-engine shim over the wire and move the analysis to the backend. Retire PipMon_TerminalTest entirely: terminal UI needs a Native script and a Native script cannot hold data, so a bench that must report results has nowhere to put them.",
+      "blocks_the_critical_path": false,
+      "provenance": [
+        "ai_context/systems_core/structural_layers.md",
+        "ai_context/spec/papyrus_constructs.json"
+      ]
+    },
+    {
+      "id": "B7",
+      "what": "CKPE absent, and the CK render window crash-risks larger cells",
+      "blocks": "authoring cells larger than a handful of objects IN THE EDITOR",
+      "status": "AVOIDABLE FOR NOW",
+      "detail": "Three crash dumps on record. Also the CK has no scriptable interface on this machine, so every CK-facing tool is read-only by necessity.",
+      "fix": "Do not author in the CK at all for the first cell. Headless xEdit is the route, which is why B1 to B4 matter more than this. CKPE's most portable idea is Cell View list virtualisation, and that is a candidate rather than a diagnosis.",
+      "blocks_the_critical_path": false,
+      "provenance": [
+        "ai_context/systems/ckpe/ckpe-insights.md"
+      ]
+    },
+    {
+      "id": "B8",
+      "what": "No F4SE compatibility surface exists",
+      "blocks": "mods that gate on F4SE",
+      "status": "PLANNED, 0 OF 10 PROVEN",
+      "detail": "Two capabilities DECLARED, five PLANNED, one DIFFERENT_MECHANISM, one NOT_PLANNED, one REJECTED. Deliberately a reporter rather than an impersonation: faking F4SE would let a mod pass its version gate and then crash on a call we do not have.",
+      "fix": "Nothing before Layer A. Every one of these needs the hook.",
+      "blocks_the_critical_path": false,
+      "provenance": [
+        "ai_context/spec/compat_f4se_map.json"
+      ]
+    }
+  ],
+  "the_one_thing_that_matters": "B5 is the most important open question in the project and it is not on the path to a testable environment. If the environment work is what you want next, B1 through B4 are the whole job, and all four are tractable today. Layer A can wait without costing anything on this path. VERSION 2: that sentence was already correct in version 1 and is the strongest internal evidence that the summary array, not the B4 flag, was the error.",
+  "provenance": [
+    {
+      "source": "tools/side_gate.py",
+      "note": "per-side availability, 1 of 3 sides"
+    },
+    {
+      "source": "runs/xedit/fo4edit-4.1.5f-pascal-api.md",
+      "note": "the 2m15s Finalize measurement and the GetPluginName abort"
+    },
+    {
+      "source": "ai_context/goal_alignment.md",
+      "note": "goal-to-gate audit; six goals with no gate coverage"
+    },
+    {
+      "source": "ai_context/spec/compat_f4se_map.json",
+      "note": "0 of 10 capabilities proven"
+    },
+    {
+      "source": "tools/artifact_gate.py",
+      "note": "the acknowledged findings behind B1 and B6"
+    },
+    {
+      "source": "version 2, 2026-10-03, agent A3",
+      "note": "D2 the critical_path_to_a_cell_on_disk correction, argued from this file's own prose and its own the_one_thing_that_matters; D3 the status_vocabulary block, which records why no closed vocabulary was invented and what a program can branch on instead. Both are in data, and the state change they would need is asked for in the report, not assumed."
+    }
+  ]
+}
