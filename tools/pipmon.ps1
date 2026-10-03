@@ -153,12 +153,101 @@ function Emit($status, $reason, $data) {
     $script:surfaceExit = $EXIT[$status]
 }
 
-function Read-Report($name) {
-    $p = Join-Path $WatchDir $name
-    if (Test-Path $p) {
-        try { return Get-Content $p -Raw | ConvertFrom-Json } catch { return $null }
+# The inputs a papyrus report describes, read out of vprobe\papyrus\build_papyrus.bat
+# -- it stages *.psc and *.flg from these three roots (its lines 104-138). Mirrored
+# by pattern rather than listed file by file, so a source added to any of the three
+# roots is covered without this surface having to be edited to notice.
+function Get-PapyrusInputs {
+    $roots = @(
+        (Join-Path $Repo 'vprobe\papyrus'),
+        (Join-Path $Repo 'overseer_event_bridge\Scripts\Source'),
+        (Join-Path $Repo 'pip_mon_testlab\Scripts\Source')
+    )
+    $out = @()
+    foreach ($r in $roots) {
+        if (Test-Path -LiteralPath $r) {
+            $out += @(Get-ChildItem -LiteralPath $r -File -Recurse -ErrorAction SilentlyContinue |
+                      Where-Object { $_.Extension -in '.psc', '.flg' } |
+                      ForEach-Object { $_.FullName })
+        }
     }
-    return $null
+    return $out
+}
+
+# The pascal program xEdit executes. validate_plugin.ps1 generates a copy from it
+# (runs\watch\validate_plugin.gen.pas) and runs that, so the template is an input
+# to the verdict the report records. The plugin under test is NOT named here:
+# the report carries its own `plugin` field and Read-Report reads that from the
+# report, so a validation aimed at a different .esp is compared against the right
+# file instead of a hardcoded default.
+function Get-XeditInputs {
+    return @((Join-Path $Repo 'testfacility\xedit\validate_plugin.pas'))
+}
+
+function Read-Report($name, $extraInputs) {
+    $p = Join-Path $WatchDir $name
+    if (-not (Test-Path $p)) { return $null }
+    try { $rep = Get-Content $p -Raw | ConvertFrom-Json } catch { return $null }
+    if ($null -eq $rep) { return $null }
+    # A report that parsed to something other than an object (an array, a bare
+    # string) has no fields to date against and cannot carry a freshness block.
+    # It is returned as it is rather than decorated with a guess.
+    if ($rep -isnot [System.Management.Automation.PSCustomObject]) { return $rep }
+
+    # FRESHNESS -- F2.3. A report is a statement about the tree as it was. This
+    # function read one and returned it with no check at all, and four call sites
+    # (status x2, build, validate) presented the result as current truth. On this
+    # workspace, right now, `runs\watch\papyrus-latest.json` reads GREEN from
+    # 2026-09-30 19:08 while pip_mon_testlab\Scripts\Source\PipMon_LeakTest.psc is
+    # dated 2026-10-01 02:30 -- the report describes a tree that has since changed,
+    # and nothing in the envelope said so.
+    #
+    # STALENESS IS DATA, NOT A STATUS, and that is a constraint rather than a
+    # preference. The exit vocabulary is closed; STALE is not in it, and adding a
+    # state is F2.1b, still owed to the owner and deliberately not started. A
+    # caller gets `data.<report>.freshness.stale` today, and inventing a sixth
+    # status would have added a state with no agreed exit number -- decoration by
+    # the project's own test -- rather than a fact.
+    #
+    # Compared against the file's own mtime, not the `generatedUtc` stamp inside
+    # it, because mtime is what the filesystem can be asked about and a stamp is a
+    # claim by the writer.
+    $inputs = @()
+    foreach ($k in 'plugin', 'flagsFile') {
+        $named = $rep.$k
+        if ($named -and (Test-Path -LiteralPath $named)) { $inputs += $named }
+    }
+    $inputs += @($extraInputs | Where-Object { $_ })
+
+    $reportTime = (Get-Item -LiteralPath $p).LastWriteTime
+    $missing = @()
+    $newest = $null
+    $newestPath = $null
+    foreach ($i in $inputs) {
+        if (Test-Path -LiteralPath $i) {
+            $mt = (Get-Item -LiteralPath $i).LastWriteTime
+            if ($null -eq $newest -or $mt -gt $newest) { $newest = $mt; $newestPath = $i }
+        } else {
+            $missing += $i
+        }
+    }
+    # Strictly newer. Equal mtimes are not stale: filesystem timestamp granularity
+    # is a second or two here, and a report written in the same second as its input
+    # has not been outrun by it.
+    $stale = ($null -ne $newest) -and ($newest -gt $reportTime)
+
+    $rep | Add-Member -NotePropertyName 'freshness' -Force -NotePropertyValue ([ordered]@{
+        stale             = $stale
+        report            = $p
+        reportModifiedUtc = $reportTime.ToUniversalTime().ToString('o')
+        input             = $newestPath
+        inputModifiedUtc  = if ($null -ne $newest) { $newest.ToUniversalTime().ToString('o') } else { $null }
+        inputsChecked     = @($inputs).Count
+        inputsMissing     = @($missing)
+        ageSeconds        = if ($null -ne $newest) { [math]::Round(($reportTime - $newest).TotalSeconds, 0) } else { $null }
+        rule              = 'stale when an input the report describes is newer than the report file; file mtime, not the generatedUtc stamp inside it'
+    })
+    return $rep
 }
 
 function Run-Tool($script, $toolArgs) {
@@ -222,8 +311,8 @@ switch ($Command) {
 
     # ---------------------------------------------------------------- status
     'status' {
-        $pap = Read-Report 'papyrus-latest.json'
-        $val = Read-Report 'xedit-latest.json'
+        $pap = Read-Report 'papyrus-latest.json' (Get-PapyrusInputs)
+        $val = Read-Report 'xedit-latest.json' (Get-XeditInputs)
 
         $link = Run-Tool 'tools\linksync.ps1' @('status', '-GameDir', $GameDir)
         $dep = Run-Tool 'testfacility\ck\verify_deploy.ps1' @('-GameDir', $GameDir)
@@ -247,28 +336,52 @@ switch ($Command) {
             }
         }
 
+        # A stale report is not evidence. Its recorded verdict describes a tree
+        # that has changed since, so it is reported as unverified rather than as
+        # the status it used to carry. SKIP is the existing word for "we could
+        # not establish this" and invents no new state (F2.1b is still owed).
+        $staleReports = @()
+        if ($pap -and $pap.freshness.stale) { $staleReports += 'papyrus-latest.json' }
+        if ($val -and $val.freshness.stale) { $staleReports += 'xedit-latest.json' }
+
         # Aggregate honestly: a SKIP anywhere is surfaced, not averaged away.
         $states = [ordered]@{
-            papyrus = if ($pap) { $pap.status } else { 'NOT RUN' }
-            pluginValidation = if ($val) { $val.status } else { 'NOT RUN' }
+            papyrus = if (-not $pap) { 'NOT RUN' }
+                      elseif ($pap.freshness.stale) { 'SKIP' }
+                      else { $pap.status }
+            pluginValidation = if (-not $val) { 'NOT RUN' }
+                      elseif ($val.freshness.stale) { 'SKIP' }
+                      else { $val.status }
             deploy = if ($dep.exit -eq 0) { 'GREEN' } else { 'ATTENTION' }
             link = if ($link.exit -eq 0) { 'GREEN' } else { 'ATTENTION' }
         }
         $overall = 'GREEN'
-        if ($states.papyrus -ne 'GREEN') { $overall = 'RED' }
+        # Asked BEFORE the RED branch, and that order is the fix. A stale papyrus
+        # report previously reached `-ne 'GREEN'` and produced RED, which claims
+        # the build ran and is wrong -- a claim about a build nobody performed. We
+        # cannot say it is wrong either; we can only say it is unestablished.
+        if ($states.papyrus -eq 'SKIP') { $overall = 'SKIP' }
+        elseif ($states.papyrus -ne 'GREEN') { $overall = 'RED' }
         elseif ($states.pluginValidation -notin 'PASS', 'GREEN') { $overall = 'SKIP' }
         elseif ($states.deploy -ne 'GREEN' -or $states.link -ne 'GREEN') { $overall = 'ATTENTION' }
 
         $reason = switch ($overall) {
             'GREEN' { $null }
             'RED' { 'the Papyrus build is not green; read data.papyrus.tail' }
-            'SKIP' { 'plugin validation could not run, so the plugin is UNVERIFIED rather than fine' }
+            'SKIP' {
+                if ($states.papyrus -eq 'SKIP') {
+                    "the Papyrus report predates the sources it describes ($($staleReports -join ', ')), so the build is UNVERIFIED rather than fine; read data.papyrus.freshness"
+                } else {
+                    'plugin validation could not run, so the plugin is UNVERIFIED rather than fine'
+                }
+            }
             default { 'one or more checks need attention; see data' }
         }
 
         Emit $overall $reason ([ordered]@{
             guard       = $guard
             states      = $states
+            staleReports = $staleReports
             papyrus     = $pap
             pluginValidation = $val
             facilityPlugin = $espInfo
@@ -291,12 +404,19 @@ switch ($Command) {
         $a = @('-GameDir', $GameDir)
         if ($NoDeploy) { $a += '-NoDeploy' }
         $r = Run-Tool 'tools\watch_papyrus.ps1' $a
-        $rep = Read-Report 'papyrus-latest.json'
-        $status = if ($rep) { $rep.status } else { 'BROKEN' }
+        $rep = Read-Report 'papyrus-latest.json' (Get-PapyrusInputs)
+        # A report older than the sources it describes is not this build's result.
+        # `build` has just run the compiler, so a report that did not move means
+        # nothing was written -- and the pre-fix line read the old file and
+        # reported its verdict as if it were the build that just happened.
+        $status = if (-not $rep -or $rep.freshness.stale) { 'BROKEN' } else { $rep.status }
         if ($status -eq 'GREEN') { $status = 'GREEN' }
         elseif ($status -eq 'RED') { $status = 'RED' }
         else { $status = 'BROKEN' }
-        Emit $status 'papyrus compile/fix/verify/deploy' ([ordered]@{ report = $rep; output = $r.output })
+        $why = if ($rep -and $rep.freshness.stale) {
+            "papyrus compile/fix/verify/deploy produced no fresh report: runs\watch\papyrus-latest.json is older than $($rep.freshness.input), so this build is UNVERIFIED rather than fine"
+        } else { 'papyrus compile/fix/verify/deploy' }
+        Emit $status $why ([ordered]@{ report = $rep; output = $r.output })
         exit $script:surfaceExit
     }
 
@@ -331,9 +451,22 @@ switch ($Command) {
         $a = @()
         if ($Plugin) { $a += @('-Plugin', $Plugin) }
         $r = Run-Tool 'tools\validate_plugin.ps1' $a
-        $rep = Read-Report 'xedit-latest.json'
-        $status = if ($rep) { $rep.status } else { 'SKIP' }
-        Emit $status $(if ($rep -and $rep.reason) { $rep.reason } else { 'no validation report produced' }) `
+        $rep = Read-Report 'xedit-latest.json' (Get-XeditInputs)
+        # Same reasoning as build: the validator has just run, so a report older
+        # than the plugin it describes is a leftover, not this run's verdict.
+        $status = if (-not $rep) { 'SKIP' }
+                  elseif ($rep.freshness.stale) { 'SKIP' }
+                  else { $rep.status }
+        # The report's own reason string is only quoted when it is fresh. A stale
+        # report's reason describes a run that is not this one, and repeating it
+        # verbatim as the surface's reason is the same lie one level up.
+        $why = if (-not $rep) { 'no validation report produced' }
+               elseif ($rep.freshness.stale) {
+                   "validation produced no fresh report: runs\watch\xedit-latest.json is older than $($rep.freshness.input), so the plugin is UNVERIFIED rather than fine"
+               }
+               elseif ($rep.reason) { $rep.reason }
+               else { 'no validation report produced' }
+        Emit $status $why `
             ([ordered]@{ report = $rep; output = $r.output })
     }
 
