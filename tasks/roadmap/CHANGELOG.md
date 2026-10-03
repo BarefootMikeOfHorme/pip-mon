@@ -262,3 +262,179 @@ extra fields are permitted — which is the reason it was worth reading back.
 
 **Cost:** one new file, ~1,400 lines of JSON. The next commit is the family plan.
 
+---
+
+## R2 — the honesty diagnosis
+
+### `c4eb641` — F2: the nine defects, verified firsthand
+
+**Change class:** new file, one. Nothing existing modified.
+
+`tasks/roadmap/families/F2-truth-honesty/PLAN.md`. **Every line number read out
+of `tools/pipmon.ps1` in-session**, not inherited from a handover — which
+mattered, because the previous audit found the same nine by reading and had one
+of them slightly wrong.
+
+**The headline finding, corrected on second reading:**
+
+> **F2.4 — `verify` cannot return anything but GREEN.** Line 237's map covers
+> 0–3. `agent_watchdog.ps1` has no `exit` statement, so it returns 0. But any
+> exit **above 3** is *also* not in the map, so the lookup is `$null`, and
+> `$EXIT[$null]` is `$null`, and `exit $null` is **0**. So `verify` can never
+> return SKIP or BROKEN — by two separate routes.
+
+**F2.1 is the worst of the nine** because it is the only one that puts a right
+answer in the wrong channel. `status` **produces** `ATTENTION` at 207, 208 and
+213; `$EXIT` has no `ATTENTION` key; `$EXIT[$status]` is `$null`; `exit $null` is
+0. So a failed deploy verification exits 0 with `"ok": false` in the envelope.
+Both channels are documented as authoritative and they disagree.
+
+**NOT DONE, DELIBERATELY:** the F2.1 fix. Adding `ATTENTION = 1` is wrong on its
+own — `ATTENTION` currently means *"a deploy or link check did not pass"*, which
+is nearer RED than GREEN, and assigning it a number without deciding what it *is*
+would make the exit table unreliable in a second way. Owner ruling, 2026-10-03:
+research the vocabulary first. That research is R3.
+
+**VERIFIED:** `spec_lint` GREEN, unchanged, 14 specs / 202 entries / 0 problems.
+`ai_context/spec` untouched by this commit.
+
+**NOT VERIFIED:** no fix applied. All eleven behaviours are read from source;
+none observed at runtime, because each needs a host that is *present* on this
+machine and their whole point is what happens when it is absent.
+
+**Cost:** one new file. Zero lines of behaviour changed.
+
+---
+
+## R3 — vocabulary research, a twelfth defect, and the compiled-environment model
+
+### `997e2cb` — F2.0 + F2.12 + map row 31
+
+Three additions in one commit. **No behaviour changed anywhere.**
+
+#### 1. F2.0 `VOCABULARY.md` — research before change, as instructed
+
+Owner instruction: *"more then one state added before its all done with this
+program, research what it could or would do and validate the idea for use and
+helpfulness before doing anything."* Done, and applied to nothing.
+
+> **THE FINDING THAT REORDERS F2: `$EXIT[$status]` on an unrecognised key returns
+> `$null`, and `exit $null` is 0. An unrecognised status is currently a PASS.**
+
+Values already reaching the table with no key: `ATTENTION` (207/208/213),
+`PASS` and `FAIL` (275), `NOT RUN` (205/206), `UNKNOWN` (via `agent_watchdog`),
+and any exit ≥ 4 from `:237`.
+
+**The project already has eighteen status vocabularies.** Three are linted —
+`compat_status_vocabulary` via `spec_lint.py`, `side_invariants.json` via
+`side_gate.py`, `surfaces.json` via `surfaces_gate.py`. The 5-state exit table,
+**the one with the most readers, is not linted at all.** And `tasks/roadmap/README.md`
+already states the policy — *status vocabularies are closed and reused, not
+reinvented*. Eighteen exist partly because nobody picked one.
+
+**Hypothesis CONFIRMED:** the single `status` field carries at least ten
+orthogonal dimensions and expresses two. Coverage fraction, freshness,
+concurrency, authority, degradation and risk class are all in use *elsewhere* in
+the project and none is reachable from `$EXIT`.
+
+**Who actually consumes a status — the decisive part:**
+
+> The **exit code** is the real contract. **Nothing in the tree reads the
+> envelope's `ok` field. Nothing reads its `status` string.** Five consumers read
+> the exit code; the envelope is written by one process and parsed by no
+> automated consumer.
+
+`orchestrate.py:753-757` branches on exit code only. `gate_watch.py:83` collapses
+SKIP, BROKEN, timeout 124 and missing-binary 127 all into RED.
+`orchestrate.py:335-336` does not handle `2`, so **a BROKEN exit prints `??`**.
+`side_gate.py:96` **returns 0 unconditionally** while printing "1 of 3 sides
+available". `launcher/src/main.cpp:149` collapses `Degraded` to the same exit as
+failure.
+
+**Five of the candidate states already exist in this project:** `PARTIAL`
+(`envgate.py:1004`), `UNKNOWN` (`envgate.py:74-80`), `PROXY`
+(`taskrun.ps1:335-342`), `STALE` (`door_registry.json:11`), `DEGRADED`
+(`ProcessLaunch.hpp:61`). **None needs inventing. Each needs reaching.** That is
+the answer to "we may need more states" — the need is mostly routing.
+
+**Ordering constraint derived:** step 0 is **make the table total**, before any
+state is added. Until the `$null` path is closed, adding a state adds a *new
+silent-PASS path* rather than an honest answer. Step 4 is extending the lint to
+the exit table. Step 3 — *give every new state a consumer in the same commit* —
+is the one most likely to be skipped, and `schema.json:187` is the project's own
+reason not to skip it.
+
+**Consequently F2.1 is split:** **F2.1a** make the table total — a bug fix, *not*
+blocked on the owner — and **F2.1b** decide what `ATTENTION` is — still owed,
+still not started.
+
+#### 2. F2.12 — a defect the first pass missed
+
+Found *during* the research, not by a second reading of the same file.
+
+> **`pipmon validate` exits 0 when validation FAILS.**
+
+`validate_plugin.ps1` writes only `PASS`, `FAIL` or `SKIP` — an exhaustive set
+across its 18 report sites. `$EXIT` contains **none of the three**. Line 275
+passes `$rep.status` straight into `Emit`, so `$EXIT['FAIL']` is `$null` and a
+failed validation returns `"status":"FAIL","ok":false` with **exit 0**.
+
+Worse than F2.1, because `PASS`/`FAIL` are what the validator has always written
+rather than a typo. `ATTENTION` was emitted by mistake; this is a real value
+falling through a real gap. Line 212 proves the author knew `PASS` existed:
+`-notin 'PASS','GREEN'`.
+
+#### 3. Map row 31 — the compiled-environment model
+
+Owner proposal, 2026-10-03: *compile once, snapshot, then toggle compiled
+plugins from the terminal instead of rebuilding* — and use that as the **testing
+and validation method for the cartridges**, so that whatever is compiled into the
+environment, even if not rendered or running, is callable through its native.
+
+Recorded with an honest three-level split, because the claim is true at one level
+and false at another, and conflating them would make the row a lie:
+
+| level | status |
+|---|---|
+| **plugin** | **works today.** `linksync.ps1` declares `[string[]]$Enable`/`$Disable` at 45-46, implements both at 147-155, snapshots before apply at 132. `pipmon.ps1:148` advertises both args; `:259` forwards neither. **The mechanism is written, tested, and one argument list from reachable** |
+| **pex** | a `.pex` is compiled bytecode, so toggling a function is not a thing — but that path is already cheap (seconds). The expensive ops are xEdit-class and therefore plugin-level, so plugin level is the right toggle |
+| **native** | needs Layer A. One blocker |
+
+**And the part that is sharper than it looks.** *"Callable in its native even if
+not rendered or running"* decomposes into **five rungs**, and only the last three
+need Layer A:
+
+```
+A. DECLARED     the .psc declares the native      checkable TODAY
+B. COMPILED     the .pex carries it               checkable TODAY
+C. REGISTERED   a native handler exists            needs Layer A
+D. REACHABLE    a compiled .psc gets an answer     needs Layer A
+E. DISPATCHABLE a cartridge fires unrendered       needs Layer B
+```
+
+**A and B are a real gate available now**, and they are the honest half of the
+goal-coverage gap `goal_alignment.md` says is missing. It also turns S0 from a
+binary question into a coverage figure — *declared 13, compiled 13, registered 0,
+reachable 0* — where the first two numbers are knowable before any hook exists.
+
+**VERIFIED:** `spec_lint` GREEN, 14 specs / 203 entries / 0 problems. Map is now
+**31 rows**: 1 `COVERED`, 2 `DECLARED`, 14 `PLANNED`, 5 `DIFFERENT_MECHANISM`,
+8 `NOT_PLANNED`, 1 `REJECTED`. By host: **19 `none`, 8 `game`, 4 `ck`**.
+
+**VERIFIED by reading source:** the `linksync` line numbers, the `pipmon` line
+numbers, the `validate_plugin.ps1` report value set, and `$EXIT` having a `$null`
+path.
+
+**NOT VERIFIED:** every claim in `VOCABULARY.md`. Two are worth one command each
+and have **not** been run — that `pipmon validate` exits 0 on `FAIL`, and that
+`agent_watchdog.ps1` exits 0 regardless. Both follow from exhaustive literal
+sets; neither has been executed.
+
+**NOT VERIFIED:** the five-rung ladder and the three-level split are **this
+session's judgement**, not measurement. The row says so in its `notes`.
+
+**Cost:** two new files (`VOCABULARY.md`, one map row), one plan edited. Still
+**zero lines of behaviour changed** — the whole of R0 through R3 is diagnosis and
+specification.
+
+
