@@ -392,11 +392,43 @@ switch ($Command) {
 
     # ---------------------------------------------------------------- verify
     'verify' {
-        $r = Run-Tool 'tools\agent_watchdog.ps1' @()
+        # -GameDir was accepted by the surface and dropped here: @() passed
+        # nothing, so `verify -GameDir X` silently verified the default folder.
+        # agent_watchdog.ps1 has declared [string]$GameDir since it was written.
+        $r = Run-Tool 'tools\agent_watchdog.ps1' @('-GameDir', $GameDir)
         $dash = Join-Path $Repo 'ai_state_dashboard.md'
-        Emit (@{ 0 = 'GREEN'; 1 = 'RED'; 2 = 'BROKEN'; 3 = 'SKIP' }[$r.exit]) `
-            'dashboard regenerated; read the file for the sourced detail' `
-            ([ordered]@{ dashboard = $dash; dashboardExists = (Test-Path $dash); exit = $r.exit; output = $r.output })
+
+        # TOTAL BY CONSTRUCTION -- F2.4. The old line was
+        #     Emit (@{ 0='GREEN'; 1='RED'; 2='BROKEN'; 3='SKIP' })[$r.exit])
+        # and it had two independent failures. The map covered 0-3 only, so any
+        # other child exit made the lookup $null; and Emit's own guard turns a
+        # $null status into BROKEN (F2.1a), so an unmapped exit was at least loud
+        # -- but the reason string was the CONSTANT "dashboard regenerated",
+        # which is the thing that made it read as fine. A `default` arm is used
+        # rather than relying on the guard two frames away, so the verdict is
+        # stated where it is decided.
+        $status = switch ($r.exit) {
+            0 { 'GREEN' }
+            1 { 'RED' }
+            2 { 'BROKEN' }
+            3 { 'SKIP' }
+            default { 'BROKEN' }
+        }
+        if ($r.missing) { $status = 'BROKEN' }
+
+        $lastLine = @($r.output | Where-Object { $_ -match '\S' } | Select-Object -Last 1)
+        $reason = if ($r.missing) {
+            "agent_watchdog.ps1 not found at $($r.path), so the dashboard was not regenerated and nothing is verified"
+        } elseif ($status -eq 'GREEN') {
+            'dashboard regenerated; read the file for the sourced detail'
+        } else {
+            "dashboard regenerated but the pass did not conclude green (agent_watchdog exit $($r.exit)): $lastLine"
+        }
+
+        Emit $status $reason ([ordered]@{
+            dashboard = $dash; dashboardExists = (Test-Path $dash)
+            exit = $r.exit; watchdog = $r.path; gameDir = $GameDir; output = $r.output
+        })
     }
 
     # ----------------------------------------------------------------- build
