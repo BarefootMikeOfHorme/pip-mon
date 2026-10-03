@@ -915,6 +915,165 @@ no `data`, no provenance, and an error that did not say which command was wrong.
 `ATTENTION → pipmon.ps1:393`, which is **F2.1b — the owner's decision** — so no
 gate may quietly declare it. That is the acknowledgment behaving correctly.
 
+---
+
+## R11 — second wave: three agents, the index, and the gates that followed
+
+Work fanned out again under `AGENT-POLICY.md`, same partitioning discipline.
+**All of it re-verified by the coordinator before being logged.**
+
+### The headline: my own source count was wrong, and a hand-written table is wrong on 6 rows
+
+**B1 built the Papyrus index** and found that **7,854** `.psc` files live in
+`Data\Scripts\Source\Base` — not the **7,932** this board, the queue and several
+prompts have repeated all session. 7,932 is `Source/` *in total*; the extra 78
+are 66 Vortex-managed `User\` scripts plus DLC archives. B1 indexed `Base` and
+excluded `User`, which is mod content rather than shipped source.
+
+**Generated:** 17,418 functions · 3,856 event handlers · 25,503 properties · 67
+distinct Form types · 21,274 entries.
+
+**The finding that matters most: `ai_context/papyrus_syntax_rules.md` is wrong
+on 6 of its 20 negative-table rows.** This is the document the whole project
+relies on to avoid Skyrim and legacy habits, and the index exists to end exactly
+this drift:
+
+| the document says | measured |
+|---|---|
+| `CustomEvent` has "zero occurrences" | **52 declarations** |
+| "there is no `Debug` script in FO4 at all" | **`Debug.psc` exists, 40 functions** |
+| `GetLength` does not exist | it does — `ObjectReference.GetLength() → float`, **object length, not array count** |
+| `GetSize`, `Start`, `Stop` absent | `Start`/`Stop` exist, **receiver-scoped** and with **differing arity** |
+
+`GetLength` is the dangerous one: grep the name, find it, conclude arrays have a
+length. `Start`/`Stop` mean `myQuest.Start()` compiles and `someScript.Start()`
+does not — a distinction no name-based lookup can make.
+
+`SendEvent` is absent as an *engine* function and present three times as a quest
+script's own helper, which is precisely why every key is namespaced.
+
+**Rungs A and B, measured for the first time:**
+
+```
+A. DECLARED    17,418 functions, 879 native, 286 global, 91 Native scripts
+B. COMPILED    7,929 .pex shipped; 7,848 of 7,854 indexed scripts have one;
+               879 of 879 native functions belong to a script that has one
+```
+
+B is **script-level only** — no `.pex` was parsed, so it is not claimed that a
+pex *carries* any given function. And `PipMon.pex` **is deployed** in the game
+install and postdates its `.psc`, so for the central unproven claim rungs A and
+B look satisfied on disk. mtime is evidence, not proof.
+
+**Two counting traps B1 hit itself, recorded so nobody re-steps in them:**
+fragment `ScriptName`s are colon-namespaced (`Fragname:Terminals:hack…`) while
+the `.pex` is named after the **file**, so matching by stem gives 2,422/7,854
+instead of 7,848/7,854 — B1's first rung-B number was wrong by 5,426. And
+Papyrus allows the same event name once per `State`, so a parser that ignores
+states silently **deletes 225 event handlers** as duplicates. That one looked
+like a rounding error and was not.
+
+### B2 — F2.9 enforced, and two new gates
+
+**`requires` is now enforced rather than printed.** Measured before/after on an
+in-memory plan: previously **0 of 4** cases refused, including a `NOT_MET`
+invariant and a non-existent invariant id. Now 3 of 4 refuse at exit 3, before
+any phase runs.
+
+`compat_gate.py` and `goal_coverage_gate.py` created, both with `--strict`,
+`--json`, self-tests, and **proven discrimination** (flipping a `REJECTED` row
+to `PLANNED` → RED; a goal losing its component → `coverage_regressed` RED).
+
+**B2's headline number, derived rather than asserted: 8 of 12 goals have no
+check the gate can attribute to them.** That is `goal_alignment.md`'s "six goals
+with no gate coverage" confirmed mechanically. Three are attributed and **all
+three diverge from their own recorded verdict.**
+
+It also reported honestly that `compat_gate`'s drift half **has never been
+RED**, because the map has no status changes in its history — proving it needs a
+commit that flips a real status, which it declined to fabricate.
+
+### B3 — the declared-debt backlog drained
+
+**65 undeclared `(kind, field)` pairs → 5.** 60 declared, each with a stated
+purpose following the `optional_notes` precedent. `spec_lint` run after every
+one of six edits.
+
+The 5 it **refused** to declare are not a schema gap: `ownership`'s five buckets
+are declared in `ownership.bucket_required`, which `spec_lint.py:193` reads and
+`entry_field_gate.py:206` does not. **Gate defect, not schema gap** — and adding
+them to `entry_optional` would assert MAY and MUST for one name.
+
+**Its load-bearing caveat, recorded rather than buried:** masking any of the 60
+new declarations does **not** go red under the default gate — disposition falls
+back to `known`. **Draining the table was necessary but not sufficient.**
+
+Genuine drift found and **recorded, never deleted**: `registry.spec` vs
+`registry.specs` (and `surfaces_gate.py:86` reads only the plural, so two
+surfaces' citations are silently unchecked); `registry` being three record
+shapes under one kind; `compiles_in_fo4` measuring the other engine's draft so
+`false` sits beside `status: MET`.
+
+**`docs/HARDCODED_PATHS.md` re-verified against the live machine:** 6 wrong line
+numbers, 3 entries that no longer exist, 1 overstated claim. **No policy was
+written** — the owner said a map is what exists, and converting it to a rule is
+not mine to do.
+
+**The test-count drift resolved to something better than a number:** the real
+count is **108 collected, 108 passed** — but two of the four "conflicting"
+figures were never counts at all. `67` is a **line number** in
+`HARDCODED_PATHS.md`, and `107` exists in **no document and no commit** except
+the queue item describing the drift. And the count is **path-dependent**: 108
+from `overseer_cli/`, 0 collected and 3 `ImportError`s from the repo root.
+
+### The stale pointer — real, but latent rather than active
+
+`side_invariants.2.json` declares `supersedes: side_invariants.json`, yet
+`door_registry.json` and **`tools/side_gate.py:26`** both still pointed at v1 —
+and `side_gate.py` is the gate that exists so *"everything passes"* cannot be
+mistaken for *"the engine side works"*.
+
+**Checked before panicking: v1 and v2 have identical statuses and sides — zero
+differences.** Engine is 3/6 MET under both, Layer A `NOT_MET` under both, so
+the verdict was never wrong. **The trap is latent, not active** — it bites the
+moment v2 next diverges. Door pointer moved; `side_gate.py`'s hardcoded path
+left alone and recorded, because changing it is a behaviour change that deserves
+its own verified commit.
+
+The v2 file also **closes a vocabulary leak** its own door note complained about:
+it declares `PARTIALLY_MET`, and uses only declared values.
+
+### `door_lint`'s remaining problem is a defect in `door_lint`
+
+```
+[FAIL] keeper_failing  tools/orchestrate.py exits 2, but guards 1 door(s): plans
+```
+
+`orchestrate.py` exits 2 because **argparse requires a `command` argument** —
+correct usage behaviour. `spec_lint` and `surfaces_gate` exit 0 with no args
+only because they take no required arguments. So `door_lint` runs each keeper
+with no arguments and reads a **usage** exit as **failure**. That is the exit-code
+ambiguity this project has been circling: `pipmon.ps1` reserves 2 for `BROKEN`
+and 4 for `usage`, while argparse uses 2 for usage. Recorded, not fixed.
+
+### Coordinator changes in this section
+
+`build_all.bat` stage 6 gains **three** more gates — `compat_gate`,
+`goal_coverage_gate`, `papyrus_index_gate` — bringing the wired set to fifteen.
+A gate nobody runs is documentation, and B2 correctly refused to wire its own
+because `build_all.bat` was not its file.
+
+The RAG index was rebuilt: **799 files, 17,088 chunks**, `rag_selftest` now
+**10/10**. A `SyntaxError` on the first attempt was **my own error** — I ran
+`python tools\pipmon.ps1`, feeding PowerShell to Python. The project's own line
+681 correctly calls `& python $indexer`.
+
+**NOT VERIFIED:** `build_all.bat` was still not run end to end — it compiles
+`/W4 /WX` and deploys `.pex` outside the project. Stage 6 is verified by running
+each gate standalone, which is what those lines do. No compiler, editor, or game
+process was launched by any agent in this wave.
+
+
 
 
 

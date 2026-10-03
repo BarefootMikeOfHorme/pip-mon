@@ -222,6 +222,26 @@ REM gate exists because that index drifted twice before the gate existed.
 python "%R%tools\changelog_gate.py"
 if errorlevel 1 ( set FAILED=1 & echo [FAIL] changelog gate )
 
+REM The replacement map cannot quietly change its mind. A status flipped from
+REM REJECTED to PLANNED turns a measured refusal into an aspiration and
+REM nothing else notices. Also fails a refusal with no reason given.
+python "%R%tools\compat_gate.py"
+if errorlevel 1 ( set FAILED=1 & echo [FAIL] compat gate )
+
+REM Goal coverage: build integrity is not goal alignment. goal_alignment.md
+REM records that six goals have NO check at all. This reports per goal whether
+REM any check can be attributed, so the hole is visible rather than a footnote.
+REM Fails only on regression from its recorded baseline - a gate red on
+REM arrival teaches people to ignore it.
+python "%R%tools\goal_coverage_gate.py"
+if errorlevel 1 ( set FAILED=1 & echo [FAIL] goal coverage gate )
+
+REM The FO4 Papyrus index: every negative-table claim measured against the
+REM 7,854 shipped base scripts, so "FO4 has no such function" is a finding
+REM rather than a memory.
+python "%R%tools\papyrus_index_gate.py"
+if errorlevel 1 ( set FAILED=1 & echo [FAIL] papyrus index gate )
+
 echo.
 echo ############################################################
 if %FAILED% EQU 0 (

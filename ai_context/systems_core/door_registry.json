@@ -439,7 +439,7 @@
     {
       "id": "side-invariants",
       "question": "Which preconditions each side of the work requires, and is each one actually met",
-      "path": "ai_context/spec/side_invariants.json",
+      "path": "ai_context/spec/side_invariants.2.json",
       "state": "BUILT",
       "authority": "measured",
       "keeper": "tools/spec_lint.py",
