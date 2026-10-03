@@ -79,7 +79,7 @@ Three of my failures this session were a *missing check*, not a missing fix.
 
 ## PRIORITY 5 — F3, the Papyrus/CE index (the big one)
 
-Needs no host and blocks nothing. Reads `Data\Scripts\Source\Base` (**7,932
+Needs no host and blocks nothing. Reads `Data\Scripts\Source\Base` (**7,854
 files, read-only, outside the project but read**) and writes inside it.
 
 | # | id | task | est |
@@ -104,3 +104,18 @@ files, read-only, outside the project but read**) and writes inside it.
 | anything in `build_all.bat` | compiles and deploys to the game folder |
 | `git push` | G10, and the owner has said local only |
 | status-vocabulary changes | **F2.1b is the owner's decision.** Not mine to make |
+
+---
+
+## Correction, 2026-10-03
+
+`Data\Scripts\Source\Base` holds **7,854** `.psc`, not 7,932. Measured by
+`tools/papyrus_index.py`, which indexed the directory rather than trusting a
+figure repeated in prose. 7,932 is `Data\Scripts\Source\` *in total*; the extra
+78 are 66 Vortex-managed `User\` scripts plus DLC archives. `Base` is the shipped
+source; `User` is mod content.
+
+Corrected in every live document. Deliberately **not** corrected in
+`scripting/SCRIPTING-TASKBOARD.original.txt` — that file is the frozen original
+and 7,932 is what was believed when it was written — nor in `CHANGELOG.md`,
+which is the record of what was believed and when.

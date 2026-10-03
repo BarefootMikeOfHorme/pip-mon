@@ -72,7 +72,7 @@
     { "id": "S13", "group": "honesty", "task": "write PIPMON_INTERFACE.md", "state": "open", "note": "the docs door map now declares this owed rather than pointing somewhere else" },
     { "id": "S14", "group": "honesty", "task": "decide what ATTENTION means in the vocabulary", "state": "OWED TO OWNER", "defect": "F2.1b" },
 
-    { "id": "S15", "group": "the-index", "task": "generate a machine-readable signature per function from Data/Scripts/Source/Base", "checkable_today": true, "state": "open", "source_files": 7932 },
+    { "id": "S15", "group": "the-index", "task": "generate a machine-readable signature per function from Data/Scripts/Source/Base", "checkable_today": true, "state": "open", "source_files": 7854 },
     { "id": "S16", "group": "the-index", "task": "observed usage counts across the corpus", "checkable_today": true, "state": "open", "why": "turns 'which functions are dead' and 'which are legacy habits' into measurements" },
     { "id": "S17", "group": "the-index", "task": "negative table by compile probe", "checkable_today": true, "state": "open", "why": "what does NOT exist becomes as trustworthy as what does" },
     { "id": "S18", "group": "the-index", "task": "hard FO4-only assertion", "checkable_today": true, "state": "open", "why": "Skyrim contamination is a named live hazard; CK/GECK conflation has already caused repeated wasted work" },
@@ -99,7 +99,7 @@
   ],
 
   "closed_lanes": [
-    { "lane": "Terminal holotape as an MCM replacement", "verdict": "REFUTED by source", "evidence": "Terminal.psc has zero properties; Holotape.psc is one line; 0 of 339 vanilla Base/Fragments/Terminals implement OnMenuItemRun; no AddMenuItem, OpenMenu or CloseMenu anywhere in 7,932 base scripts.", "consequence": "menu structure is CK/ESM data, pre-authored and shipped in an .esp. Papyrus cannot create it at runtime." },
+    { "lane": "Terminal holotape as an MCM replacement", "verdict": "REFUTED by source", "evidence": "Terminal.psc has zero properties; Holotape.psc is one line; 0 of 339 vanilla Base/Fragments/Terminals implement OnMenuItemRun; no AddMenuItem, OpenMenu or CloseMenu anywhere in 7,854 base scripts.", "consequence": "menu structure is CK/ESM data, pre-authored and shipped in an .esp. Papyrus cannot create it at runtime." },
     { "lane": "MCM config translation", "verdict": "REFUTED and backwards", "evidence": "the live Data/MCM/Config/XDI/settings.ini states in its own header that it holds DEFAULTS and that Data/MCM/Settings/XDI.ini is the USER OVERRIDE layer. Page structure is config.json plus lib.swf - one real config ships a 98,909-byte lib.swf.", "consequence": "writing only the INI cannot make a page appear. Also docs/POSITIONING.md line 105 already carries a standing policy against reading third-party configs at all." },
     { "lane": "one probe serving both Fallout4.exe and CreationKit.exe", "verdict": "NOT A DESIGN DIRECTION - an experiment", "evidence": "HookManager::install() installs zero hooks; vprobe/src/main.cpp self-start is gated on GetModuleHandleW(L\"Fallout4.exe\") so it goes inert in the CK with no error; envgate.py states the CK compiles Papyrus but does not run it; zero BSScript symbols in the entire CKPE capture; three specs already rule it out with a stated mechanism.", "still_true": "the launcher is already host-agnostic, and read_rtti/measure_vtable both take --exe.", "resolution": "S32 and S33, about ten minutes total." }
   ],

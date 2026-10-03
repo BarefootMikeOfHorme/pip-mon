@@ -30,7 +30,7 @@ reason · `REJECT` refused on measured evidence
 | A7 | Buffout 4 / NSF | readable crash report — *after* the game is dead | out-of-process minidump + **proactive** rules: >500 ops/sec, >1000 handles, >50 identical errors/sec, stack over threshold. Catch it while the save is good | PLAN | **none** |
 | A8 | Canary (Kinggath) | warn a save is corrupt; clean script cruft | Canary Redux: hook `SaveGame()`, read pending-event count, force drain, validate, allow write. Hold at >50 events, bounded 1500 ms | PLAN | game |
 | A9 | Papyrus Compiler | `.psc` → `.pex` | Caprica + refusal-based errors. **Ends the undocumented-invocation class:** spaces-in-path breakage, missing `-f` flags file, Skyrim `.ppj` silently compiling nothing | PLAN | ck |
-| A10 | MCM in-game settings | give players a settings page in-game | **none — refused on evidence.** `Terminal.psc` has 0 properties; `Holotape.psc` is 1 line; 0 of 339 vanilla fragments implement `OnMenuItemRun`; no `AddMenuItem`/`OpenMenu`/`CloseMenu` in 7,932 scripts. Menu data is CK/ESM-only | REJECT | game |
+| A10 | MCM in-game settings | give players a settings page in-game | **none — refused on evidence.** `Terminal.psc` has 0 properties; `Holotape.psc` is 1 line; 0 of 339 vanilla fragments implement `OnMenuItemRun`; no `AddMenuItem`/`OpenMenu`/`CloseMenu` in 7,854 scripts. Menu data is CK/ESM-only | REJECT | game |
 
 **Core dependency:** A2 blocks A4, A5, A6, A8 and A10's replacement path. A2 is
 blocked on **one file** — see S1.
@@ -63,7 +63,7 @@ blocked on **one file** — see S1.
 |---|---|---|---|---|
 | C1 | **V-Link wire** | 28-byte packed frames, memcpy on the producer. **Never parses, formats, or allocates on a game thread.** 3 compile-time asserts (C++/Python/Rust) pin the frame. Verified live: 25 frames, `totalEventsDropped=0` | **COVERED** | game |
 | C2 | **One-envelope control plane** | 11 verbs, one JSON envelope, one exit vocabulary. *"SKIP is never PASS"* as code | DECL | **none** |
-| C3 | **Papyrus/CE function index** | generated from the **7,932 base `.psc`**: signature per function, **observed usage counts**, compile-probed **negative table**, hard **FO4-only** assert | PLAN | **none** |
+| C3 | **Papyrus/CE function index** | generated from the **7,854 base `.psc`**: signature per function, **observed usage counts**, compile-probed **negative table**, hard **FO4-only** assert | PLAN | **none** |
 | C4 | **Capability + evidence registry** | 23 capabilities × `requires` / `exercise` / `evidence`. The only **enforced** `requires` in the repo (`taskrun.ps1:508`) | DECL | **none** |
 | C5 | **In-game cartridge** | Terminal `.esp` (pre-authored) + thin Papyrus shim + **live sync to the outside client** + light mode ~1 Hz / 0% VRAM | PLAN | game |
 | C6 | **Curated CK staging** | *owner idea* — add content CE-style **after** first compile instead of loading mods the hard way. 80% built (`ck_session.ps1` present, `prepare` inert; `session-profiles.json` 35+5) | PLAN | ck |
@@ -103,7 +103,7 @@ blocked on **one file** — see S1.
 | id | task | done when |
 |---|---|---|
 | **S15** | generate a machine-readable signature per function from `Data\Scripts\Source\Base` | arity, param types, return type, `Native`/`Hidden`/`Event` |
-| **S16** | observed usage counts across 7,932 scripts | dead functions and legacy habits become measurements |
+| **S16** | observed usage counts across 7,854 scripts | dead functions and legacy habits become measurements |
 | **S17** | negative table by compile probe | what does *not* exist is as trusted as what does |
 | **S18** | hard FO4-only assertion | Skyrim contamination impossible |
 | **S19** | add query words to `ai_context/vocabulary.json` — never to code | retrievable |
@@ -163,7 +163,7 @@ line when you create a plan or report; do not renumber existing ones.
 | versioning rules | `tasks/roadmap/VERSIONING.md` | change classes; **revert newest-first, or expect a conflict** |
 | measured xEdit API | `runs/xedit/fo4edit-4.1.5f-pascal-api.md` | what works, what doesn't exist |
 | FO4 Papyrus rules | `ai_context/papyrus_syntax_rules.md` | compile-probed. Negative table is the valuable half |
-| Papyrus corpus | `ai_context/engine/papyrus_surface/part01-06.md` | 7.5 MB generated from the 7,932 base scripts |
+| Papyrus corpus | `ai_context/engine/papyrus_surface/part01-06.md` | 7.5 MB generated from the 7,854 base scripts |
 | binding prohibition | `ai_context/f4se_prohibition.md` | `ACTIVE — BINDING CONSTRAINT`. **S25 violates it today** |
 | CKPE portability | `ai_context/systems/ckpe/ckpe-insights.md` | 12 yes / 5 maybe / 3 no |
 | product shape | `PIP-MON_CONSOLIDATED.txt` | the original spec, §24.7 holds the S0 criterion |
