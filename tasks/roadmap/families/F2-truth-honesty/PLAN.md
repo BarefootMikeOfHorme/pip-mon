@@ -17,7 +17,51 @@ independently fixable and independently revertable.
 Every line number verified by reading `tools/pipmon.ps1` on 2026-10-03. Not
 inherited from a handover.
 
-### F2.1 — the exit table has no `ATTENTION` key · **the worst one**
+### F2.12 — `validate` exits 0 when validation FAILS · **found during F2.0 research**
+
+```
+ 83: $EXIT = @{ GREEN = 0; OK = 0; RED = 1; BROKEN = 2; SKIP = 3 }
+275:  Emit $rep.status ...        # $rep.status passed straight through
+```
+
+`validate_plugin.ps1` writes **only** `PASS`, `FAIL` or `SKIP` — an exhaustive
+set across its 18 report sites. `$EXIT` contains **none** of the three. So
+`$EXIT['FAIL']` is `$null`, `exit $null` is **0**, and a failed validation
+returns `"status":"FAIL","ok":false` with **exit 0**.
+
+Line 212 proves the author knew `PASS` existed: `-notin 'PASS','GREEN'`.
+
+**This is the same bug class as F2.1 but worse**, because the value comes from a
+child tool's documented vocabulary rather than from a typo. `ATTENTION` was
+emitted by mistake; `PASS`/`FAIL` are what the validator has always written.
+
+**This is why F2.1 must be split.** The real defect is not "add `ATTENTION = 1`"
+— that presupposes what `ATTENTION` means, which is the owner's call. The real
+defect is that **`$EXIT[$status]` has no default**, so *every* unrecognised
+status resolves to 0. Making the table **total** is a bug fix, separable from the
+contract decision. See [`VOCABULARY.md`](VOCABULARY.md).
+
+## F2.1, restated after the research
+
+> **`$EXIT[$status]` on an unrecognised key returns `$null`, and `exit $null` is 0.
+> An unrecognised status is currently a PASS.**
+
+Values already reaching it with no key: `ATTENTION` (207/208/213), `PASS` and
+`FAIL` (275), `NOT RUN` (205/206), `UNKNOWN` (via `agent_watchdog`), and any exit
+≥ 4 from `:237` (map covers 0–3 only).
+
+**Two separable fixes:**
+
+- **F2.1a — make the table total.** A default arm, so an unknown status cannot
+  become 0. This is a bug fix, not a contract decision, and it is not blocked on
+  the owner.
+- **F2.1b — decide what `ATTENTION` is.** Still owed. Not started, deliberately.
+
+**Why 1a must land before any state is added:** until the `$null` path is closed,
+adding a state adds a *new silent-PASS path* rather than an honest answer. The
+ordering constraint is in `VOCABULARY.md`.
+
+## F2.1 — the exit table has no `ATTENTION` key
 
 ```
  83: $EXIT = @{ GREEN = 0; OK = 0; RED = 1; BROKEN = 2; SKIP = 3 }
@@ -106,13 +150,24 @@ defect inverts the meaning of the vocabulary.
 
 ```
 148:  @{ n = 'link'; does = '...'; args = @('status', '-Disable <plugin>', '-Enable <plugin>') }
+259:  $r = Run-Tool 'tools\linksync.ps1' (@($sub, '-GameDir', $GameDir))
 ```
-
-and 259: `$r = Run-Tool 'tools\linksync.ps1' (@($sub, '-GameDir', $GameDir))`.
 
 `$Enable` and `$Disable` are **declared as parameters and never forwarded.** They
 are silently dropped. `caps` is the discovery document — the thing a caller reads
 to learn what it can do — and it advertises two arguments that do nothing.
+
+**But the feature exists and works.** `linksync.ps1` declares `[string[]]$Enable`
+and `[string[]]$Disable` at lines 45-46 and implements both at 147-155, with the
+snapshot taken *before* apply at line 132. So this is not a missing capability,
+it is a **dropped wire**: one argument list stands between a working toggle and
+the surface.
+
+Which makes it load-bearing for a separate reason. The owner's compiled-
+environment model — toggle compiled plugins from the terminal instead of
+recompiling — is *exactly this code path*. The mechanism is already written and
+tested; only the forwarding is missing. See
+[`F4-surface-content/PLAN.md`](../F4-surface-content/PLAN.md).
 
 ### F2.7 — `docs` advertises a file that does not exist
 

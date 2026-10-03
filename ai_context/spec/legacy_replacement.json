@@ -515,6 +515,28 @@
         "ai_context/spec/blockers_to_environment.json - 191-minute instance lock, the reason preflight exists",
         "owner proposal, 2026-10-03: add content Creation Engine style after the first compile rather than loading mods into the CK the hard way"
       ]
+    },
+    {
+      "name": "Recompile-per-adjustment - the workflow that makes environment iteration expensive",
+      "source_product": "none - this is our own current workflow, being replaced",
+      "our_equivalent": "the compiled environment as the unit of work: compile once, snapshot, then toggle compiled plugins from the Overseer terminal instead of rebuilding",
+      "status": "PLANNED",
+      "requires_host": "none",
+      "depends_on": ["F2.6", "F4.1", "B5"],
+      "function_served": "The thing nobody designed and everybody pays for. Adjusting the test environment means: re-run the generator, re-compile the scripts, re-stage, re-load, re-verify. Every adjustment pays the full pipeline. So iteration happens in batches, and each batch is expensive enough that people stop iterating - which is the real cost, and it is a cost paid in confidence rather than in minutes.",
+      "measured_failure": "The evidence is in this project's own discipline rather than in a complaint. tasks/FRONT-LIST.md makes every one of its eight steps end in a save point, because the editor crashes and the only thing ever lost here is unsaved work. That save rule is not caution - it is the visible cost of an iteration loop that has no cheap restart. And HANDOVER section 12.8 lists the process rules as a 'danger zone' whose first entry is never to block on a long third-party run, because xEdit takes about three minutes to load the curated core. Three minutes per verification is what forces the batching.",
+      "enhancement": "Make the compiled artifact the unit and the toggle the interface. Load the base environment once with its variables and scripts in place, snapshot it, and from then on adjust by toggling rather than rebuilding. The owner also identified the second use, which is the more valuable one: this doubles as THE TESTING AND VALIDATION METHOD for the cartridges. Because whatever is compiled into the environment - even if it is not rendered and not running - should be callable through its native, the environment becomes the fixture that validation runs against, rather than something rebuilt per test.",
+      "the_honest_split": "Toggle-without-recompiling is TRUE at one level and FALSE at another, and conflating them would make this row a lie. (1) PLUGIN LEVEL: works today. linksync.ps1 declares [string[]]$Enable and [string[]]$Disable at lines 45-46, implements both at 147-155, and snapshots before apply at line 132. pipmon.ps1 advertises both arguments in caps at line 148 and forwards neither at line 259. The mechanism is written, tested and one argument list from reachable. (2) PEX LEVEL: a .pex is compiled bytecode. Toggling a Papyrus function is not a thing - changing one means recompiling, which is what PapyrusCompiler.exe is for and takes seconds rather than minutes. So this level is already cheap; it is the xEdit-class operations that are expensive, and those are plugin-level, so level 1 is the right level for the toggle. (3) NATIVE LEVEL: requires Layer A. Until it exists, a native cannot be reached at all, so a native-backed mode cannot be toggled on. That is the whole dependency, and it is one blocker.",
+      "the_five_rung_ladder": "The validation claim is sharper than it looks, and decomposing it is the useful part of this row. 'Callable in its native even if not rendered or running' is five separate questions, and only the last three need Layer A. A. DECLARED - the .psc declares the native. Checkable today. B. COMPILED - the .pex carries it. Checkable today; PEX magic is already verified, and a PEX symbol/declaration count would close it. C. REGISTERED - a native handler exists. Needs Layer A. D. REACHABLE - a compiled .psc calls it and gets a correct value. Needs Layer A. E. DISPATCHABLE - a cartridge or event fires without being rendered. Needs Layer B. Rungs A and B are a real gate available NOW, and they are the honest half of the gate goal_alignment.md says is missing. This also turns S0 from a binary question into a measurable coverage figure: declared N, compiled M, registered 0, reachable 0 - and the first two numbers are knowable before any hook exists.",
+      "notes": "Owner proposal, 2026-10-03. The five-rung ladder and the honest three-level split are this session's reading of it, and both are judgement rather than measurement - no rung has been counted yet. F4.1 carries the counting. What is NOT judgement: linksync.ps1's Enable/Disable implementation exists at the cited lines, and pipmon.ps1 does not forward them.",
+      "provenance": [
+        "tools/linksync.ps1:45-46,132,147-155 - Enable/Disable implemented, snapshot before apply",
+        "tools/pipmon.ps1:148 advertises both args; :259 forwards neither - see F2.6",
+        "tasks/FRONT-LIST.md - save point after every step, because the editor crashes",
+        "HANDOVER.md section 12.8 - never block on a long third-party run; xEdit ~2m15s to Finalize",
+        "PIP-MON_CONSOLIDATED.txt section 24.7 - the S0 acceptance criterion, which is rung D of this ladder",
+        "owner proposal, 2026-10-03"
+      ]
     }
   ]
 }
