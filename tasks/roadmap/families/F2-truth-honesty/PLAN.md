@@ -19,9 +19,9 @@ independently fixable and independently revertable.
 | **F2.1a** | `$EXIT` lookup is not total — an unknown status keeps the previous value | **FIXED** `e103b6e` |
 | **F2.1b** | what `ATTENTION` *means* in the vocabulary | **owed to the owner** |
 | **F2.6** | `caps` advertises `-Enable`/`-Disable` that the entry point did not accept | **FIXED** `e103b6e` |
-| F2.2 | `snapshot` returns GREEN having copied nothing | open |
+| F2.2 | `snapshot` returns GREEN having copied nothing | **FIXED** `c27a0b4` |
 | F2.5 | `link` reports a missing precondition as RED | open — needs a decision, see below |
-| F2.7 | `docs` advertises a file that does not exist | open |
+| F2.7 | `docs` advertises a file that does not exist | **FIXED** `c27a0b4` |
 | F2.3 | `status` decides its verdict from unrefreshed report files | open |
 | F2.4 | `verify` cannot return SKIP or BROKEN | open |
 | F2.8 | `surfaces.json` lists a `compat` verb that exists in no code path | open |
