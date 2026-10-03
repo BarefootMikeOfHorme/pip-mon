@@ -84,7 +84,14 @@ param(
     [int]$Limit = 5,
     [int]$MaxLines = 0,
     [int]$Page = 1,
-    [string]$Format = 'dense'
+    [string]$Format = 'dense',
+
+    # compat filters. $Status is the closed six-value vocabulary declared in
+    # ai_context/spec/schema.json; $RequiresHost is none | game | ck | game+ck.
+    # Both are validated against the data rather than trusted, so a typo narrows
+    # to an empty result and says so, instead of silently returning everything.
+    [string]$Status,
+    [string]$RequiresHost
 )
 
 $ErrorActionPreference = 'Continue'
@@ -191,11 +198,12 @@ switch ($Command) {
                 @{ n = 'ck-session'; does = 'curated load-order swap: inspect | prepare | restore'; args = @('prepare') }
                 @{ n = 'snapshot'; does = 'capture a restore point of plugin, pex and CK backups'; args = @('<tag>') }
                 @{ n = 'docs';    does = 'where each kind of answer lives'; args = @() }
+                @{ n = 'compat';  does = 'the legacy replacement map: what we replace, how, and what we add beyond it'; args = @('-Status <COVERED|DECLARED|PLANNED|DIFFERENT_MECHANISM|NOT_PLANNED|REJECTED>', '-RequiresHost <none|game|ck>') }
             )
             exitCodes  = [ordered]@{ GREEN = 0; OK = 0; RED = 1; BROKEN = 2; SKIP = 3; usage = 4 }
             invariants = @(
                 'SKIP is never reported as PASS.',
-                'No command writes to the game folder except build (deploy) and link apply.',
+                'Three commands write OUTSIDE the project, and they are the only three: build (deploy), link apply, link restore, and ck-session restore. ck-session prepare additionally writes plugins.txt.proposed.txt beside the live file without touching the live file. Nothing else writes outside the project.',
                 'No command touches a running Creation Kit or xEdit process.',
                 'Every fact in a response names the script or file it came from.',
                 'Long third-party runs are launched detached and polled, never waited on while holding the caller.'
@@ -553,6 +561,99 @@ switch ($Command) {
         Emit 'GREEN' $null ([ordered]@{
             doors = $doors
             gaps  = @('PIPMON_INTERFACE.md: advertised by this map until 2026-10-03 and absent. The door now points at caps. Writing the document is owed.')
+        })
+        exit $script:surfaceExit
+    }
+
+    # ------------------------------------------------------------------ compat
+    'compat' {
+        # The verb ai_context/spec/surfaces.json has advertised since before it
+        # existed. SERVING it is the fix rather than deleting the claim: shrinking
+        # the spec to match a gap would make the disagreement permanent, and this
+        # map is the answer to the question a modder actually asks.
+        #
+        # Host-free by construction: it reads one JSON file inside the project and
+        # launches nothing.
+        $path = Join-Path $Repo 'ai_context\spec\legacy_replacement.json'
+        if (-not (Test-Path -LiteralPath $path)) {
+            Emit 'BROKEN' "replacement map not found at $path" ([ordered]@{ expected = $path })
+            exit $script:surfaceExit
+        }
+        try { $map = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json }
+        catch {
+            Emit 'BROKEN' "replacement map at $path did not parse: $($_.Exception.Message)" ([ordered]@{ path = $path })
+            exit $script:surfaceExit
+        }
+        if (-not $map.entries) {
+            Emit 'BROKEN' 'replacement map parsed but has no entries array' ([ordered]@{ path = $path })
+            exit $script:surfaceExit
+        }
+
+        $rows = @($map.entries)
+        $total = $rows.Count
+
+        # Filters are validated against the data, not trusted. A typo narrows to
+        # an empty result that says so, rather than silently returning everything.
+        #
+        # BOTH vocabularies come from the FULL map, computed before any narrowing.
+        # Validating the second filter against the already-narrowed set was wrong
+        # and was caught by testing: `-Status COVERED -RequiresHost ck` reported
+        # BROKEN because the single surviving COVERED row has host=game, which
+        # made a legitimate host look invalid. A valid combination that matches
+        # nothing is an empty result (SKIP), never a contract violation (BROKEN).
+        $statusVocab = @($rows | ForEach-Object { $_.status } | Sort-Object -Unique)
+        $hostVocab   = @($rows | ForEach-Object { $_.requires_host } | Sort-Object -Unique)
+        $applied = [ordered]@{}
+        if ($Status) {
+            if ($Status -notin $statusVocab) {
+                Emit 'BROKEN' "-Status '$Status' is not a status any row uses" ([ordered]@{ given = $Status; known = $statusVocab })
+                exit $script:surfaceExit
+            }
+            $rows = @($rows | Where-Object { $_.status -eq $Status })
+            $applied.status = $Status
+        }
+        if ($RequiresHost) {
+            if ($RequiresHost -notin $hostVocab) {
+                Emit 'BROKEN' "-RequiresHost '$RequiresHost' is not a host any row uses" ([ordered]@{ given = $RequiresHost; known = $hostVocab })
+                exit $script:surfaceExit
+            }
+            $rows = @($rows | Where-Object { $_.requires_host -eq $RequiresHost })
+            $applied.requiresHost = $RequiresHost
+        }
+
+        # Counts are computed over the UNFILTERED set, so the summary always
+        # describes the whole map and a filter never looks like shrinkage.
+        $byStatus = [ordered]@{}
+        foreach ($g in (@($map.entries) | Group-Object status | Sort-Object Name)) { $byStatus[$g.Name] = $g.Count }
+        $byHost = [ordered]@{}
+        foreach ($g in (@($map.entries) | Group-Object requires_host | Sort-Object Name)) { $byHost[$g.Name] = $g.Count }
+
+        # A filter that matched nothing is an EMPTY RESULT, not a pass and not a
+        # failure. SKIP is the honest landing and it must not be read as fine.
+        if ($rows.Count -eq 0) {
+            Emit 'SKIP' "no replacement-map row matches $((($applied.Keys | ForEach-Object { "$_=$($applied[$_])" }) -join ', '))" `
+                ([ordered]@{ filtered = $applied; totalRows = $total; byStatus = $byStatus; byHost = $byHost; rows = @() })
+            exit $script:surfaceExit
+        }
+
+        Emit 'GREEN' $null ([ordered]@{
+            spec        = $map.spec_id
+            authority   = $map.authority
+            source      = 'ai_context/spec/legacy_replacement.json'
+            totalRows   = $total
+            byStatus    = $byStatus
+            byHost      = $byHost
+            filtered    = $applied
+            matched     = $rows.Count
+            rows        = @($rows | ForEach-Object {
+                [ordered]@{
+                    name           = $_.name
+                    sourceProduct  = $_.source_product
+                    status         = $_.status
+                    requiresHost   = $_.requires_host
+                    ourEquivalent  = $_.our_equivalent
+                }
+            })
         })
         exit $script:surfaceExit
     }
