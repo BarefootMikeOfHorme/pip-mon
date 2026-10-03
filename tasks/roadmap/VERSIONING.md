@@ -85,13 +85,58 @@ git log --oneline -20                          # find the task
 git show <sha>                                 # read what it claimed
 git show <sha> --stat                          # what it touched
 git diff <sha>^ <sha>                          # the actual change
-git revert <sha>                               # undo, keep the history
-git revert --no-commit <sha>                   # undo but stage it, to adjust first
+git revert --no-commit <sha>                   # undo, stage it, inspect, then commit
 ```
 
 `git revert`, never `git reset --hard`. A reset throws away the evidence of what
 was tried; a revert keeps the attempt visible, which is the point of keeping the
 superseded files.
+
+### Revert newest-first, or expect a conflict
+
+**This was measured, not assumed.** See `CHANGELOG.md` R4.
+
+`git revert` in chronological order conflicts on any commit whose files a *later*
+commit also touched — which is most of them, because later commits refine earlier
+ones. Reverting the six commits of 2026-10-03 oldest-first:
+
+| commit | oldest-first | newest-first |
+|---|---|---|
+| `9bfb5c5` schema | clean | clean |
+| `e499138` the map | **CONFLICT** | clean |
+| `ec6ff02` F1 plan | **CONFLICT** | clean |
+| `c4eb641` F2 plan | **CONFLICT** | clean |
+| `997e2cb` F2.0 + row 31 | clean | clean |
+| `7d03986` changelog | clean | clean |
+
+Newest-first, all six revert cleanly and land **bit-identical to `1344d4d`**.
+Oldest-first, three conflict.
+
+So: **unwind from the top.** To abandon one task in the middle, revert it and
+everything above it, in reverse order.
+
+### A clean revert is not always a safe revert
+
+Also measured, and this one matters more. Reverting `9bfb5c5` **alone** — the
+schema commit — while keeping the map:
+
+```
+revert 9bfb5c5 alone      : CLEAN
+map still present         : True
+map still USES the fields : True
+schema still DECLARES them: False
+spec_lint                 : 0 problems
+```
+
+A clean revert, a green lint, and the spec layer now **lies**: the map uses four
+fields the schema no longer declares, and nothing notices. `spec_lint` never
+read `entry_optional`, which is exactly why declaring those fields was inert —
+and exactly why their removal is also unchecked.
+
+**Rule: a revert that breaks a declaration needs the declaration's consumers
+reverted with it.** The dependency is a logical one, not a textual one, so git
+cannot see it. Until a lint enforces it, check it by hand after reverting a
+schema or contract commit. Carried as a task in `F2-truth-honesty/PLAN.md`.
 
 ## What this buys
 

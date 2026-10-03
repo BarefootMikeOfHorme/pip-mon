@@ -437,4 +437,91 @@ session's judgement**, not measurement. The row says so in its `notes`.
 **zero lines of behaviour changed** — the whole of R0 through R3 is diagnosis and
 specification.
 
+---
+
+## R4 — revertability, actually tested
+
+### `7d03986` → verified in a throwaway worktree, no commit of its own to the code
+
+The owner asked for revertability to be *verified* rather than asserted. Done in
+a detached `git worktree` under `%TEMP%`, at HEAD `7d03986`, then removed. **The
+main tree was never touched** — `uncommitted=0`, `HEAD=7d03986` after.
+
+#### Result 1 — full unwind is EXACT
+
+Reverting all six commits newest-first: **all six clean**, and the tree lands
+**bit-identical to `1344d4d`** (`git diff --cached 1344d4d` empty). `spec_lint`
+GREEN at the unwind state, 0 problems — correct, since the linter never read
+`entry_optional`.
+
+#### Result 2 — order matters, and my own docs did not say so
+
+`git revert` oldest-first:
+
+```
+9bfb5c5 clean    e499138 CONFLICT    ec6ff02 CONFLICT
+c4eb641 CONFLICT    997e2cb clean    7d03986 clean
+```
+
+**3 of 6 conflict.** Not a defect — the expected consequence of later commits
+refining earlier ones. `e499138` created `legacy_replacement.json` and `997e2cb`
+added row 31 to it; `ec6ff02` created `CHANGELOG.md` and two later commits
+extended it; `c4eb641` created `F2/PLAN.md` and `997e2cb` edited it.
+
+`VERSIONING.md` said `git revert <sha>` with **no mention of order**. That was a
+real gap in a document whose entire purpose is being able to walk work back.
+**Fixed** — the section now carries the measured table and says unwind from the
+top.
+
+#### Result 3 — the one that matters: a CLEAN revert is not always a SAFE revert
+
+Reverting `9bfb5c5` (the schema commit) **alone**, keeping the map:
+
+```
+revert 9bfb5c5 alone       : CLEAN
+map still present          : True
+map still USES the fields  : True
+schema still DECLARES them : False
+spec_lint                  : 0 problems
+```
+
+**Clean revert, green lint, and the spec layer now lies.** The map uses
+`function_served`, `measured_failure`, `enhancement`, `requires_host` and
+`depends_on` — four of them — while `schema.json` no longer declares any of them.
+No tool notices.
+
+The cause is the same property that made `9bfb5c5` safe in the first place:
+`spec_lint.py` reads `entry_required` (line 101) and `record_required` (line 109)
+and **never reads `entry_optional`**. So declaring those fields was inert — and
+*removing* them is equally unchecked. The declaration is documentation, not a
+contract, and nothing enforces it.
+
+**This is the answer to "does backwards usage of the logic work".** Mostly yes:
+every commit is individually revertable, the unwind is exact, and the changelog
+carries enough to reconstruct intent per commit. **But the logic is only as
+reversible as its dependencies, and git can only see textual ones.** A logical
+dependency — schema declares, map consumes — is invisible to `git revert`, so a
+clean revert can leave an inconsistency that is green and wrong.
+
+**Carried as a task:** a lint that fails when a `compat_mapping` entry uses a
+field its kind's `entry_optional` does not declare. That would have caught this,
+and it closes the last gap in the "closed vocabulary" story — `spec_lint.py:187`
+already says *"the vocabulary is closed"* for `status`, and nothing enforces the
+same for entry fields. Not written in this commit; it is a code change and was
+not asked for.
+
+#### What this did not test
+
+- Reverting an *individual* mid-history commit in isolation and confirming the
+  build gate still passes. Only `spec_lint` was run; `build_all.bat` was not,
+  because it compiles and deploys.
+- Behaviour of a revert at runtime. Nothing in this session changes behaviour, so
+  there is nothing yet to revert behaviourally.
+- The main tree's own revertability. The worktree shares `.git`, so object
+  integrity is the same; only the working files were copied.
+
+**VERIFIED:** all four results above, by command, in a worktree that has since
+been removed. `git worktree list` shows one entry — the main tree.
+
+
 
