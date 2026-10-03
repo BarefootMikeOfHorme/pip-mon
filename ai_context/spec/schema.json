@@ -135,7 +135,7 @@
       ]
     },
     "compat_mapping": {
-      "describes": "A capability another product exposes, mapped to what we expose and at what status. Exists because mods declare F4SE or AddressLib as a dependency and a reader needs to know whether we cover it, plan to, or never will.",
+      "describes": "A capability another product exposes, mapped to what we expose and at what status. Exists because mods declare F4SE or AddressLib as a dependency and a reader needs to know whether we cover it, plan to, or never will. Two granularities use this kind and they are not interchangeable: compat_f4se_map.json is CAPABILITY level (one row per API call a mod makes), legacy_replacement.json is PRODUCT level (one row per product, describing the job it did). A product-level row cites the capability-level file for per-API detail rather than restating it.",
       "entry_required": [
         "name",
         "source_product",
@@ -147,8 +147,20 @@
         "signature",
         "mod_uses",
         "notes",
-        "spec"
-      ]
+        "spec",
+        "function_served",
+        "measured_failure",
+        "enhancement",
+        "requires_host",
+        "depends_on"
+      ],
+      "optional_notes": {
+        "function_served": "PRODUCT level only. The job the product actually did for people, as distinct from its feature list. The distinction matters because a product's users valued the job and tolerated the features; replacing the features while missing the job reproduces the product's reputation without its value.",
+        "measured_failure": "How it failed, with the evidence named. null when no failure is on record. A row claiming parity with no recorded failure of the thing being replaced is asserting an unexamined comparison.",
+        "enhancement": "What we add BEYOND parity, and why that is worth doing. This is the column that turns a replacement list into a modernization plan. Absent means parity is the whole claim, which is a legitimate but weak position.",
+        "requires_host": "none | game | ck | game+ck. What must be installed for OUR equivalent to work. This is the field that makes 'the program runs without Fallout 4 or the Creation Kit' a checkable claim rather than an aspiration, because a reader can group rows by it and see exactly which capabilities survive with neither host present.",
+        "depends_on": "ids of other rows in the same file, or blocker ids from blockers_to_environment.json, that must land first. A row with status PLANNED and no depends_on is asserting it could start today."
+      }
     },
     "ladder": {
       "describes": "A conceptual ladder of representation scales, mapped per paradigm. Not a list of named terms: a ladder has rungs, and each rung is expressed differently in each paradigm.",
