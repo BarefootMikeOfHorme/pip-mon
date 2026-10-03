@@ -68,6 +68,17 @@ param(
     [switch]$NoDeploy,
     [switch]$Watch,
 
+    # Forwarded to linksync.ps1, which declares [string[]]$Enable and
+    # [string[]]$Disable at its lines 45-46 and implements both at 147-155,
+    # snapshotting before apply at its line 132.
+    #
+    # These are declared HERE because caps has advertised them all along. A
+    # discovery document listing arguments the entry point rejects is worse than
+    # one that lists nothing: it teaches a caller to trust a surface that lies.
+    # Pass them comma-joined or repeated; both bind to [string[]].
+    [string[]]$Enable = @(),
+    [string[]]$Disable = @(),
+
     [string]$Query,
     [string]$Kind,
     [int]$Limit = 5,
@@ -101,6 +112,34 @@ function New-Envelope($status, $reason, $data) {
 $script:surfaceExit = 0
 
 function Emit($status, $reason, $data) {
+    # An unrecognised status must never become a pass. The mechanism is not the
+    # obvious one: $EXIT[$status] on a missing key does NOT return $null, it
+    # raises a non-terminating NullArrayIndex error, so the assignment below is
+    # SKIPPED and $surfaceExit silently KEEPS the value it already held -- which
+    # is 0, set at line 101. That is how a failed deploy verification exited 0
+    # with "ok": false in the envelope, and it is also why nothing looked wrong:
+    # stdout carried a clean envelope and the error went to stderr.
+    #
+    # BROKEN is the honest landing, not RED. The precondition that is missing is
+    # "this status is in the exit table", and BROKEN already means a missing
+    # precondition at line 39. RED would claim the thing ran and is wrong, which
+    # is a claim about the SUBJECT; this is a claim about the SURFACE.
+    #
+    # This is a net, not a fix. The named residuals are F2.12 (validate's
+    # PASS/FAIL/SKIP are not surface statuses and must be mapped, not caught) and
+    # F2.1b (what ATTENTION is MEANS is still undecided). A net that turns a
+    # silent wrong answer into a loud wrong answer is worth having; it is not the
+    # same as a right answer.
+    # The null test is NOT redundant. Hashtable.ContainsKey($null) throws
+    # ArgumentNullException rather than returning false, so without it a null
+    # status skips this guard entirely and reaches $EXIT[$null] below, which is
+    # the original silent pass. A null status is reachable: verify's exit map
+    # covers 0-3 only, so any child exit above 3 yields null (F2.4).
+    $unknown = if ($null -eq $status) { '<null>' } else { $status }
+    if ($null -eq $status -or -not $EXIT.ContainsKey($status)) {
+        $reason = "surface emitted status '$unknown', which is not in the exit table, so the verdict is untrustworthy and is reported as BROKEN. Declared: $($EXIT.Keys -join ', '). Original reason: $reason"
+        $status = 'BROKEN'
+    }
     # Printed, not returned: a `return` here writes the exit code into the
     # output stream and corrupts the JSON envelope for every caller.
     Write-Output ((New-Envelope $status $reason $data) | ConvertTo-Json -Depth 6)
@@ -256,13 +295,26 @@ switch ($Command) {
     # ------------------------------------------------------------------ link
     'link' {
         $sub = if ($Arg) { $Arg } else { 'status' }
-        $r = Run-Tool 'tools\linksync.ps1' (@($sub, '-GameDir', $GameDir))
+        $a = @($sub, '-GameDir', $GameDir)
+        # Forwarded rather than dropped. linksync.ps1 has declared and implemented
+        # -Enable/-Disable since before this surface advertised them, so the toggle
+        # the compiled-environment model depends on was one argument list away and
+        # the list was never built. Comma-joined into a single token, which is how
+        # PowerShell binds a [string[]] from a splatted argument array.
+        if ($Enable)  { $a += @('-Enable',  ($Enable  -join ',')) }
+        if ($Disable) { $a += @('-Disable', ($Disable -join ',')) }
+        $r = Run-Tool 'tools\linksync.ps1' $a
         if ($r.missing) {
             Emit 'BROKEN' "linksync.ps1 not found at $($r.path)" ([ordered]@{})
             exit $script:surfaceExit
         }
-        $status = if ($r.exit -eq 0) { 'GREEN' } else { 'RED' }
-        Emit $status "load-order link: $sub" ([ordered]@{ exit = $r.exit; output = $r.output })
+        # exit 2 from linksync is its own "no snapshot to restore from" and its own
+        # "the thing is missing", both of which are BROKEN, not RED. That split is
+        # F2.5 and is NOT done here: it needs to tell a thrown precondition from a
+        # wrong result, and linksync signals both by exit 1 today.
+        $status = if ($r.exit -eq 0) { 'GREEN' } elseif ($r.exit -eq 2) { 'BROKEN' } else { 'RED' }
+        $toggled = [ordered]@{ enable = @($Enable); disable = @($Disable) }
+        Emit $status "load-order link: $sub" ([ordered]@{ exit = $r.exit; toggled = $toggled; output = $r.output })
         exit $script:surfaceExit
     }
 

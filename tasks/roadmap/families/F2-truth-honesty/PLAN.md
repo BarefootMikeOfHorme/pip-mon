@@ -12,6 +12,35 @@ or the wrong status**, all verified firsthand against the source on 2026-10-03.
 Nine is the number. Not "a vague risk" — nine, each with a line number, each
 independently fixable and independently revertable.
 
+## State
+
+| id | defect | state |
+|---|---|---|
+| **F2.1a** | `$EXIT` lookup is not total — an unknown status keeps the previous value | **FIXED** `e2c4a91` |
+| **F2.1b** | what `ATTENTION` *means* in the vocabulary | **owed to the owner** |
+| **F2.6** | `caps` advertises `-Enable`/`-Disable` that the entry point did not accept | **FIXED** `e2c4a91` |
+| F2.2 | `snapshot` returns GREEN having copied nothing | open |
+| F2.5 | `link` reports a missing precondition as RED | open — needs a decision, see below |
+| F2.7 | `docs` advertises a file that does not exist | open |
+| F2.3 | `status` decides its verdict from unrefreshed report files | open |
+| F2.4 | `verify` cannot return SKIP or BROKEN | open |
+| F2.8 | `surfaces.json` lists a `compat` verb that exists in no code path | open |
+| F2.9 | `plans.schema.json` documents enforcement that does not exist | open |
+| F2.10 | `caps` has no `provenance` block, violating its own invariant | open |
+| F2.11 | the "no writes outside" invariant omits `ck-session prepare` | open |
+| **F2.12** | `validate` exits 0 when validation FAILS | open — F2.1a made it loud, not right |
+
+**F2.1a was a net, not a fix, and the distinction matters.** After it, `validate`
+on a FAIL exits **2 — loud instead of silent** — but it should be **RED/1**,
+because the validation ran and the plugin was wrong. Making it right is F2.12.
+Conflating the two is how a safety net gets mistaken for a fix.
+
+**F2.5 is not a one-liner and is deliberately deferred.** `linksync.ps1` signals
+both "precondition missing" and "wrong result" by exit 1, so the surface cannot
+currently tell them apart. Mapping exit 2 to BROKEN is done; distinguishing a
+thrown precondition needs `linksync.ps1` to report which case it was. That is a
+change in another file and belongs in its own cycle.
+
 ## The defects
 
 Every line number verified by reading `tools/pipmon.ps1` on 2026-10-03. Not
