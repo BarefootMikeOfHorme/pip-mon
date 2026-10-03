@@ -2,6 +2,9 @@
   "version": 1,
   "note": "Canonical surface forms for querying this workspace. The index is lexical BM25, so a query phrased in words the corpus never uses retrieves nothing. Each entry is a concept; all listed forms are interchangeable for retrieval. tools/rag_query.py expands a query across these groups by default, and `rag vocabulary` prints this file so a program can discover it at runtime instead of hardcoding it. Edit here, not in code.",
   "maintainer_rule": "Only add a form that actually occurs in an indexed file. A synonym that appears nowhere in the corpus cannot help recall and only dilutes precision.",
+  "group_notes": {
+    "papyrus_negative_table": "Added by B1 for ai_context/spec/papyrus_functions.json. These are the tokens of the NEGATIVE table in ai_context/papyrus_syntax_rules.md, so a query shaped like the habit someone is about to write -- 'CreateObjectAtForm', 'IsValidRef', 'GetOwningObjectOfThread' -- retrieves the compile-verified document instead of nothing. tools/rag_index.py excludes every ai_context/spec/*.json from retrieval, so the generated index itself cannot answer these queries and this group is the only route to the prose that does. Each form was checked to occur in an INDEXED file before being added, per maintainer_rule. DELIBERATELY ABSENT: SendCustomEvent and RegisterForCustomEvent, which are the FO4 replacements and would obviously belong here. They occur in ai_context/spec/papyrus_constructs.json, which rag_index.py excludes, and in no indexed file, so adding them would break the rule that keeps this file honest. Naming that gap is cheaper than breaking the rule; adding the two words to papyrus_syntax_rules.md would license both."
+  },
   "terms": {
     "editor_xedit": [
       "xEdit",
@@ -420,6 +423,25 @@
       "startup",
       "shutdown",
       "enter environment"
+    ],
+    "papyrus_negative_table": [
+      "CreateObjectAtForm",
+      "GetOwningObjectOfThread",
+      "SpawnThreadFromCustomEvent",
+      "IsValidRef",
+      "SetGlobalFlag",
+      "GetLocalFlag",
+      "GetFormIDFromEvent",
+      "SendEvent",
+      "CustomEvent",
+      "GetLength",
+      "GetSize",
+      "FormList",
+      "AutoReadOnly",
+      "EndFunction",
+      "endFunction",
+      "endEvent",
+      "extends"
     ]
   }
 }
