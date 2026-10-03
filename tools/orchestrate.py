@@ -43,8 +43,12 @@ STATE = WATCH / "orchestrator-state.json"
 ARCHIVE = WATCH / "archive"
 PY = sys.executable
 
-# The one file that says whether an invariant holds. Read, never recomputed.
-INVARIANTS = REPO / "ai_context" / "spec" / "side_invariants.json"
+# The file that says whether an invariant holds is resolved through the door
+# registry, not hardcoded, because a numbered variant now exists:
+# ai_context/spec/side_invariants.2.json (version 2, `supersedes` the original).
+# DOORS_FIRST is the fallback if the registry cannot be read at all.
+DOORS = REPO / "ai_context" / "systems_core" / "door_registry.json"
+INVARIANTS_DEFAULT = REPO / "ai_context" / "spec" / "side_invariants.json"
 
 # Set by --verbose. The gates' own output is ALWAYS captured and ALWAYS saved to
 # the transcript and the state file; this only controls whether it is also
@@ -501,6 +505,65 @@ def did(check):
 #   corrected to say `name` rather than `id`.
 # ---------------------------------------------------------------------------
 
+def ai_context_path_name():
+    """The name of the invariant spec, for messages. Resolved the same way the
+    read is, so a message cannot name a different file from the one read."""
+    path, _w = invariant_spec()
+    return path.name if path else INVARIANTS_DEFAULT.name
+
+
+def invariant_spec():
+    """Which invariant spec to read, and whether it has been superseded.
+
+    Returns (path, warning). Resolved through the door registry so a numbered
+    variant is picked up automatically when the pointer moves, rather than this
+    file carrying a second hardcoded answer that nobody updates.
+
+    The `warning` is not decoration. A file that another commit declares
+    `supersedes` is the record of an earlier state, and enforcing a plan's
+    preconditions against the record of an earlier state is enforcing against the
+    wrong facts -- quietly, and with a green result. So it is surfaced, and
+    requires_report turns it into a refusal.
+    """
+    path, note = INVARIANTS_DEFAULT, ""
+    if DOORS.exists():
+        try:
+            doors = json.loads(DOORS.read_text(encoding="utf-8"))
+            for d in doors.get("doors") or []:
+                if isinstance(d, dict) and d.get("id") == "side-invariants" and d.get("path"):
+                    path = REPO / str(d["path"])
+                    break
+        except (OSError, ValueError):
+            note = ("the door registry could not be read, so %s was used directly"
+                    % INVARIANTS_DEFAULT.name)
+    elif not INVARIANTS_DEFAULT.exists():
+        return None, "no door registry and no %s" % INVARIANTS_DEFAULT.name
+
+    # Walk the numbered variants and let the newest supersession win, so a stale
+    # pointer is visible rather than silently authoritative.
+    seen = set()
+    for n in range(2, 12):
+        cand = REPO / "ai_context" / "spec" / ("side_invariants.%d.json" % n)
+        if not cand.exists():
+            continue
+        try:
+            doc = json.loads(cand.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        sup = doc.get("supersedes")
+        targets = sup if isinstance(sup, list) else ([sup] if sup else [])
+        rel = str(path.relative_to(REPO)).replace("\\", "/") if path.is_relative_to(REPO) else str(path)
+        if rel in [str(t) for t in targets]:
+            newer = str(cand.relative_to(REPO)).replace("\\", "/")
+            note = ("%s declares `supersedes: %s`, but the door registry still points "
+                    "at %s. Which of two declared-authoritative files is authoritative is "
+                    "the pointer's decision and not this file's, so nothing is enforced "
+                    "against either until it is made. tasks/roadmap/VERSIONING.md: "
+                    "'Which one is authoritative is declared in a pointer file, never "
+                    "implied by recency or by a timestamp.'" % (newer, rel, rel))
+    return path, note
+
+
 def invariant_index():
     """name -> status, read from the spec. (None, reason) if it cannot be read.
 
@@ -509,19 +572,22 @@ def invariant_index():
     `status_vocabulary` -- four entries say PARTIALLY_MET and the vocabulary
     declares four other values and not that one. Translating a vocabulary this
     file does not own is how a status stops meaning what it says."""
-    if not INVARIANTS.exists():
-        return None, "no spec at %s" % INVARIANTS
+    path, warning = invariant_spec()
+    if path is None or not path.exists():
+        return None, "no readable invariant spec (%s)" % (warning or path)
     try:
-        spec = json.loads(INVARIANTS.read_text(encoding="utf-8"))
+        spec = json.loads(path.read_text(encoding="utf-8"))
     except ValueError as e:
-        return None, "%s does not parse: %s" % (INVARIANTS.name, e)
+        return None, "%s does not parse: %s" % (path.name, e)
+    if warning:
+        return None, warning
     idx = {}
     for e in spec.get("entries", []):
         if isinstance(e, dict) and e.get("name"):
             idx[e["name"]] = e.get("status")
     if not idx:
         return None, ("%s declares no usable entries, so no requirement could be "
-                      "resolved" % INVARIANTS.name)
+                      "resolved" % path.name)
     return idx, None
 
 
@@ -546,13 +612,13 @@ def requires_report(plan):
     for name in declared:
         row = {"name": name, "status": None, "ok": False, "why": ""}
         if idx is None:
-            row["why"] = ("%s could not be read, so this requirement is UNVERIFIED "
-                          "rather than met. SKIP is never PASS." % INVARIANTS.name)
+            row["why"] = ("the invariant spec could not be used, so this requirement "
+                          "is UNVERIFIED rather than met. SKIP is never PASS. %s" % err)
         elif name not in idx:
             row["why"] = ("no entry named %r in %s. A requirement that matches "
                           "nothing would otherwise be satisfied by its own absence, so "
                           "it is a refusal. Copy an entry's `name` verbatim."
-                          % (name, INVARIANTS.name))
+                          % (name, ai_context_path_name()))
         elif idx[name] == "MET":
             row["status"], row["ok"] = idx[name], True
         elif idx[name] == "NOT_APPLICABLE":
