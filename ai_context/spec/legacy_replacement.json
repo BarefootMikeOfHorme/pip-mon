@@ -1,0 +1,520 @@
+{
+  "spec_id": "replacement.legacy_products",
+  "kind": "compat_mapping",
+  "title": "Legacy product replacement map: the job each product did, how we do it, and what we add beyond parity",
+  "authority": "derived",
+  "prose": "compat_f4se_map.json answers 'does a mod that calls F4SE.GetVersion() work with us'. This file answers the different and prior question: 'we are replacing these products, what were they FOR'. The distinction is not pedantry. A product's users valued the job and tolerated the feature list, so replacing the features while missing the job reproduces the reputation without the value. Every row therefore carries function_served (the job), measured_failure (how it broke, with the evidence named, or null when nothing is on record), enhancement (what we add beyond parity), and requires_host (whether our equivalent needs Fallout 4, the Creation Kit, or neither). Two of those columns exist because of failures in the inherited plan. requires_host is what makes 'the program runs without either host' checkable rather than aspirational: group the rows by it and the standalone surface is exactly the set with requires_host none. And measured_failure is what caught the two dead avenues - a row claiming parity with no recorded failure of the thing being replaced is asserting an unexamined comparison, which is how 'a Terminal holotape replaces MCM' and 'write the MCM settings INI' both survived long enough to be planned. Statuses are the same closed six-value vocabulary as the capability-level map, so one reader handles both. Two rows deliberately do not name a replacement at all: the Creation Kit and G.E.C.K. Read the requires_host column before quoting this file as a scope statement - nine of these rows need no game and no editor, which is a larger standalone surface than the current CLI exposes.",
+  "provenance": [
+    {
+      "source": "PIP-MON_CONSOLIDATED.txt sections 2, 15.1, 15.2, 15.3",
+      "note": "The four overlapping replacement inventories in that file disagree with each other. Where they conflict the row records the conflict rather than picking a side silently."
+    },
+    {
+      "source": "inspiration archive files 12-15 (2026-09-28 22:32 to 23:01)",
+      "note": "Where the F4SE replacement thesis was actually argued. File 14's 'Remove custom script functions from the VM entirely' is the origin of the NOT_PLANNED and REJECTED rows for object patching and vanilla type extension."
+    },
+    {
+      "source": "ai_context/spec/compat_f4se_map.json",
+      "note": "The capability-level companion. 10 rows, closed status vocabulary, currently 0 of 10 proven. Product-level rows cite it rather than restating per-API detail."
+    },
+    {
+      "source": "ai_context/f4se_prohibition.md",
+      "note": "status: ACTIVE - BINDING CONSTRAINT. The reason several rows below are refusals rather than plans."
+    },
+    {
+      "source": "checked against source, not prose",
+      "note": "Terminal and MCM rows were checked against Data/Scripts/Source/Base (7,932 .psc, confirmed present on this machine) and against the live Data/MCM tree. The result refuted both proposed avenues; see tasks/roadmap/CHANGELOG.md corrections C1 and C2."
+    }
+  ],
+  "entries": [
+    {
+      "name": "F4SE loader and DLL injection",
+      "source_product": "F4SE",
+      "our_equivalent": "launcher/pipmon_preflight.exe - our own loader: CREATE_SUSPENDED, verify build identity, LoadLibraryW one DLL, resume",
+      "status": "DIFFERENT_MECHANISM",
+      "requires_host": "game",
+      "function_served": "Getting a native module into a running game process at all, reliably, on every launch. The loader was the product; the plugins were the payload.",
+      "measured_failure": "f4se_loader.exe spawns the game suspended and injects via a remote thread. inspiration archive file 14: this 'triggers modern anti-cheat flags and breaks on every executable hash change'. Neither of those is a hypothetical - it is the stated reason the loader was cut rather than adopted.",
+      "enhancement": "Three things the old loader could not do. (1) The pre-flight owns the first instruction: build identity is verified and the runtime self-tested before the game executes anything - worth a suspended process to get. (2) A HOLD between inject and ResumeThread, so the daemon can be synchronised, capture directories set and plugins.txt snapshotted while the game is frozen and harmless. (3) No second loader binary to break, so no hash-change fragility. launcher/src/ProcessLaunch.cpp and BuildIdentity.cpp contain zero occurrences of Fallout4 or CreationKit, so this path is already host-agnostic and already tested - the generality is written, it is just not pointed at anything yet.",
+      "notes": "Capability-level rows for what F4SE registers live in compat_f4se_map.json, where 0 of 10 are proven. This row is about the mechanism of getting in, which is genuinely ours and genuinely built.",
+      "spec": "ai_context/spec/program_components.json",
+      "provenance": [
+        "launcher/src/ProcessLaunch.cpp, launcher/src/BuildIdentity.cpp - no product name in either, exe path is argv[1]",
+        "launcher 45 self-tests green per build_all.bat stage 3"
+      ]
+    },
+    {
+      "name": "F4SE hook installation and Papyrus native function registration",
+      "source_product": "F4SE",
+      "our_equivalent": "Layer A - a single registration choke point on the VM's native-function resolution, reached through the one vtable slot we source",
+      "status": "PLANNED",
+      "requires_host": "game",
+      "depends_on": ["B5", "engine.layerA", "F0.1"],
+      "function_served": "Letting a native DLL answer a Papyrus call. Everything else F4SE offered - events, utilities, form lookup - sits on top of this one capability.",
+      "measured_failure": "This is our own unproven capability, not theirs. vprobe/src/PapyrusHooks.cpp HookManager::install() installs ZERO hooks and logs that the four former PapyrusVM/Thread/Script targets name classes absent from the game RTTI. '18/18 probes resolve' means 18 vtable addresses were found, not that 18 hooks exist. program_components.json records gate_covered false for the S0 experiment.",
+      "enhancement": "One installer, many subscribers. No component resolves addresses or installs a hook on its own, because five independent hook sets means five chances to corrupt a vtable and the failure is unreproducible. The surface also reports WHICH resolver tier produced each address, so triage can explain itself rather than assert.",
+      "notes": "The single load-bearing row in this file. Every PLANNED row that needs a native call is downstream of it, and it is blocked on one input: a BSScript class declaration in method order, so slot indices follow mechanically instead of being guessed. A guessed index is a detour into an unrelated function, whose only symptom is a crash.",
+      "spec": "ai_context/spec/compat_f4se_map.json",
+      "provenance": [
+        "ai_context/spec/blockers_to_environment.json B5 - third_party/CommonLibF4/CommonLibF4/include/RE/Bethesda/BSScript.h",
+        "vprobe/src/PapyrusHooks.cpp - zero hooks installed, stated in the install log",
+        "PIP-MON_CONSOLIDATED.txt section 24.7 - the falsifiable S0 acceptance criterion"
+      ]
+    },
+    {
+      "name": "AddressLib runtime address resolution",
+      "source_product": "F4SE (libaddresslib)",
+      "our_equivalent": "vprobe.addresses.bin - resolved at BUILD time into a 24-byte header plus 12-byte records, read in-game with one PE-header hash, one short scan and one binary search",
+      "status": "DIFFERENT_MECHANISM",
+      "requires_host": "none",
+      "function_served": "Turning a symbol name plus a game build into an address, so a mod survives a game patch instead of hardcoding an offset that silently rots.",
+      "measured_failure": "A third-party mod built against libaddresslib expects a RUNTIME database it can query. We do not expose one. compat_f4se_map.json states it plainly: such a mod 'will NOT work unmodified and will not fail politely either'. That is a compatibility gap we have chosen, and a modder deserves to learn it at install time rather than at load time.",
+      "enhancement": "Two failure modes the original does not have. (1) The build FAILS on a stale blob rather than shipping one - build_libbin.bat treats a mismatch as a build failure, which is the guard against a derived artefact going stale while the build reports success. (2) The reader refuses a blob built for a different image, an unknown schema version, non-zero reserved bytes, or a wrong record stride, and every uncertainty resolves toward no answer. 8,617 records, 103,428 bytes, zero per-entry allocation in-game.",
+      "notes": "requires_host none is literal: the whole resolution path is offline and already gated. This is the clearest case in the file of replacing a capability with a strictly better mechanism while declining backward compatibility.",
+      "spec": "ai_context/systems_core/address_blob_schema.json",
+      "provenance": [
+        "ai_context/systems_core/address_blob_schema.json - format, and the refusal catalogue",
+        "vprobe/libs/fo4_1_11_240.addresses.txt tracked, .bin derived and gitignored",
+        "build_libbin.bat - mismatch is a build failure"
+      ]
+    },
+    {
+      "name": "po3 / Papyrus Extender / Papyrus Utils",
+      "source_product": "po3",
+      "our_equivalent": "KaDag plus the Rust daemon pipeline - file I/O, parsing and array work out of process",
+      "status": "PLANNED",
+      "requires_host": "none",
+      "depends_on": ["B5"],
+      "function_served": "Letting a Papyrus script do things the language has no keyword for - read a file, parse JSON, do trigonometry, work with arrays. The reason so many 15-year-old mods are structured the way they are.",
+      "measured_failure": "It ran all of it synchronously inside the game's main execution thread, via Papyrus callbacks. inspiration archive file 13: heavy parsing and math loops on the game thread is the mechanism behind script lag and micro-stutters that players experience as the game being badly made.",
+      "enhancement": "The work moves off the game thread entirely, onto separate cores, with zero frame stutter. This is the clearest structural upgrade in the file: not a better implementation of the same design, but the removal of the design's central defect. It also composes with the Papyrus modernization index in F3, which is what tells a script author which po3 calls are now unnecessary because FO4 already has a native.",
+      "notes": "requires_host none for our equivalent, which is the point - the work never needed to be in the game and po3 putting it there was the defect.",
+      "spec": "ai_context/skyrim_capability_adoption.md",
+      "provenance": [
+        "inspiration archive file 13, the po3 row of the master comparison matrix",
+        "ai_context/skyrim_capability_adoption.md - what to adopt from Skyrim-lineage practice and what to refuse"
+      ]
+    },
+    {
+      "name": "GoE Script Extender",
+      "source_product": "Garden of Eden (script extender half)",
+      "our_equivalent": "covered by the po3 row plus our own PipMon: namespace",
+      "status": "PLANNED",
+      "requires_host": "game",
+      "depends_on": ["B5"],
+      "function_served": "A large library of extra Papyrus functions distributed as one popular bundle, which is why the name is two products' worth of confusion.",
+      "measured_failure": "Name collision, not technical failure. There are TWO GoE products and they are unrelated: GardenOfEdenPapyrusExtender, an F4SE plugin we replace, and the Garden of Eden Creation Kit, a Fallout 3 and New Vegas editor we must never break. ai_context/spec/nomenclature.json records that conflating them has caused repeated wasted work, and door_registry.json flags docs/ARCHITECTURE.md as holding the distinction uniquely.",
+      "enhancement": "Nothing beyond the po3 row. Recorded separately because the name collision is a live hazard, not because the technology differs.",
+      "notes": "requires_host game here reflects that GoE's functions were reachable from Papyrus, so covering the surface needs the native path. The underlying work, per the po3 row, does not.",
+      "provenance": [
+        "PIP-MON_CONSOLIDATED.txt section 21.5 - the two products, named separately",
+        "ai_context/spec/nomenclature.json GECK entry"
+      ]
+    },
+    {
+      "name": "PAP (Power of Ascension)",
+      "source_product": "PAP",
+      "our_equivalent": "covered by the po3 row",
+      "status": "PLANNED",
+      "requires_host": "game",
+      "depends_on": ["B5"],
+      "function_served": "Perks, stats and quest-flow extensions expressed as Papyrus helper libraries.",
+      "measured_failure": "Same as po3 - synchronous game-thread work. No PAP-specific failure is on record.",
+      "enhancement": "None claimed. This row exists so the replacement list is complete, not because there is anything distinctive to say.",
+      "notes": "The least interesting row in the file, kept for completeness. A reader who wants the argument should read the po3 row.",
+      "provenance": [
+        "PIP-MON_CONSOLIDATED.txt section 2 - PAP named as replaceable"
+      ]
+    },
+    {
+      "name": "MCM in-game settings UI",
+      "source_product": "MCM (Mod Configuration Menu)",
+      "our_equivalent": "none - and this is a measured refusal, not an omission",
+      "status": "REJECTED",
+      "requires_host": "game",
+      "function_served": "Giving a mod author a settings page in-game, so a player can change behaviour without editing a config file. Genuinely valuable, and the reason MCM is in hundreds of mods.",
+      "measured_failure": "Two proposed replacements were checked against source and both failed. (1) The Terminal-holotape route: Terminal.psc has ZERO properties. ShowOnPipboy() exists; OnMenuItemRun is declared but 0 of 339 vanilla fragments implement it. Menu items, submenus, display text and numeric input have NO script surface at all - they are CK/ESM record data, pre-authored and shipped inside an .esp. Papyrus cannot create or modify them at runtime. Holotape.psc is one line; 'Holds Holotape' is not a script property. (2) The config-translation route: see the next row. MCM has slider with min/max/step, textinput, textinputFloat, hotkey, and valueOptions.sourceType GlobalValue - a live binding into a game Global, about 40 occurrences in one real config. Terminal Papyrus has a fixed list of pre-authored items and no binding mechanism. That gap is in the GAME DATA MODEL, not in file formats, so no translation layer closes it.",
+      "enhancement": "None available. Recorded as REJECTED with the evidence so it is not re-proposed a third time. If MCM-surface parity is wanted later, the honest options are a pre-authored .esp of Terminal records shipped as content, or accepting that settings live outside the game. That is a product decision, not a technical one, and it belongs to the owner.",
+      "notes": "ai_context/systems_core/structural_layers.md already reached this conclusion independently: 'PipMon_TerminalTest.psc | menu test bench | retire. Terminal UI needs a Native script, and a Native script cannot hold data, so it is a dead end'. ai_context/spec/in_game_surface_requirements.json agrees: 'the honest position is that the in-game surface has no menu and never did'. Two routes are now closed, not one.",
+      "provenance": [
+        "Data/Scripts/Source/Base/Terminal.psc - zero properties, verified on this machine",
+        "Data/Scripts/Source/Base/Holotape.psc - one line, zero properties",
+        "Base/Fragments/Terminals - 339 .psc, zero implement OnMenuItemRun",
+        "verified by reading source, not by reading the eval notes"
+      ]
+    },
+    {
+      "name": "MCM settings ingestion (config.json and Settings ini)",
+      "source_product": "MCM / MCM Settings Manager",
+      "our_equivalent": "none - declined by standing policy",
+      "status": "NOT_PLANNED",
+      "requires_host": "none",
+      "function_served": "Reading other people's mod configuration so their settings pages appear without their author shipping a second UI.",
+      "measured_failure": "The proposed trick was backwards, and the install says so itself. Data/MCM/Config/XDI/settings.ini lines 1-3: 'This file contains XDI setting DEFAULTS. Do not modify this file. To make changes, make a copy of this file in Data/MCM/Settings/XDI.ini - values defined there will override those defined in this file.' So Data/MCM/Settings/<Mod>.ini is the USER OVERRIDE layer, not the page definition. Page structure lives in config.json plus an optional lib.swf - one real config ships a 98,909-byte lib.swf. Writing only the INI cannot make a page appear. Separately, the repo has zero local evidence for any of this: the only two mentions of Data/MCM in the entire tree are the claim itself, and docs/POSITIONING.md line 105 already carries a standing policy against the whole approach - 'Third-party configs | we read NONE | clear'.",
+      "enhancement": "None. What IS worth doing, and is a different task: our own settings surface reading our own JSONC, per PIP-MON_CONSOLIDATED.txt C16. That is ingestion of our config, not of other people's, and it does not conflict with the POSITIONING policy.",
+      "notes": "The repo also contradicts itself on where MCM keeps settings - PIP-MON_CONSOLIDATED.txt lines 692 and 1090 say the save file, PIPMON_EVAL_NOTES5.md line 301 says per-mod INIs. Both unsourced. The contradiction is harmless because we read none of it, but it is recorded because an unsourced contradiction in a corpus is how a wrong plan gets made twice.",
+      "provenance": [
+        "verified: live Data/MCM/Config/XDI/settings.ini on this machine, 5 real mod configs present",
+        "docs/POSITIONING.md line 105 - the standing policy",
+        "docs/ARCHITECTURE.md - named in door_registry.json as holding the thread model and the V-Probe/V-Link prefix rationale; highest-risk item to lose"
+      ]
+    },
+    {
+      "name": "Buffout 4 / Net Script Framework crash logging",
+      "source_product": "Buffout 4",
+      "our_equivalent": "out-of-process minidump parsing plus proactive telemetry that reports anomalies BEFORE the crash",
+      "status": "PLANNED",
+      "requires_host": "none",
+      "function_served": "When the game dies, produce a readable crash report so the cause can be found and fixed.",
+      "measured_failure": "The failure is structural and unavoidable: it dumps register state AFTER the game has already crashed. inspiration archive file 13 - 'intercepts unhandled CPU exceptions in-process to dump register states to a text file after the game has already crashed'. Whatever the report says, the player has lost the session.",
+      "enhancement": "The whole differentiator is the word PROACTIVE. Catch the runaway thread, the unbounded stack and the bloated script array while the game is still running and the save is still good, and tell the operator before the crash rather than after. The archive names the concrete tells: threads over 500 ops/sec, over 1,000 open handles, a suspended stack count past the warning threshold, an error hash repeating over 50 times a second. Those are measurable while the process lives.",
+      "notes": "requires_host none for the analysis half - minidump parsing and the rule set are offline. The proactive half needs the probe, so it needs the game. The split is worth keeping: it means the diagnostic capability survives a crashed process, which is the property that matters most when something has gone wrong.",
+      "provenance": [
+        "inspiration archive file 13, Buffout row of the master comparison matrix",
+        "docs/ANOMALY_RULES.md - the rule set",
+        "ai_context/systems_core/pyo3/ - rust-minidump prior art captured but not adopted"
+      ]
+    },
+    {
+      "name": "Canary (Kinggath) save-health script",
+      "source_product": "Canary",
+      "our_equivalent": "Canary Redux / the Kinggath Protocol - a pre-save hook that drains the Papyrus queue and validates before the write, plus an out-of-process .fos triage daemon",
+      "status": "PLANNED",
+      "requires_host": "game",
+      "depends_on": ["B5"],
+      "function_served": "Telling you a save is probably corrupt, and cleaning up the script cruft that causes it, before you rely on that save.",
+      "measured_failure": "It polls from inside the game on a timer, checking global variables and flagging risk after the fact. Reactive, script-based, and it costs main-thread work continuously to notice a problem occasionally.",
+      "enhancement": "Move the check to the exact moment it matters. Intercept SaveGame(), read the pending-event count at the engine pointer level, force a queue drain, validate handle integrity, then allow the write. The archive names the measured thresholds: hold when more than 50 events are pending, bounded at 1500 ms. And the repair runs out of process on a COPY, never the live save - quarantine the original, write Save_N_Repaired.fos, keep a timestamped backup, and tell the operator before the next load.",
+      "notes": "This is the clearest example of the archive's own best idea: same function, but the trigger is a native hook at the write boundary instead of a script polling loop. It is also the highest-consequence row here, because it is the one that touches saves. Reminders that apply: repairs stay out of scope until the report has been right about a real install more than once, and remediation is rehearsed on a copy, never on the live save.",
+      "provenance": [
+        "inspiration archive file 8 - Canary Redux, the concrete thresholds and the repair strategies",
+        "PIP-MON_CONSOLIDATED.txt section 8 and section 19.2 - triage reports, it never acts",
+        "HANDOVER.md G2 - Canary-style diagnostics named as a replace target"
+      ]
+    },
+    {
+      "name": "Engine Fixes and runtime tweak mods",
+      "source_product": "Engine Fixes (High FPS Physics Fix, PRP and similar)",
+      "our_equivalent": "none - declined",
+      "status": "NOT_PLANNED",
+      "requires_host": "none",
+      "function_served": "Patching engine behaviour at runtime to fix Bethesda bugs - physics at high framerate, broken precombine, and dozens of small correctness issues.",
+      "measured_failure": null,
+      "enhancement": "None. Named here so the replacement list is honest about what is NOT being taken on. PIP-MON_CONSOLIDATED.txt C15 explicitly does not replace gameplay fixes of any kind, and that boundary is correct: a tweak mod is a patch to someone else's product, and a product that ships patches for a competitor's bugs has stopped being a product.",
+      "notes": "The archive claims KaDag handles pre-combine and asset validation out of process, which is a different job - validating that precombine is correct rather than patching the renderer. That validation capability is real and is captured in the xEdit row below. What is declined is the runtime patching half.",
+      "provenance": [
+        "PIP-MON_CONSOLIDATED.txt C15 - gameplay fixes explicitly not replaced",
+        "inspiration archive file 15 - Engine Fixes row names PRP as handled, which is the validation half"
+      ]
+    },
+    {
+      "name": "Wrye SSC / ESLint",
+      "source_product": "Wrye",
+      "our_equivalent": "none - deliberately not adopted",
+      "status": "NOT_PLANNED",
+      "requires_host": "none",
+      "function_served": "Automatic fixing of ESP/ESM records - cleaning dirty records, fixing FormIDs, correcting references after a merge.",
+      "measured_failure": "Four independent reasons, all recorded. (1) It is a Skyrim SE product, not FO4. (2) It is a POST-INSTALL rewriter, whereas the CK is a PRE-INSTALL authoring path - different phases of the workflow. (3) WryeESP.esp is a GENERATED MASTER, which breaks the measured 2,287,300-record baseline and every FormID calculation built on it. (4) Its runtime whitelist would undo the deliberate separation between CK load order and game load order. HANDOVER records the verdict as 'bad trade for a test environment. Not adopted.'",
+      "enhancement": "None. This row is here because it is the most DECLINED popular option in the ecosystem, and a decline with reasons is worth more than an omission - it stops the question being reopened from scratch.",
+      "notes": "The nearest thing we do is the Dirty Record Auto-Scrubber named in inspiration archive file 5, which is a DETECTOR rather than a rewriter. Detecting and reporting a dirty record is in scope. Rewriting a plugin in place is not, and the difference is the same read/write asymmetry that governs every other format decision here.",
+      "provenance": [
+        "HANDOVER.md - Wrye SSC assessment, four reasons",
+        "inspiration archive file 5 - xEdit ITM equivalent as a detector"
+      ]
+    },
+    {
+      "name": "Fallout 4 Creation Kit",
+      "source_product": "Creation Kit",
+      "our_equivalent": "none - explicitly out of scope, and this is the decision most likely to be second-guessed",
+      "status": "NOT_PLANNED",
+      "requires_host": "ck",
+      "function_served": "Authoring worlds, cells, records, quests and scripts. It is the tool content is MADE in.",
+      "measured_failure": "None. It does not fail. That is the problem: PIP-MON_CONSOLIDATED.txt section 15.3 - 'Do not replace what is a CONTENT AUTHORING SUITE: the Creation Kit. Attempting the second is how this project stops shipping anything at all.' Contradiction C14 records it as NOT REPLACEABLE. Three CK crash dumps are on record and no CKPE is installed, so it is fragile - but fragile is an argument for automation around it, not for rebuilding it.",
+      "enhancement": "Not applicable. What we do instead is remove the work from it: generate records headlessly through xEdit so the editor is opened once, for one thing, instead of being the tool that does everything and loses work when it crashes. ai_context/testenv_layout.md also records that exteriors need clean unfiltered precombine, which is a CK COMMAND LINE operation - filtered precombine is GUI-only - so the CK stays load-bearing regardless of intent.",
+      "notes": "The one place this could change is CKPE - see the CKPE row. If editor stability is the binding constraint on iteration speed, an in-house stability shim is a different proposition from replacing the editor, and the line between them is worth keeping sharp.",
+      "provenance": [
+        "PIP-MON_CONSOLIDATED.txt C14 and section 15.3",
+        "HANDOVER.md G3 - G.E.C.K. is a peer tool, not a target",
+        "ai_context/testenv_layout.md - exteriors require CK command-line precombine"
+      ]
+    },
+    {
+      "name": "G.E.C.K. / Garden of Eden Creation Kit",
+      "source_product": "G.E.C.K.",
+      "our_equivalent": "none - peer tool",
+      "status": "NOT_PLANNED",
+      "requires_host": "none",
+      "function_served": "Environment creation for Fallout 3 and New Vegas. A DIFFERENT GAME. It has nothing to do with Fallout 4.",
+      "measured_failure": null,
+      "enhancement": "None, and the enhancement that matters most here is negative: we must never break it. HANDOVER.md G3 makes it a peer tool rather than a target, and PIP-MON_CONSOLIDATED.txt section 21.5 says so directly. The engine manifest records the operational form of it - the editor is already a running engine, there is nothing to start, so we observe it while it is open.",
+      "notes": "Row exists almost entirely because of the name collision with the GoE Script Extender. Keeping the two rows adjacent in this file is the cheapest available defence against the conflation that nomenclature.json says has already caused repeated wasted work.",
+      "provenance": [
+        "PIP-MON_CONSOLIDATED.txt section 21.5 - the two products, named separately",
+        "ai_context/spec/nomenclature.json GECK - 'conflating this with CK has caused repeated wasted work'",
+        "docs/ENV_MANIFEST.schema.jsonc - launchPolicy.editor_executable is attach, not start"
+      ]
+    },
+    {
+      "name": "xEdit record parsing, load-order analysis and conflict reporting",
+      "source_product": "xEdit / FO4Edit",
+      "our_equivalent": "KaDag - a Rust DAG resolver, BA2 validator and record analyser",
+      "status": "PLANNED",
+      "requires_host": "none",
+      "depends_on": ["B1", "B2", "B4"],
+      "function_served": "Answering 'what is actually in this plugin, and what conflicts with what' - the question every mod author has to ask before shipping.",
+      "measured_failure": "It is a GUI-first tool, so automating it means driving or scripting a windowed application. And its scripting API is full of traps that have each cost a run here: GetPluginName does not exist in 4.1.5f and aborted a run; ElementID and IwbGroupRecord.Count do not exist; FileWriteToStream needs three arguments, not the two our spec declared; AddNewFileName creates a NEW plugin rather than reaching an existing one; AddElement throws if the element is already parented while Add is the idempotent create-or-get.",
+      "enhancement": "A library and a CLI instead of a GUI, which is the G16 rule: everything that matters lives in a library and a CLI first, and a UI is a view over an already-working capability. Plus the reading is off the game thread entirely. The format knowledge is genuinely good - the read/write asymmetry doctrine (a reader may skip what it does not understand; a writer must be byte-perfect) is the right shape for this domain and we adopt it wholesale.",
+      "notes": "requires_host none, and this is the highest-value row in the file for the owner's stated goal of a program that runs without FO4 or CK. A load-order and conflict analyser needs no game and no editor. PIP-MON_CONSOLIDATED.txt section 15.2 rates this 'the best-defined target in the whole project'. The traps above are why the generator path is behind F4.3 rather than already working.",
+      "provenance": [
+        "PIP-MON_CONSOLIDATED.txt section 15.2 - feasibility rating",
+        "ai_context/reference/xedit_pascal_api.md - the measured API, including the functions that do not exist",
+        "runs/xedit/fo4edit-4.1.5f-pascal-api.md - load proven at ~2m15s, 2,287,300 records"
+      ]
+    },
+    {
+      "name": "xEdit patch generation - writing a fixed .esp",
+      "source_product": "xEdit / FO4Edit",
+      "our_equivalent": "none - declined, and the reason is a principle rather than a difficulty",
+      "status": "NOT_PLANNED",
+      "requires_host": "none",
+      "function_served": "Taking a conflict report and emitting a corrected plugin that resolves it. This is how the vast majority of FO4 fixes actually ship.",
+      "measured_failure": null,
+      "enhancement": "None, deliberately. PIP-MON_CONSOLIDATED.txt C20 - load-order analysis and conflict REPORTING are ours; generating a fixed .esp is NOT. The reasoning is a whole-cloth removal of risk rather than a technical limit: a report can be wrong and the user notices; a silently mis-written record corrupts a save, and the failure surfaces later, elsewhere, attributed to something else. Given that this project's entire value proposition is BOUNDED, IDENTIFIED loss instead of a three-day revert, generating the thing that causes unidentified loss is incoherent with it.",
+      "notes": "This is the row most likely to be reopened by pressure, because 'we analyse conflicts but cannot fix them' will read as half a product. The answer is that a fix belongs to whoever authored the content, and telling them precisely what conflicts is the more valuable half. That is a product position, and it is already written down, so reopening it should be a deliberate act rather than a drift.",
+      "provenance": [
+        "PIP-MON_CONSOLIDATED.txt C20 and section 20.5 - the bounded-loss thesis",
+        "PIP-MON_CONSOLIDATED.txt section 20.4 - remedies validated on a copy, never on the live save"
+      ]
+    },
+    {
+      "name": "Archive2 .ba2 reading and validation",
+      "source_product": "Archive2",
+      "our_equivalent": "read and validate whether the loose-file set agrees with the archives",
+      "status": "PLANNED",
+      "requires_host": "none",
+      "function_served": "Answering 'is my install consistent' - which files are loose, which are archived, and whether the two agree.",
+      "measured_failure": null,
+      "enhancement": "Cheap and high value because the format is already documented well enough to READ. Prior art is captured: ba2tools, FasterFileCopy's BA2MemoryMap, ba2_extract, and the BAE archive header. The answer it produces is the question a mod manager asks constantly and answers badly.",
+      "notes": "requires_host none. Pure file-format work with no engine involvement.",
+      "provenance": [
+        "ai_context/engine/ba2_format/ - notes plus four verbatim prior-art sources",
+        "PIP-MON_CONSOLIDATED.txt section 15.2 - read-only, rated tractable"
+      ]
+    },
+    {
+      "name": "Archive2 .ba2 writing",
+      "source_product": "Archive2",
+      "our_equivalent": "none - out of scope",
+      "status": "NOT_PLANNED",
+      "requires_host": "none",
+      "function_served": "Repacking textures, meshes and sounds into archives for distribution.",
+      "measured_failure": null,
+      "enhancement": "None. PIP-MON_CONSOLIDATED.txt C17 - writing new archives is 'a separate, much larger commitment'. Reading and writing are different problems with different risk profiles, and the read side is the one with a question worth answering.",
+      "notes": "Split from the read row deliberately. Conflating them is how 'we replace Archive2' ends up in a planning document when only half of it was ever scoped.",
+      "provenance": [
+        "PIP-MON_CONSOLIDATED.txt C17"
+      ]
+    },
+    {
+      "name": "Papyrus compiler (.psc to .pex)",
+      "source_product": "Papyrus Compiler / CompilerLauncher",
+      "our_equivalent": "Caprica, the forward compiler - building on the same settled format",
+      "status": "PLANNED",
+      "requires_host": "ck",
+      "depends_on": ["B6"],
+      "function_served": "Turning Papyrus source into the bytecode the VM runs. Without it nothing scripted happens at all.",
+      "measured_failure": "The stock compiler is a black box with undocumented invocation: it has its own argument splitter and BREAKS ON SPACES IN PATHS, which this repo's own path and Program Files (x86) both contain. It needs a -f flags file or the build fails on Unknown user flag hidden. Its ScriptObject source is not shipped with it. The Skyrim-shaped .ppj is accepted silently and produces NO OUTPUT - a green invocation that compiled nothing.",
+      "enhancement": "A library and a CLI rather than a GUI, with the failure modes turned into refusals that say what is wrong. That last part is the real gain and it is already earned here: our negative table is derived from compile probes rather than folklore, so 'the 128 is almost certainly a typo' and 'variable break is undefined' are measured rather than remembered. See the F3 index row for where that is going next.",
+      "notes": "requires_host ck, and the distinction is worth being precise about: we need PapyrusCompiler.exe and Data/Scripts/Source/Base/ScriptObject.psc, both of which arrive with the CK install. We do NOT need CreationKit.exe. So this row is the difference between 'needs the editor installed' and 'needs the editor running', and pipmon.ps1 build demonstrates the second is sufficient - it never checks for CreationKit.exe. That distinction is the whole basis of F5.",
+      "provenance": [
+        "vprobe/papyrus/build_papyrus.bat - space-free staging, flags file required, FO4 .ppj schema",
+        "ai_context/papyrus_syntax_rules.md - compile-probed against PapyrusCompiler 2.8.0.4",
+        "PIP-MON_CONSOLIDATED.txt section 15.2 - rated YES, the reason the in-workstation editor is possible at all"
+      ]
+    },
+    {
+      "name": "Vortex",
+      "source_product": "Vortex",
+      "our_equivalent": "a read-only provider: probe(), enabledSet(), disagreements() - never write, never reconcile, never repair",
+      "status": "DIFFERENT_MECHANISM",
+      "requires_host": "none",
+      "function_served": "Knowing which mods are installed and which are enabled. On this machine 68 mod folders under %APPDATA%/Vortex/<game>/mods and a state database.",
+      "measured_failure": "It rewrites plugins.txt and strips unmanaged plugins, so anything that owns load order has to re-apply after every Vortex operation. That is a live operational hazard rather than a historical one, and it is why HANDOVER.md G4 calls Vortex 'a live A1/VFS case, not a runtime dependency'.",
+      "enhancement": "Three questions instead of a takeover. probe() is this provider present and can we read it; enabledSet() is what does it CLAIM is active; disagreements() is where does that contradict another provider. The third is the valuable one and no mod manager asks it, because each has its own opinion and the disagreement is where the actual bug lives. Reading rather than writing is what keeps the coexistence contract intact.",
+      "notes": "requires_host none, so a provider adapter is pure file reading. G4 is explicit that this is observation, not dependency. Evaluated as the FIRST provider to implement, because on this machine it is the one actually installed.",
+      "provenance": [
+        "PIP-MON_CONSOLIDATED.txt section 18.1 storage table and 18.2 provider contract",
+        "HANDOVER.md G4",
+        "verified: 68 mod folders present under %APPDATA%/Vortex"
+      ]
+    },
+    {
+      "name": "ModOrganizer 2",
+      "source_product": "MO2",
+      "our_equivalent": "the same three-question provider contract",
+      "status": "DIFFERENT_MECHANISM",
+      "requires_host": "none",
+      "function_served": "Virtualised mod management with profiles and per-instance contents.",
+      "measured_failure": null,
+      "enhancement": "Same as the Vortex row, with one addition that matters: MO2's ordering semantics and Vortex's are different, so two providers disagreeing about the same install is the normal case rather than the exception. disagreements() is therefore not a diagnostic edge case for MO2, it is the primary output.",
+      "notes": "NOT INSTALLED on this machine, so nothing here is measured against a real MO2 install. Recorded so the adapter slot is known, and the absence is stated rather than glossed. PIP-MON_CONSOLIDATED.txt section 18.1 gives the storage location to read when it is: Documents/MO2/profiles/.",
+      "provenance": [
+        "PIP-MON_CONSOLIDATED.txt section 18.1 - storage location",
+        "verified: MO2 not installed on this machine, so no measured behaviour"
+      ]
+    },
+    {
+      "name": "FOMOD installers",
+      "source_product": "FOMOD",
+      "our_equivalent": "read-only provider: what the installer did",
+      "status": "DIFFERENT_MECHANISM",
+      "requires_host": "none",
+      "function_served": "The declarative description of what installing a mod actually changes - files, conditionals, components.",
+      "measured_failure": null,
+      "enhancement": "Reading fomod/modlist.xml tells us what a mod CLAIMS to install, which is a fourth independent opinion to set beside the game files, F4SE's order, Vortex's state and ours. Disagreement between a modlist and what is on disk is a precise, actionable finding.",
+      "notes": "Small, cheap, and it completes the provider set. Requires no host.",
+      "provenance": [
+        "PIP-MON_CONSOLIDATED.txt section 18.1 - <mod>/fomod/modlist.xml"
+      ]
+    },
+    {
+      "name": "Nexus Mods / CurseForge install and download",
+      "source_product": "Nexus Mods, CurseForge",
+      "our_equivalent": "none - declined",
+      "status": "NOT_PLANNED",
+      "requires_host": "none",
+      "function_served": "Finding, downloading and installing mods, including the NXM link protocol and OAuth.",
+      "measured_failure": null,
+      "enhancement": "None, and the reason is the most useful finding in the whole evaluation. PIPMON_EVAL_NOTES6 section 10 is unambiguous - do not build a general mod manager inside PIP-MON - and the reasoning is that the measured failure this project actually addresses is about LINK STATE, not about downloading or installing. Building a downloader would be a large amount of work pointed at a problem we have not got.",
+      "notes": "This row exists because the idea appeared FOUR MINUTES after the project started, as one line in an architecture diagram, and was never revisited or specified. It has shaped expectations ever since. Recorded here as declined with a reason so it stops being the project's unspoken second product.",
+      "provenance": [
+        "inspiration archive file 2 - the single line, added 4 minutes after the original prompt",
+        "PIPMON_EVAL_NOTES6.md section 10 - do not build a general mod manager inside PIP-MON"
+      ]
+    },
+    {
+      "name": "CKPE / editor stability patches",
+      "source_product": "CKPE (Perchik71)",
+      "our_equivalent": "nothing yet; an in-house Win32-level stability shim is the intended answer",
+      "status": "PLANNED",
+      "requires_host": "ck",
+      "function_served": "Stopping the Creation Kit from crashing and from rendering slowly, plus virtualising expensive lists.",
+      "measured_failure": "Two things. (1) It is version-fragile in a way that is already biting: CKPE's own README says its memory patch is verified up to CK build 1.11.137.0, and the installed CK is 1.11.240.0 - three patch generations past its newest captured anchor. (2) Its most-promising technique for our large-cell crash is a candidate and not a diagnosis. ckpe-insights.md is explicit: Cell View virtualisation makes the CELL VIEW cheap, it does not make the 3D RENDER WINDOW cheaper and does not reduce CK's own memory use. No CKPE patch targets this symptom at all, and absence of such a patch is not evidence the problem is unsolvable.",
+      "enhancement": "Twelve of twenty CKPE techniques assessed as directly portable, and one is recommended as the first thing an in-house replacement should do: DisableProcessWindowsGhosting, a single Win32 call with no hooking, no version dependency and no engine knowledge. Also portable and worth taking regardless of root cause: query physical memory and refuse below a threshold, which turns an opaque crash into a clear diagnostic using public APIs. The honest lead for the large-cell crash is list virtualisation - veto at the insertion point, never materialise the row - which is standard UI virtualisation and not CKPE-specific.",
+      "notes": "Status PLANNED, not NOT_PLANNED, and the tension is deliberate: the project wants CKPE gone AND treats its absence as a risk. Both are true - it is a thing we replace, and until we replace it we have three crash dumps. Resolving that tension is what this row is for. Note also that the techniques we would adopt are mostly plain Win32 and need no engine knowledge at all, which makes this the cheapest editor-side win available.",
+      "spec": "ai_context/systems/ckpe/ckpe-insights.md",
+      "provenance": [
+        "ai_context/systems/ckpe/ckpe-insights.md - 12 yes, 5 maybe, 3 no, with a reason for each",
+        "ai_context/ck_command_reference.md CK-LOCAL-06 - verified to 1.11.137.0 against installed 1.11.240.0",
+        "PIPMON_CONSOLIDATED.txt C15 - gameplay fixes not replaced, but stability is not a gameplay fix"
+      ]
+    },
+    {
+      "name": "V-Link wire - the telemetry and control channel",
+      "source_product": "none - this is ours, replacing ad-hoc papyrus log tailing",
+      "our_equivalent": "\\\\.\\pipe\\vlink_telemetry - 28-byte packed header, interned u32 strings, memcpy on the producer",
+      "status": "COVERED",
+      "requires_host": "game",
+      "function_served": "Getting structured records out of a game process without parsing text, and getting commands in without blocking the game thread.",
+      "measured_failure": "Three independent bugs, all found and all fixed, and all three presented as a HEALTHY PIPE WITH NO INFORMATION: publish() wrote into a buffer nothing read; replay resent the most recent diagnostic, which at boot is a greeting rather than the resolver report; and every call site set textLength = 0. This is the project's canonical example of why a gate has to inspect what it produced - G13, a gate that never opens its output is not a gate.",
+      "enhancement": "The performance rule is the point: the in-process producer NEVER parses strings, formats text, or allocates on a game thread. It captures pointers, memcpy's packed structs into a lockless ring, and returns. Every serialisation format needs an ENCODER on the producer, and that encoder runs on a game thread - a memcpy costs nothing. Three parallel compile-time assertions in C++, Python and Rust pin the frame, so the two sides cannot drift apart silently.",
+      "notes": "COVERED, and the three places it was cited as proof are the triple static_assert in vprobe/include/TelemetryEvent.hpp, the mirror in overseer_cli/src/overseer_cli/protocol.py, and the const assert in overseer_cli/rust/vlink-protocol. Verified live on 2026-09-29: loaded, 25 frames, totalEventsDropped = 0, monotonic sequence. The surface reports which resolver tier produced each address, so triage can explain itself.",
+      "spec": "ai_context/spec/surfaces.json",
+      "provenance": [
+        "vprobe/include/TelemetryEvent.hpp static_assert, overseer_cli/src/overseer_cli/protocol.py, overseer_cli/rust/vlink-protocol - three independent assertions of the same frame",
+        "docs/IPC_PROTOCOL.md - full spec",
+        "verified live 2026-09-29: 25 frames, totalEventsDropped 0, monotonic sequence"
+      ]
+    },
+    {
+      "name": "One-envelope control plane (pipmon.ps1)",
+      "source_product": "none - this is ours, replacing ad-hoc per-tool invocation",
+      "our_equivalent": "11 verbs, one JSON envelope, one exit-code vocabulary",
+      "status": "DECLARED",
+      "requires_host": "none",
+      "depends_on": ["F2.1", "F2.2", "F2.3", "F2.4", "F2.5"],
+      "function_served": "One door into the program, so a human or an agent drives tasks without knowing which script does what, and gets the same answer shape every time.",
+      "measured_failure": "Nine places where it currently lies, which is why this is DECLARED rather than COVERED. The two worst: the exit-code table has no ATTENTION key, and status can produce ATTENTION - so a failed deploy verification exits 0 with ok:false in the envelope. And snapshot returns GREEN, exit 0, files:[] when nothing is deployed, because the Test-Path guard sits inside the loop and the Emit outside it. Full list in tasks/roadmap/families/F2-truth-honesty/PLAN.md.",
+      "enhancement": "The contract itself is the enhancement and it is a good one: one envelope, one exit vocabulary, SKIP is never PASS, and every fact names its source. Exit 3 SKIP exists specifically so that 'we did not look' and 'we looked and it is fine' stay different facts - collapsing them is how a workspace starts lying. Nine of eleven verbs need no host, which is a larger standalone surface than anything currently advertised.",
+      "notes": "DECLARED is read here as: built, shipped, and not yet proven by a gate that could fail. That is a wider use of the word than compat_f4se_map.json intends, and it is flagged rather than assumed. requires_host none is a statement about the majority of verbs, not all - build and editor genuinely need a CK install, and validate needs game data even though it never checks for it. The per-verb truth is F4.1's job and does not exist yet.",
+      "spec": "ai_context/spec/surfaces.json",
+      "provenance": [
+        "tools/pipmon.ps1 - 11 verbs, $EXIT table without ATTENTION, snapshot Emit outside its Test-Path loop",
+        "read line by line 2026-10-03; the nine defects are enumerated in F2",
+        "ai_context/spec/surfaces.json lists 12 verbs including compat, which exists in no code path"
+      ]
+    },
+    {
+      "name": "FO4 Papyrus and Creation Engine function index",
+      "source_product": "none - this is ours, replacing fifteen years of guesswork",
+      "our_equivalent": "a generated, compile-probed, usage-counted index of the 7,932 base .psc files, FO4 only",
+      "status": "PLANNED",
+      "requires_host": "none",
+      "function_served": "Answering 'does FO4 have this, what is its real signature, and does anyone actually use it' - the three questions that decide whether a script compiles.",
+      "measured_failure": "What exists today is good but hand-maintained and partial. gen_papyrus_ref.py produces a 7.5 MB corpus and papyrus_syntax_rules.md carries a valuable negative table - the Skyrim habits that do not exist here. But it is one hand-written document, it is not compile-verified per entry, it has no usage counts, and nothing asserts FO4-only. The cost of getting this wrong is measured: a wrong recipe cost a run when AddNewFileName was read like a registration call when it is a plugin-file creation call.",
+      "enhancement": "Generate it instead of writing it, from Data/Scripts/Source/Base, with four things the hand-written version cannot have. (1) A machine-readable signature per function - arity, param types, return type, Native/Hidden/Event flags - so a caller can branch rather than read prose. (2) Observed usage counts across 7,932 scripts, which turns 'which functions are dead' and 'which are the habits worth migrating' into measurements. (3) A negative table derived by compile probe, so what does NOT exist is as trustworthy as what does. (4) A hard FO4-only assertion, because Skyrim contamination is a named live hazard and nomenclature.json already records CK/GECK conflation as having caused repeated wasted work.",
+      "notes": "requires_host none, and the source data is confirmed present: 7,932 .psc files. This is the largest genuine asset available and it is independent of every blocked item in F0. It is also the answer to growing 15-year-old scripting habits into the modern day - not a style guide, but the measured basis for one.",
+      "provenance": [
+        "verified present on this machine: Data/Scripts/Source/Base, 7,932 .psc files",
+        "gen_papyrus_ref.py - existing generator, 7.5 MB corpus across 6 parts",
+        "ai_context/papyrus_syntax_rules.md - the hand-written negative table this extends",
+        "ai_context/engine/papyrus_surface/README.md - f4se, mcm, baka, lighthouse and wsfw layers deliberately NOT indexed"
+      ]
+    },
+    {
+      "name": "Capability and evidence registry",
+      "source_product": "none - this is ours",
+      "our_equivalent": "tasks/capabilities.json - 23 capabilities in 9 groups, each with requires, exercise and evidence",
+      "status": "DECLARED",
+      "requires_host": "none",
+      "function_served": "Separating what a task group has ACHIEVED from what it has merely discussed, by making a capability move from BLOCKED to AVAILABLE and recording the observable that proves it.",
+      "measured_failure": "Its own note describes capabilities moving from BLOCKED to AVAILABLE, but there is no status field - the words appear only in the prose. There is also no provenance field, which breaks non-negotiable number 2, a fact with no provenance may not exist. And runtime.layerA's exercise field literally reads '(not built - needs a BSScript declaration in method order)', so a capability can be listed with no way to run it.",
+      "enhancement": "Adding status and provenance turns a list into something a program can branch on and an auditor can check. It is also the natural home for the enhancement column of this map: each capability can name the legacy product whose job it takes over, which is how 'we added a thing' becomes 'we added this instead of that'.",
+      "notes": "The requires field here is already the only genuinely ENFORCED requires in the repo - tools/taskrun.ps1 computes $missing from it and blocks. Worth noting the contrast with ai_context/plans/schema.json, which declares a requires field and whose enforcement orchestrate.py only PRINTS. Two declarations of the same idea, one real and one documented as real and not.",
+      "spec": "tasks/capabilities.json",
+      "provenance": [
+        "tasks/capabilities.json - schema pipmon.capabilities/1, 23 entries, 9 groups, no status, no provenance",
+        "tools/taskrun.ps1 - the one enforced requires in the tree",
+        "ai_context/plans/schema.json - claims enforcement; tools/orchestrate.py only prints it"
+      ]
+    },
+    {
+      "name": "In-game lightweight surface - cartridge, light settings, sync with the outside client",
+      "source_product": "MCM (the ROLE, not the mechanism)",
+      "our_equivalent": "a pre-authored Terminal-record .esp plus a thin ordinary-Papyrus shim, mirrored to the outside client over the wire",
+      "status": "PLANNED",
+      "requires_host": "game",
+      "depends_on": ["B5", "F4.3", "F4.4", "F6.3"],
+      "function_served": "MCM's actual role is being the one place a player looks to see and change what a mod is doing. That role is worth keeping even though MCM's mechanism - ActionScript 2 in the render loop, bloating every save - is not. The inspiration archive spends real effort on the aesthetics of exactly this surface: the ANOMALIES count that mirrors an IDE's PROBLEMS, the left activity rail, collapsible sections, a status bar that is never hidden, semantic colour with an always-visible text label so it does not rely on colour alone.",
+      "measured_failure": "MCM's mechanism, concretely: it embeds Scaleform UI in the render loop, it bloats the save file with persistent settings, and game updates have broken it before - an NG patch of an MCM add-on was required. Two proposed replacements for it were measured and both failed; see the MCM rows above. So this row is NOT a claim that we can do what MCM does. It is the narrower claim that we can serve the ROLE without the mechanism.",
+      "enhancement": "Three things MCM structurally cannot do, which is where this is worth building rather than cloning. (1) Aesthetic discipline borrowed wholesale from the archive's IDE-grade reference, in a place MCM could never have it: no hover means everything visible or key-reachable, no right-click means keybindings shown in the footer, no icon fonts means severity gets a text glyph not a pictogram, and 8-colour-safe palettes must degrade to bold and dim. (2) LIVE SYNC with the outside client rather than a second copy of the truth. MCM's settings live in the save and the outside tool has no idea they changed. One wire, two subscribers, so the cartridge button and a CLI command cannot disagree - the eval notes make this the explicit parity requirement: both paths go through the same verb allowlist, so a cartridge button and a CLI command cannot behave differently. (3) LIGHT VERSIONS of the same surface. The dual-mode event bus already exists for this: a lightweight mode at ~1 Hz and near 0% CPU and 0 MB VRAM for when the game is loaded, and a full-verbosity mode for when the operator is actually reading. MCM has one surface and no rate control.",
+      "notes": "THE HONEST CONSTRAINT, and it is not small: the menu STRUCTURE is ESM/CK data, pre-authored and shipped inside the .esp. Papyrus cannot create menu items, submenus or bound text at runtime - Terminal.psc has zero properties and there is no AddMenuItem, OpenMenu or CloseMenu anywhere in 7,932 base scripts. So this is a CONTENT deliverable, not a code deliverable: someone authors the cartridge records once, and the Papyrus side is a thin shim that dispatches ordinary script fragments. The attractive property is still real and still worth having - a Terminal record needs no extender, no Scaleform, no new native and no per-build address, so it survives game updates better than MCM does. The unappealing one is that authoring it needs the CK. requires_host is game because that is where it is USED; its BUILD cost lands on the CK, which is the next row's subject.",
+      "depends_on_note": "F6.3 is the sync half and F4.4 is the first CELL on disk. Until the facility plugin holds records there is nothing to attach a cartridge to, which is the same blocker the whole environment path has.",
+      "provenance": [
+        "inspiration archive files 6, 10 and 11 - the overlay, the tab structure and the IDE-grade visual rules",
+        "PIP-MON_CONSOLIDATED.txt section 6.1 and 6.9 - visual rules, and the borderless overlay that never hooks the DX swapchain",
+        "PIPMON_EVAL_NOTES6.md section 8.3 - the Terminal-form analysis, and section 9.10 - one-way parity through the same verbs",
+        "REFUTED at the mechanism level: see the two MCM rows above and CHANGELOG.md correction C1"
+      ]
+    },
+    {
+      "name": "Curated CK load-order staging - add content after the first compile, not before",
+      "source_product": "the way a Creation Kit session is normally loaded: the full live load order",
+      "our_equivalent": "pipmon.ps1 ck-session prepare - a curated plugin set for the editor, leaving the game's load order untouched",
+      "status": "PLANNED",
+      "requires_host": "ck",
+      "depends_on": ["F4.3", "F4.4"],
+      "function_served": "Getting the editor to show only what the current task needs, instead of every mod in the install. This is not a legacy product being replaced; it is a default being declined.",
+      "measured_failure": "The CK is the most fragile thing in the workspace and the evidence is on record: three crash dumps, no CKPE installed, and cell RENDERING is the step most likely to crash. FRONT-LIST.md isolates rendering to step 6 precisely because a crash there should cost one step and nothing else. The load width compounds it - xEdit loads Fallout4.ccc and the DLC list IN ADDITION TO the plugins.txt list, so the curated 35-entry core profile does not bound the load. A leaked process once held the instance lock for 191 minutes, which is why preflight exists.",
+      "enhancement": "The owner's framing is the right one and it is already partly built: instead of loading mods into the CK the hard way, ADD THEM CREATION-ENGINE STYLE AFTER THE FIRST COMPILE. Concretely - compile first, then stage a minimal plugin set containing our compiled output plus the base records the task needs, and open the CK against that. Three things fall out of it. (1) The CK sees less, so its crash surface shrinks with the task rather than with the install. (2) The editor's load order and the game's load order become genuinely separate, which the project already wants for ownership reasons and which Wrye's runtime whitelist was declined partly for undoing. (3) A task that only needs one CELL does not need the other sixty plugins loaded to render it. The mechanism is not new - ck_session.ps1 already writes a proposed plugin list beside the real one and applies nothing, and session-profiles.json already holds a curated core profile with 35 entries and 5 documented exclusions. What is missing is that prepare is inert, and that nothing yet curates PER TASK rather than per session.",
+      "notes": "This is the owner's idea, recorded 2026-10-03, and it is the cheapest remaining reduction of CK risk because it needs no new engine capability - it is a load-order staging decision, and the tooling is 80% present. Note the tension worth naming: F4 stages records headlessly so the CK is opened ONCE, and this row wants the CK opened with LESS each time. They compose rather than compete - headless generation removes steps, curated staging makes the remaining step survivable. What must not happen is the CK becoming the place work happens again, because that is how the three crash dumps cost work rather than just time.",
+      "provenance": [
+        "tools/ck_session.ps1 - prepare is inert, writes plugins.txt.proposed.txt and applies nothing",
+        "tasks/session-profiles.json - curated core profile, 35 entries plus 5 exclusions with reasons",
+        "tasks/FRONT-LIST.md step 6 - rendering isolated as the most likely crash",
+        "ai_context/spec/blockers_to_environment.json - 191-minute instance lock, the reason preflight exists",
+        "owner proposal, 2026-10-03: add content Creation Engine style after the first compile rather than loading mods into the CK the hard way"
+      ]
+    }
+  ]
+}
