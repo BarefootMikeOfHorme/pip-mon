@@ -5,6 +5,7 @@ point: a plan can be reviewed, argued with and diffed, and the code that runs it
 stays small and boring enough to trust.
 
 What it enforces, because these are the things a script cannot:
+  * the invariants a plan declares in `requires` are MET before anything runs
   * preconditions are CHECKED before a phase runs, not documented and hoped for
   * a phase that cannot be verified is attempted, not done
   * the first failure halts the plan and prints the rollback, rather than
@@ -41,6 +42,9 @@ TRANSCRIPT = WATCH / "orchestrator-transcript.jsonl"
 STATE = WATCH / "orchestrator-state.json"
 ARCHIVE = WATCH / "archive"
 PY = sys.executable
+
+# The one file that says whether an invariant holds. Read, never recomputed.
+INVARIANTS = REPO / "ai_context" / "spec" / "side_invariants.json"
 
 # Set by --verbose. The gates' own output is ALWAYS captured and ALWAYS saved to
 # the transcript and the state file; this only controls whether it is also
@@ -469,6 +473,126 @@ def did(check):
     return check.get("check", "?")
 
 
+# ---------------------------------------------------------------------------
+# `requires` IS A REFUSAL.  F2.9.
+#
+# ai_context/plans/schema.json declared `requires` and said "The orchestrator
+# refuses to start if one is not", and this file PRINTED the list. The
+# declaration was a promise with no code behind it, which is the shape this
+# repository keeps finding in new costumes: a reader designing around the schema
+# would build something that breaks on first contact with reality.
+#
+# WHAT THIS READS, AND WHAT IT DELIBERATELY DOES NOT
+#   It reads the `status` field of ai_context/spec/side_invariants.json, which is
+#   the one place that fact exists. It does NOT decide whether a side is
+#   available. tools/side_gate.py computes that -- `available = not_met == 0`,
+#   per side -- and it is the only thing in the tree that does. Two computations
+#   of one predicate is how a repository acquires two sources of truth, so the
+#   orchestrator names the gate instead of repeating it. If you want the
+#   side-level answer, run tools/side_gate.py.
+#
+# THERE ARE NO IDS IN THAT FILE
+#   Every spec record is identified by `name`: spec_lint labels a record
+#   `id or name or side`, and side_invariants.json carries only `name`. The three
+#   slug-like strings it does contain (`layer-a`, `ckpe`, `ck-render-stability`
+#   in `sides[].blocked_by`) cover two of three sides, and `ck-render-stability`
+#   matches no entry at all, so they are not an id space. A plan's `requires`
+#   names those `name` values verbatim, and ai_context/plans/schema.json has been
+#   corrected to say `name` rather than `id`.
+# ---------------------------------------------------------------------------
+
+def invariant_index():
+    """name -> status, read from the spec. (None, reason) if it cannot be read.
+
+    Copies a declared field; derives nothing. `status` is passed through as the
+    string the file carries even when that string is outside the file's own
+    `status_vocabulary` -- four entries say PARTIALLY_MET and the vocabulary
+    declares four other values and not that one. Translating a vocabulary this
+    file does not own is how a status stops meaning what it says."""
+    if not INVARIANTS.exists():
+        return None, "no spec at %s" % INVARIANTS
+    try:
+        spec = json.loads(INVARIANTS.read_text(encoding="utf-8"))
+    except ValueError as e:
+        return None, "%s does not parse: %s" % (INVARIANTS.name, e)
+    idx = {}
+    for e in spec.get("entries", []):
+        if isinstance(e, dict) and e.get("name"):
+            idx[e["name"]] = e.get("status")
+    if not idx:
+        return None, ("%s declares no usable entries, so no requirement could be "
+                      "resolved" % INVARIANTS.name)
+    return idx, None
+
+
+def requires_report(plan):
+    """Resolve the plan's `requires` and say, per requirement, whether it is MET.
+
+    ONE function, called from run_plan AND dry_run. Those two printed the same
+    line independently for the life of the file, so a fix applied to only one of
+    them would have left the rehearsal and the run disagreeing -- which is the
+    defect itself.
+
+    A requirement is satisfied only by status MET. Everything else refuses,
+    including UNVERIFIED and a name that matches no entry: an unread or
+    misspelled requirement that quietly passed would be the same false
+    confidence this orchestrator was written to remove.
+    """
+    declared = list(plan.get("requires") or [])
+    idx = err = None
+    if declared:
+        idx, err = invariant_index()
+    rows = []
+    for name in declared:
+        row = {"name": name, "status": None, "ok": False, "why": ""}
+        if idx is None:
+            row["why"] = ("%s could not be read, so this requirement is UNVERIFIED "
+                          "rather than met. SKIP is never PASS." % INVARIANTS.name)
+        elif name not in idx:
+            row["why"] = ("no entry named %r in %s. A requirement that matches "
+                          "nothing would otherwise be satisfied by its own absence, so "
+                          "it is a refusal. Copy an entry's `name` verbatim."
+                          % (name, INVARIANTS.name))
+        elif idx[name] == "MET":
+            row["status"], row["ok"] = idx[name], True
+        elif idx[name] == "NOT_APPLICABLE":
+            row["status"] = idx[name]
+            row["why"] = ("status is NOT_APPLICABLE on a plan that REQUIRES it, so the "
+                          "invariant does not apply to the plan's own `side`. Either "
+                          "`side` or `requires` is wrong -- a declaration defect, not an "
+                          "environment block.")
+        else:
+            row["status"] = idx[name]
+            row["why"] = ("status is %r, not MET. The plan says this must hold before it "
+                          "runs; it does not." % idx[name])
+        rows.append(row)
+    return {"declared": declared, "rows": rows,
+            "ok": all(r["ok"] for r in rows)}
+
+
+def print_requires(req):
+    if not req["declared"]:
+        print("  requires invariants: NONE DECLARED")
+        print("             this check is VACUOUS for this plan. An empty `requires` is")
+        print("             not a passing check, it is the absence of one -- and it is")
+        print("             printed every run so the vacuity cannot be mistaken for a pass.")
+        return
+    for r in req["rows"]:
+        print("  requires %-50s %-16s %s"
+              % (r["name"][:50], r["status"] or "UNRESOLVED", "ok" if r["ok"] else "BLOCKED"))
+        if r["why"]:
+            print("             %s" % r["why"])
+
+
+def require_stop_reason(req):
+    """'invariant_not_met' or 'invariant_unresolved'. Two words, both in the
+    orchestrator's existing vocabulary; no new exit code and no new state is
+    invented for a refusal."""
+    unmet = [r for r in req["rows"] if not r["ok"]]
+    return ("invariant_unresolved" if any(r["status"] is None for r in unmet)
+            else "invariant_not_met"), unmet
+
+
 def verify(phase):
     """A phase is done when its verification passes, not when its commands exit 0."""
     for v in phase.get("verify", []):
@@ -527,10 +651,10 @@ def run_plan(plan, through=None, plan_only=False, force=False, args_start=None):
     if plan.get("task"):
         print("  task   : %s" % plan["task"])
     print("  side   : %s   surfaces: %s" % (plan["side"], ", ".join(plan.get("surfaces", []))))
-    if plan.get("requires"):
-        print("  requires invariants: %s" % ", ".join(plan["requires"]))
+    req = requires_report(plan)
+    print_requires(req)
     trace("plan_start", "plan %s declared" % plan["plan_id"], plan=plan["plan_id"],
-          task=STATE_ROW["task"], level="declared")
+          task=STATE_ROW["task"], level="declared", requires=req["rows"])
 
     if plan_only:
         for ph in plan["phases"]:
@@ -539,7 +663,26 @@ def run_plan(plan, through=None, plan_only=False, force=False, args_start=None):
                 len(ph.get("on_failure", {}).get("rollback", []))))
             if ph.get("blocked_reason"):
                 print("       BLOCKED: %s" % ph["blocked_reason"][:110])
+        if not req["ok"]:
+            print("       NOTE: this plan would be REFUSED on `run`; --plan-only is a")
+            print("             rehearsal and its exit says the rehearsal ran, not that")
+            print("             the plan may start.")
         return 0
+
+    # The refusal, before anything is touched: no archive, no preflight, no
+    # phase. A plan whose own declared precondition does not hold has not
+    # started, and the state file says so with the plan id on it.
+    if not req["ok"]:
+        reason, unmet = require_stop_reason(req)
+        detail = "; ".join("%s (%s)" % (r["name"], r["status"] or "no such entry")
+                           for r in unmet)
+        trace("plan_stopped", "STOP %s: %s" % (reason, detail), level="error",
+              reason=reason, detail=detail, requires=req["rows"])
+        save_state(level="stopped", blocked=reason, exit=3)
+        dashboard(plan, {}, 3, "%s: %s -- declared in this plan's own `requires`, so it "
+                              "is the plan's precondition and not an external gate. "
+                              "Nothing was run." % (reason, detail))
+        return 3
 
     prior = load_state()
     if prior and prior.get("plan") == plan["plan_id"] and prior.get("phases_done"):
@@ -779,8 +922,8 @@ def dry_run(plan, through=None):
     if plan.get("task"):
         print("  task   : %s" % plan["task"])
     print("  side   : %s   surfaces: %s" % (plan["side"], ", ".join(plan.get("surfaces", []))))
-    if plan.get("requires"):
-        print("  requires invariants: %s" % ", ".join(plan["requires"]))
+    req = requires_report(plan)
+    print_requires(req)
 
     if plan.get("preflight"):
         print("\npreflight")
@@ -843,6 +986,12 @@ def dry_run(plan, through=None):
     print("\n" + "=" * 68)
     print("DRY RUN SUMMARY   phases=%d  actions=%d  no process was launched"
           % (len(plan["phases"]), total_actions))
+    if not req["ok"]:
+        reason, unmet = require_stop_reason(req)
+        print("  THIS PLAN WOULD BE REFUSED (%s): %s"
+              % (reason, ", ".join(r["name"] for r in unmet)))
+        print("  the refusal happens on `run`, before any preflight or phase; a dry")
+        print("  run exits 0 because the rehearsal ran, not because the plan may start.")
     unrunnable = []
     for ph in plan["phases"]:
         for a in ph.get("actions", []):
