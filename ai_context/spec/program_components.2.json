@@ -1,0 +1,235 @@
+{
+  "spec_id": "program.components",
+  "kind": "component",
+  "title": "PIP-MON components, their layers, what actually proves each one, and what each takes over",
+  "authority": "measured",
+  "version": 2,
+  "supersedes": "ai_context/spec/program_components.json",
+  "supersedes_reason": "This file ADDS a field to every entry (`replaces`) and corrects one path spelling. The original stays on disk unedited as the record of the state before the replacement map existed; the diff against it is the whole change. Authoritative pointer: the `program-components` door in ai_context/systems_core/door_registry.json.",
+  "provenance": [
+    {
+      "source": "repository tree",
+      "note": "component presence verified by directory listing 2026-09-30"
+    },
+    {
+      "source": "build_all.bat",
+      "note": "five build stages; stage 6 is the retrieval gate added 2026-09-30"
+    },
+    {
+      "source": "ai_context/goal_alignment.md",
+      "note": "goal-to-component-to-gate audit"
+    },
+    {
+      "source": "ai_context/spec/legacy_replacement.json",
+      "note": "every string in a `replaces` array below is the `name` of a row in that file, copied verbatim so a join is exact rather than paraphrased. Where the array is empty the note says why, because an absent replacement and a missing one are different facts."
+    },
+    {
+      "source": "Test-Path, 2026-10-03",
+      "note": "path spellings re-verified on disk: third_party/CommonLibF4/CommonLibF4/include/RE/Bethesda/BSScript.h exists; third_party/CommonLibF4/include/RE/Bethesda/BSScript.h and include/RE/Bethesda/BSScript.h do NOT. The original's bare `include/RE/...` spelling was wrong and is corrected here."
+    }
+  ],
+  "prose": "The program replaces the scripting, monitoring and tooling layer that F4SE, AddressLib, Buffout, po3, MCM, Canary and CKPE would otherwise provide, with no F4SE loader deployed. It ships its own CLI, terminal and control plane so a human or another provider's model can sit in and drive tasks. gate_covered is a boolean and it is FALSE more often than is comfortable: a fully green build is consistent with S0 being unproven and the facility plugin holding zero records, because the gate measures build integrity and has no goal-coverage dimension. That gap is the most important line in this file. VERSION 2 adds what version 1 was missing: a `replaces` array on all fourteen entries, so the claim about what this program replaces is countable instead of being one sentence of prose. Three things about those arrays are worth knowing before reading them. First, an entry's `replaces` names the JOB the component takes over, not coverage it has: a PLANNED row on the map is a target, and the component's own `status` is the only thing that says whether the work is done. Second, six entries carry an empty array, and that is a finding rather than an omission. The map is PRODUCT level (schema.json says so under compat_mapping: one row per product, describing the job it did), so a vendored disassembler, a vendored header library, an experiment that exists to pose one question, a retrieval index and a telemetry poller replace no product. Naming them as replacements would inflate the map with rows that describe no legacy job. Third, the Creation Kit is now named in a structured field for the first time. It was in `role` on the xEdit entry, which meant no program could join it; it is now in `replaces`, where the map's own NOT_PLANNED verdict is recorded beside it in the same entry. Reading `replaces` without reading `notes` will overstate what we replace, so `notes` carries the qualifier on that entry and on the three others where the map's verdict is narrower than the job.",
+  "entries": [
+    {
+      "name": "vprobe",
+      "layer": "native runtime",
+      "role": "Layer A candidate: VM hook, Zydis-backed probes, detour installation",
+      "status": "builds; 18/18 probes resolve; no vtable slot hooked",
+      "gate_covered": true,
+      "provenance": [
+        "build_all.bat stage 1",
+        "build_vtables.bat"
+      ],
+      "depends_on": [
+        "zydis",
+        "CommonLibF4"
+      ],
+      "replaces": [
+        "F4SE hook installation and Papyrus native function registration",
+        "AddressLib runtime address resolution"
+      ],
+      "notes": "17 self-test checks, 15 pass, 0 fail, 2 skip. On `replaces`: both rows are targets and NEITHER is delivered. The map's own measured_failure for the hook row says HookManager::install() installs ZERO hooks because the four former PapyrusVM/Thread/Script targets name classes absent from the game RTTI, and '18/18 probes resolve' means 18 vtable addresses were found, not that 18 hooks exist. The address row is the stronger of the two: it is DIFFERENT_MECHANISM with requires_host none, because addresses are resolved at BUILD time into vprobe.addresses.bin and read in-game, which is genuinely built and gated."
+    },
+    {
+      "name": "CommonLibF4",
+      "layer": "engine reference",
+      "role": "Reverse-engineered engine layouts; the source of truth for BSScript and vtable structure",
+      "status": "vendored, 350 files",
+      "gate_covered": true,
+      "provenance": [
+        "third_party/CommonLibF4"
+      ],
+      "replaces": [],
+      "notes": "third_party/CommonLibF4/CommonLibF4/include/RE/Bethesda/BSScript.h holds native declarations; third_party/CommonLibF4/CommonLibF4/include/RE/VTABLE_IDs.h is the vtable inventory. Both spellings re-verified with Test-Path on 2026-10-03; the original entry carried the bare `include/RE/...` form, which names no file on disk. This is the most direct lead to unblocking Layer A, because the blocker is documented as needing a BSScript class declaration in method order. `replaces` is EMPTY and that is the finding: this is a vendored layout library, not a legacy product, and the map has no row for it. Depending on it is depending on facts about the game, which is a different kind of claim from replacing something. The nearest map row is 'Fallout 4 Creation Kit', which records the editor as NOT replaced."
+    },
+    {
+      "name": "zydis",
+      "layer": "native runtime",
+      "role": "Disassembler for signature scanning (Tier 3)",
+      "status": "vendored, 641 files",
+      "gate_covered": true,
+      "provenance": [
+        "third_party/zydis"
+      ],
+      "replaces": [],
+      "notes": "Empty by the same argument as CommonLibF4: a disassembler is a mechanism, and no row in the map describes a legacy product whose job was to disassemble. The map row that consumes it is 'AddressLib runtime address resolution', and that job is carried by vprobe's address blob rather than by Zydis itself. docs/POSITIONING.md section 2 already places AOB/signature-scanning methodology in INSPIRATION ONLY - ideas taken, no code, no dependency - which this entry is the concrete half of: the code IS vendored, so the honest description is mechanism adopted, product replaced: none."
+    },
+    {
+      "name": "PipMon.psc",
+      "layer": "Layer B script surface",
+      "role": "Papyrus-visible API, every function Native Global",
+      "status": "compiles; pex deployed",
+      "gate_covered": true,
+      "provenance": [
+        "build_all.bat stage 2",
+        "real Creation Kit compiler 2.8.0.4"
+      ],
+      "replaces": [],
+      "notes": "Must agree with PapyrusApi.cpp in both directions; the self-test asserts that. Empty `replaces` is deliberate and is the point: three map rows name Papyrus helper libraries - 'po3 / Papyrus Extender / Papyrus Utils', 'GoE Script Extender', 'PAP (Power of Ascension)' - and all three name KaDag plus the Rust daemon pipeline as their equivalent, NOT this file. What PipMon.psc provides is the surface such registrations hang on, and the surface a native must be reached THROUGH. Claiming it as the replacement would be exactly the unexamined comparison the map's measured_failure column was written to prevent. KaDag has design notes at docs/KaDag_DESIGN_NOTES.txt and no code, so no component entry currently owns those three rows."
+    },
+    {
+      "name": "PipMonTestFacility.psc",
+      "layer": "S0 experiment",
+      "role": "First script that calls the PipMon native surface; poses the S0 question",
+      "status": "compiles and deploys; the S0 capability it exists to prove is UNPROVEN",
+      "gate_covered": false,
+      "provenance": [
+        "build_all.bat stage 2"
+      ],
+      "replaces": [],
+      "notes": "Caught by spec_lint: gate_covered was true while this entry own status said the probe had never reached a native. The gate covers the COMPILE, not the S0 REACHABILITY the file exists to test. A green stage 2 means the .psc is valid Papyrus, nothing more. Empty `replaces`: this is an experiment that exists to ask one question, so it replaces no product. What it is worth knowing for is that it is rung D of the five-rung ladder in the map row 'Recompile-per-adjustment - the workflow that makes environment iteration expensive', and that ladder is the honest form of this entry's claim - rungs A and B (declared, compiled) are checkable today and this file is what rung D would exercise once Layer A exists."
+    },
+    {
+      "name": "V-Link",
+      "layer": "wire",
+      "role": "Native-to-Papyrus data path; the contract in docs/IPC_PROTOCOL.md",
+      "status": "protocol crate present",
+      "gate_covered": true,
+      "provenance": [
+        "overseer_cli/rust/vlink-protocol",
+        "rust stage"
+      ],
+      "replaces": [
+        "V-Link wire - the telemetry and control channel"
+      ],
+      "notes": "docs/IPC_PROTOCOL.md is partly fiction; see HANDOVER section 11. This is the only entry whose map row is COVERED, and the row is the only one in the map that is: its source_product is recorded as 'none - this is ours, replacing ad-hoc papyrus log tailing'. So the thing being replaced here is a practice, not a product, and naming it is why this entry is the one place where `replaces` and the map's status agree. The map's proof is the triple static_assert in vprobe/include/TelemetryEvent.hpp, its mirror in overseer_cli/src/overseer_cli/protocol.py, and the const assert in the Rust crate - three independent assertions of the same 28-byte frame, verified live 2026-09-29 with 25 frames and totalEventsDropped 0."
+    },
+    {
+      "name": "Overseer / overseer_event_bridge",
+      "layer": "monitoring",
+      "role": "Event bridge and anomaly detection over the wire",
+      "status": "python tests pass",
+      "gate_covered": true,
+      "provenance": [
+        "overseer_cli",
+        "overseer_event_bridge"
+      ],
+      "replaces": [
+        "In-game lightweight surface - cartridge, light settings, sync with the outside client",
+        "Buffout 4 / Net Script Framework crash logging"
+      ],
+      "notes": "Version 1 had `replaces: ['part of what MCM and Canary do']` - prose, and ambiguous in a way that mattered, because the map has TWO MCM rows. 'MCM in-game settings UI' is REJECTED on measured evidence: Terminal.psc has zero properties, 0 of 339 vanilla fragments implement OnMenuItemRun, and Papyrus cannot create menu records at runtime. 'In-game lightweight surface - cartridge, light settings, sync with the outside client' is PLANNED, and its source_product is explicitly 'MCM (the ROLE, not the mechanism)'. Version 1's sentence could be read as claiming the rejected mechanism, so version 2 names the role row and drops Canary from this entry; Canary's job is the out-of-process triage daemon and is listed on overseer_cli, which is where a daemon can actually live. The Buffout row is here because proactive anomaly detection over the wire is this component's actual work, and the map's whole argument for it is the word PROACTIVE: the original dumps register state after the game has already crashed, and catching the runaway thread while the save is still good is a different job."
+    },
+    {
+      "name": "overseer_cli",
+      "layer": "control plane",
+      "role": "The CLI, detector, envgate and ipc_client: where a human or another model sits in",
+      "status": "108 checks pass",
+      "gate_covered": true,
+      "provenance": [
+        "build_all.bat stage 4",
+        "overseer_cli/pyproject.toml"
+      ],
+      "replaces": [
+        "Canary (Kinggath) save-health script",
+        "Vortex",
+        "ModOrganizer 2",
+        "FOMOD installers"
+      ],
+      "notes": "This is the component the retrieval objectives were originally missing, which made the whole control plane invisible to search. The count is verified, not remembered: `python -m pytest -q` run from overseer_cli, the directory build_all.bat stage 4 pushes into, collects 108 tests and reports 108 passed in 0.40s. Six documents claim a different number; see the drift note in the variant's provenance. On `replaces`, the three provider rows are read-only adapters that DO NOT EXIST YET - probe(), enabledSet(), disagreements(), never write and never reconcile - and the map says Vortex is 'Evaluated as the FIRST provider to implement'. They are listed because a component's `replaces` names the job it takes over; none of these four rows is delivered, and the map's own status field is where that truth lives. The Canary row is PLANNED and names an out-of-process .fos triage daemon as its equivalent; no such daemon exists yet, and the map's own note is that repairs stay out of scope until the report has been right about a real install more than once."
+    },
+    {
+      "name": "launcher",
+      "layer": "control plane",
+      "role": "Pre-flight and core load path",
+      "status": "45 checks pass",
+      "gate_covered": true,
+      "provenance": [
+        "build_all.bat stage 3"
+      ],
+      "replaces": [
+        "F4SE loader and DLL injection"
+      ],
+      "notes": "The strongest replacement claim in this file, and the map agrees on its own terms: the row is DIFFERENT_MECHANISM, requires_host game, and its measured_failure is that the original loader 'triggers modern anti-cheat flags and breaks on every executable hash change' - stated, not hypothetical. Our path is CREATE_SUSPENDED, verify build identity, LoadLibraryW one DLL, resume, with a HOLD between inject and ResumeThread so the daemon can be synchronised while the game is frozen. launcher/src/ProcessLaunch.cpp and BuildIdentity.cpp contain zero occurrences of Fallout4 or CreationKit, so this component is already host-agnostic and already tested - 45 self-tests green at build_all.bat stage 3. Note what this makes true: the loader half of the F4SE replacement is BUILT, while the hook half (vprobe) is not. Those are different rows and they have different answers, which is why `replaces` is an array and not a verdict."
+    },
+    {
+      "name": "xEdit headless validation",
+      "layer": "automation",
+      "role": "Headless record validation and generation, so the editor is opened once instead of being the tool that does everything",
+      "status": "load proven at ~2m15s; NO report has ever been produced",
+      "gate_covered": false,
+      "provenance": [
+        "runs/xedit/fo4edit-4.1.5f-pascal-api.md"
+      ],
+      "replaces": [
+        "Fallout 4 Creation Kit",
+        "xEdit record parsing, load-order analysis and conflict reporting"
+      ],
+      "notes": "The first attempt aborted on a non-existent API. Corrected, but unproven. Not gate covered because no gate exercises it. VERSION 2 CHANGED `role`, and the change is the task: version 1's role read 'Replace the CK for record validation and generation', which is a REPLACEMENT CLAIM wearing a role field, which is why the Creation Kit appeared nowhere a program could join on. The claim now lives in `replaces` and `role` says what the component does. Read the two together or you will overstate it. The map's verdict on the Creation Kit is NOT_PLANNED - 'none - explicitly out of scope, and this is the decision most likely to be second-guessed', with the reason that the CK is a CONTENT AUTHORING SUITE and attempting the second is how this project stops shipping anything at all. What is claimed here is narrower and is the CK row's own enhancement: remove work FROM the editor, generate records headlessly so it is opened once. The xEdit row is PLANNED, requires_host none, and rated by PIP-MON_CONSOLIDATED.txt section 15.2 as 'the best-defined target in the whole project'. The generation half is declined on a different row: 'xEdit patch generation - writing a fixed .esp' is NOT_PLANNED, so this component analyses conflicts and does not write fixes."
+    },
+    {
+      "name": "test facility",
+      "layer": "environment",
+      "role": "The proving ground: a cell with fixtures, roster and probe",
+      "status": "plugin is 66 bytes, 0 records, CRC32 E1DD5E4D",
+      "gate_covered": false,
+      "provenance": [
+        "Data/PipMonTestFacility.esp",
+        "xEdit load log"
+      ],
+      "replaces": [],
+      "notes": "Nothing has been generated. This is the single largest piece of unrealised intent. Empty `replaces` and that is honest rather than modest: no legacy product had a test facility, because a legacy product shipped to players rather than proving itself. This entry is the TARGET of map rows rather than a replacement of them - 'Curated CK load-order staging - add content after the first compile, not before' names the CK session this facility exists to load, and the xEdit rows exist to fill it. The 0-record status is the whole problem in one number: rows whose depends_on includes F4.4 cannot land, and the map's in-game surface row records the same dependency in its own depends_on_note - 'until the facility plugin holds records there is nothing to attach a cartridge to'."
+    },
+    {
+      "name": "retrieval layer",
+      "layer": "control plane",
+      "role": "rag_index.py and rag_query.py: local BM25 over the workspace with provenance",
+      "status": "710 files, 11549 chunks; 10/10 self-test checks pass",
+      "gate_covered": true,
+      "provenance": [
+        "build_all.bat stage 6",
+        "tools/rag_selftest.py"
+      ],
+      "replaces": [],
+      "notes": "Stage 6 exists because every retrieval invariant had previously been true only because someone remembered it. Empty `replaces`: no legacy Fallout 4 mod-tooling product indexed a workspace, so there is no product job to take over. Two map rows are adjacent and are NOT this entry: 'FO4 Papyrus and Creation Engine function index' is a generated index over 7,932 base .psc files and does not exist yet, and 'Capability and evidence registry' is tasks/capabilities.json. What this component does for the map is make its 31 rows findable, which is the difference between a replacement map that is written and one that is reachable from the places someone would actually look."
+    },
+    {
+      "name": "ai_watcher",
+      "layer": "control plane",
+      "role": "Live telemetry hook; publishes game state to a file so no agent blocks on a terminal",
+      "status": "working, polling fallback because watchdog is not installed",
+      "gate_covered": false,
+      "provenance": [
+        "tools/ai_watcher.py"
+      ],
+      "replaces": [],
+      "notes": "Adopted from a circulated snippet that watched a Data/F4SE path. Rewritten: this project deploys no F4SE loader, so that path could never be written. Empty `replaces` because no product row describes it - and this entry is the best evidence in the file for why the F4SE row needs its qualifier. The snippet it was adopted from was written by someone for whom F4SE WAS deployed, so the dependency was invisible precisely because it was satisfied. vprobe/src/main.cpp records the same lesson about the library search path: Data\\F4SE\\Plugins\\vprobe\\libs 'works on any machine that happens to have F4SE installed, and breaks on exactly the machine we are building for'. Data\\PIP-MON\\libs is the path that must work."
+    },
+    {
+      "name": "F4SE",
+      "layer": "external",
+      "role": "NOT a dependency, NOT a target API, NOT deployed",
+      "status": "no loader exists; any DLLs under Data/F4SE are inert",
+      "gate_covered": true,
+      "provenance": [
+        "HANDOVER.md",
+        "verified: no F4SE loader in the game root"
+      ],
+      "replaces": [
+        "F4SE loader and DLL injection",
+        "F4SE hook installation and Papyrus native function registration"
+      ],
+      "notes": "Studied for structural logic and scope only. CommonLibF4 is a different matter: it is a layout library, so depending on it is depending on facts about the game. `replaces` on the F4SE entry is the map's two F4SE rows, and it means DEPENDENCY DIRECTION, not coverage: ai_context/f4se_prohibition.md is ACTIVE - BINDING CONSTRAINT and says never build on it, never rely on it, never suggest it. The export F4SEAPI_MakePluginInfo still exists - vprobe/include/PipmonEntry.hpp:115 and its implementation in PipmonEntry.cpp - but it is an ADAPTER: F4SE calls US. HANDOVER.md section 2 records the same fact from the built artefact, 'vprobe.dll runtime imports: KERNEL32.dll ONLY ... No F4SE, no CommonLibF4, no extender is linked, imported, or required'. One deliverable and one not: the loader row is built (see launcher), the hook row is not (see vprobe). A known violation remains and is recorded in f4se_prohibition.md section 3: XDI.esm, FCOM.esp and Cheat Terminal are enabled in dplugins.txt and none of them has its runtime, so our validator would report green."
+    }
+  ]
+}
