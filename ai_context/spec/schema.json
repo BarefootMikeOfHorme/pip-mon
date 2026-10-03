@@ -47,8 +47,26 @@
         "returns",
         "behaviour",
         "verified_by",
-        "supersedes"
-      ]
+        "supersedes",
+        "caution",
+        "caution_note",
+        "detect",
+        "proof",
+        "proof_note",
+        "reference_implementation",
+        "resolves_blocker",
+        "severity"
+      ],
+      "optional_notes": {
+        "caution": "Boolean. True when the call exists and works but its NAME misleads about what it does, so a correct-looking use is still a bug. Read by tools/artifact_gate.py, which scans every .pas line for the name and reports caution_note as the consequence. Distinct from `severity`: a caution is a documentation hazard, not a detection hazard.",
+        "caution_note": "Why the caution holds, with the consequence stated. The prose half of `caution`; read by tools/artifact_gate.py and printed inside the finding.",
+        "detect": "Names our own source may be scanned for, so the artifact gate can catch us calling something 4.1.5f cannot run. A string list, matched per line by tools/artifact_gate.py. NOT a claim that the call is absent -- only that a call to it is worth reporting.",
+        "proof": "How far the existence claim has actually been carried. In practice a closed set -- proven_by_execution | falsified_here | unproven -- but NOT declared as a vocabulary the way compat_status_vocabulary is, and tools/check_item.py branches on two of the three by string equality. A closed vocabulary here is owed.",
+        "proof_note": "The evidence behind `proof`, named. The prose half of `proof`; tools/check_item.py prints the first 150 characters of it beside a falsified_here or unproven warning.",
+        "reference_implementation": "A shipped upstream script or document that performs the same operation, so the operation can be read instead of guessed. A provenance pointer; no tool reads it, so it can rot without anything noticing.",
+        "resolves_blocker": "The id of a row in ai_context/spec/blockers_to_environment.json that this call, if it worked, would unblock. One-directional: naming a blocker here is a claim about THIS CALL, not an assertion that the blocker is closed. No tool reads it.",
+        "severity": "error | warning. Whether a detection of this call fails the build or is only reported. Read by tools/artifact_gate.py, which DEFAULTS to error when the field is absent -- so omitting it is stricter than writing it. Not a declared vocabulary: a third value would silently fall into the error bucket rather than being refused."
+      }
     },
     "language_construct": {
       "describes": "A Papyrus language construct and whether FO4 has it.",
@@ -61,8 +79,28 @@
       "entry_optional": [
         "replacement",
         "consequence",
-        "error_text"
-      ]
+        "error_text",
+        "behaviour",
+        "corrected_utc",
+        "detect",
+        "detect_exceptions",
+        "detect_note",
+        "exception_note",
+        "fo4_equivalent",
+        "note",
+        "signature"
+      ],
+      "optional_notes": {
+        "behaviour": "The construct's FO4 declaration verbatim, for rows where knowing it exists is not enough to use it. `error_text` records what the compiler says when you get it wrong; this records what to write.",
+        "corrected_utc": "The date this row was last corrected, on rows whose evidence has changed. Record-level EDIT METADATA rather than a property of the construct, and the only such field in the spec layer. On 1 of 30 rows. It records WHEN and not WHAT changed, so the substance of the correction has to live in `note` and `evidence` -- a bare date is a weak provenance claim, and the gate that reads this spec cannot tell a corrected row from an uncorrected one.",
+        "detect": "Names to scan our own .psc for. A string list, read per line by tools/artifact_gate.py. Distinct from `evidence`: evidence is why the row says what it says, detect is what the gate acts on. A name in detect is a finding waiting to happen, not a defect already found.",
+        "detect_exceptions": "Types whose members are exempt from this row's `detect` list, resolved PER FILE by tools/artifact_gate.py: it collects the property names declared with the exception type and exempts a call only when the receiver is one of them. Scoped rather than omitted on purpose -- an earlier attempt removed the token outright and silently stopped catching a same-named member on another type, which is why this field is an exemption and not a deletion.",
+        "detect_note": "Why this row is in or out of the detect list, or what a detect hit does and does not prove. The prose half of `detect`.",
+        "exception_note": "Why the exemption is as narrow as it is, and what it still catches. The prose half of `detect_exceptions`. Named `exception_note` and not `detect_exceptions_note`, which is the one place this kind breaks its own _note convention -- and with `note` also present, three prose fields on one kind are hard to tell apart by name alone.",
+        "fo4_equivalent": "The FO4 spelling that does the same job, for a construct that is not in FO4 under any name of its own. Distinct from `replacement`, which is what PipMon uses instead; this is what the GAME has.",
+        "note": "Free prose for the row. The unqualified note field, which is exactly why `detect_note` and `exception_note` are hard to tell apart by name alone.",
+        "signature": "The construct's declared form, for rows where the calling shape matters. api_function REQUIRES `signature`; a construct only carries it optionally, because most constructs are keywords and have no argument list."
+      }
     },
     "component": {
       "describes": "A part of this program, its layer, and what proves it works.",
@@ -107,7 +145,19 @@
         "excluded",
         "not_written"
       ],
-      "note": "The buckets are required to be present, including the empty ones. A side that omits `excluded` reads as 'we checked and there are none' rather than 'nobody looked', and those are different facts."
+      "entry_optional": [
+        "summary",
+        "available",
+        "out_of_side_but_relevant",
+        "third_party_note"
+      ],
+      "note": "The buckets are required to be present, including the empty ones. A side that omits `excluded` reads as 'we checked and there are none' rather than 'nobody looked', and those are different facts. The five bucket names are deliberately NOT repeated in entry_optional: they are already declared here, in bucket_required, and a name in both lists would assert two different things at once -- entry_optional says a record MAY carry the key, bucket_required says a record MUST. tools/entry_field_gate.py builds its declared set from entry_required | record_required | entry_optional and never reads bucket_required, which is why the gate reports those five pairs as undeclared. That is a gate defect, not a schema gap, and the fix belongs in the gate.",
+      "optional_notes": {
+        "summary": "One line naming what the side covers, in the words a reader would use to decide whether a question belongs here. Read by tools/side_gate.py, tools/fo4_watch.py, tools/vlink_probe.py and overseer_cli/src/overseer_cli/envgate.py, so it is a retrieval surface and not decoration.",
+        "available": "false | a word naming why the side is unavailable. Read by tools/ownership_gate.py, tools/side_gate.py AND tools/spec_lint.py, the last of which refuses a value that is neither a real boolean nor a string. A MISSING `available` is not a false one, so the field is declared rather than inferred from the buckets.",
+        "out_of_side_but_relevant": "An OBJECT, not a list: a `note` plus `paths`. What belongs to another side and still has to be read to work this one. It is the only object-shaped field on a side record -- every other one is a list or a scalar -- so a reader that assumes list-shaped buckets will mishandle it, and tools/side_ownership.json is read by ownership_gate.py, which is entitled to assume the opposite.",
+        "third_party_note": "Why third_party/ is indexed rather than excluded, with the measured consequences of that decision. On one side only, because it is a statement about the whole tree rather than about the side that happens to hold it."
+      }
     },
     "registry": {
       "describes": "A catalogue of things that are not fields of anything: surfaces, per-side ownership, door inventories. Uses its own collection field instead of `entries`, and declares that field so a linter knows where to look.",
@@ -117,7 +167,75 @@
         "status",
         "provenance"
       ],
-      "note": "A registry record is identified by `id` rather than `name`. Inventing an `entries` array to satisfy a linter would make the document lie about its own shape, so the shape is declared instead."
+      "entry_optional": [
+        "what",
+        "blocks",
+        "detail",
+        "fix",
+        "blocks_the_critical_path",
+        "want",
+        "compiles_in_fo4",
+        "measured",
+        "fo4_mechanism",
+        "mechanism_status",
+        "measured_evidence",
+        "cost",
+        "spec_correction_owed",
+        "absent_form",
+        "constraint",
+        "current_substitute",
+        "decision_owed",
+        "trap",
+        "kind",
+        "direction",
+        "side",
+        "transport",
+        "path",
+        "evidence",
+        "artifact",
+        "notes",
+        "verbs",
+        "index",
+        "command",
+        "members",
+        "spec",
+        "specs"
+      ],
+      "note": "A registry record is identified by `id` rather than `name`. Inventing an `entries` array to satisfy a linter would make the document lie about its own shape, so the shape is declared instead. THREE RECORD SHAPES SHARE THIS ONE KIND, which is why the optional list below is the union of three vocabularies rather than one: a blocker record (blockers_to_environment.json), an in-game requirement record (in_game_surface_requirements.json) and a surface record (surfaces.json). Every optional_notes entry below therefore names the shape it belongs to. Declaring the union is honest about what the tree contains and is what makes each name enforceable -- but it also means a blocker record may legally carry `verbs`, which it should never do. Splitting the kind into registry_blocker / registry_requirement / registry_surface is the structural fix and is OWED; it is not done here because adding three kinds would change every kind name other tools and specs branch on.",
+      "optional_notes": {
+        "what": "BLOCKER shape. One sentence naming the blocker, phrased as the thing that is absent or wrong, so a reader can recognise it without reading `detail`.",
+        "blocks": "BLOCKER shape. Prose: what this blocker stops, in the words of the work it stops -- 'writing any cell', not 'a lot'. NOT the same field as `invariant.entry_optional.blocks`, which names what an invariant blocks; two kinds, two meanings, one word. Read by tools/side_gate.py.",
+        "detail": "BLOCKER shape. The body: how the blocker was measured, and what is already proven about it. This is where a working mechanism with a bug in it is distinguished from a broken tool.",
+        "fix": "BLOCKER shape. What would clear it, concretely enough to attempt -- a command, a file to rewrite against, or an explicit instruction NOT to solve it yet.",
+        "blocks_the_critical_path": "BLOCKER shape. Boolean. Whether this blocker is on the path to a cell on disk. The boolean counterpart to the prose `blocks`, and the two must not be confused: B5 is the most important open question in the project and is false here.",
+        "want": "REQUIREMENT shape. What the in-game front end has to be able to do, in capability terms, before any mechanism is named.",
+        "compiles_in_fo4": "REQUIREMENT shape. Whether the OTHER ENGINE's pre-port draft of this capability compiles against this build. It measures the DRAFT, not the capability: two of the three rows read `compiles_in_fo4: false` beside `status: MET`, which looks contradictory until you know the false is about a draft that was never the deliverable. A field whose name invites exactly that misreading is a field that wants renaming.",
+        "measured": "REQUIREMENT shape. What the probe actually reported when it was run against this build, quoted closely enough to be checked. The negative result, with the compiler's complaint.",
+        "fo4_mechanism": "REQUIREMENT shape. The native FO4 mechanism that does this job, or NONE where the capability is absent from the language entirely. `NONE` here is a finding about the language, not a gap in our work.",
+        "mechanism_status": "REQUIREMENT shape. EXISTS NATIVELY | MUST BE BUILT, for the mechanism named above. The one field on this record that says whether work remains.",
+        "measured_evidence": "REQUIREMENT shape. The POSITIVE CONTROL: the probe variant that compiles, proving the harness works. Distinct from `measured`, which is the negative result. A `measured` failure with no `measured_evidence` beside it is indistinguishable from a broken harness -- which is why the same probe set carries known-bad controls that must fail.",
+        "cost": "REQUIREMENT shape. What it takes to adopt the mechanism, in the spec's own terms -- 'none. Use the FO4 names.' on rows that cost nothing.",
+        "spec_correction_owed": "REQUIREMENT shape. A correction this row says another spec still needs, naming the file and what it wrongly says. NOTE: on the raise-and-observe-an-event row this names papyrus_constructs.json recording CustomEvent as exists_in_fo4 false, and that correction has since LANDED -- the row now reads true. The field is a live claim of outstanding debt that is no longer outstanding, and it needs a settled marker or a rename. Recorded here rather than fixed because ai_context/spec/in_game_surface_requirements.json is not this file.",
+        "absent_form": "REQUIREMENT shape. The other engine's spelling of the same capability, listed so nobody reintroduces it from an old draft.",
+        "constraint": "REQUIREMENT shape. A limit the language imposes that narrows the design space -- on the in-game-menu row, that a Native script may not hold properties, which is why no menu is available either way.",
+        "current_substitute": "REQUIREMENT shape. What we do instead today, named as a working substitute rather than an apology. Absent means there is no substitute and the capability is simply missing.",
+        "decision_owed": "REQUIREMENT shape. A choice that is not ours to make, stated as a question with both options. The project's `ATTENTION` status is emitted but undefined and its meaning is the owner's decision, still owed; a field like this is where such a decision belongs until that status exists.",
+        "trap": "REQUIREMENT shape. The FO4-specific way of getting this wrong, quoted with the compiler's rejection. Distinct from `measured`: measured is what happened, trap is what will happen to the next person.",
+        "kind": "SURFACE shape. Which CLASS of surface this is -- OPERATOR, AI, ENGINE_PROGRAM, ENGINE_MOD, PROVIDER_SOURCE, CREATION, CROSS -- validated by tools/surfaces_gate.py against a closed vocabulary. WARNING: this is NOT the spec-level `kind` that selects a schema kind. Same word, two meanings, one nested in the other, which is the most re-readable thing in this file.",
+        "direction": "SURFACE shape. Which way the traffic runs, in the form 'X -> Y', so the surface table can be read as a topology. Read by tools/surfaces_gate.py for display.",
+        "side": "SURFACE shape. Which of the three sides this surface belongs to, or 'all three'. The same word as `ownership`'s record identity, and here it is a classification rather than the record's own name. Read by tools/side_gate.py, tools/ownership_gate.py, tools/orchestrate.py and tools/spec_lint.py.",
+        "transport": "SURFACE shape. How the surface is reached -- a file, an envelope, a flag. What a caller has to be able to do before it can use the surface at all.",
+        "path": "SURFACE shape. The implementation path, or null where the surface has no implementation yet. Read by tools/surfaces_gate.py, which treats null as legitimate and distinguishes it from a broken path. A path on a MET surface that is not on disk is a contradiction the gate reports.",
+        "evidence": "SURFACE shape. What was actually done to establish this surface, named so it can be repeated. Read by nothing, which means it decays silently -- but it is also the field that makes the row falsifiable, so removing it would be worse than leaving it unchecked.",
+        "artifact": "SURFACE shape. A build OUTPUT this surface produces, as distinct from `path`, which is its source. Read by tools/surfaces_gate.py and checked for existence on disk exactly as `path` is, so a MET surface naming a missing artifact is reported.",
+        "notes": "SURFACE shape. Free prose on the record. Shares the name with record_format's `notes` and ladder's `notes`, and means the same thing in all three: the row's commentary.",
+        "verbs": "SURFACE shape. The verb roster a surface claims, on the one record that owns tools/pipmon.ps1. Read by tools/verb_parity_gate.py, which compares it against both the caps list and the implemented switch -- so this is one of the few registry fields a gate can branch on.",
+        "index": "SURFACE shape. Where this surface's retrieval index lives, as distinct from `path`, which is the query tool. Read by tools/surfaces_gate.py and existence-checked like `path`, so an index that is not on disk is a reported contradiction on a MET surface.",
+        "command": "SURFACE shape. How to invoke the surface by hand, for a reader who is not going through the surface.",
+        "members": "SURFACE shape. The roster of a group -- on the gates surface, the gate files that make it up. The inverse of `command`: one record that is a set rather than a thing.",
+        "spec": "SURFACE shape, SINGULAR. One spec path this surface is defined by. DRIFT, AND IT HAS A CONSEQUENCE: tools/surfaces_gate.py reads `specs` and existence-checks each entry, but never reads `spec`. Two surfaces (engine.layera, engine.addressblob) use the singular, so their spec citations are silently unchecked -- a gate that cannot see a citation is not evidence. Both spellings are declared rather than one removed, because consolidating them means editing ai_context/spec/surfaces.json, which is not this file. Both cited paths do currently exist on disk, so nothing is broken yet.",
+        "specs": "SURFACE shape, PLURAL. A list of spec paths this surface is defined by, and the spelling tools/surfaces_gate.py actually checks. The singular `spec` above should be folded into this."
+      }
     },
     "invariant": {
       "describes": "A precondition that must hold before a side of the work functions at all. Unlike a capability, an invariant is not something to build toward incrementally: it is true or it is not, and while it is false the whole side is unavailable.",
@@ -152,14 +270,20 @@
         "measured_failure",
         "enhancement",
         "requires_host",
-        "depends_on"
+        "depends_on",
+        "depends_on_note",
+        "the_five_rung_ladder",
+        "the_honest_split"
       ],
       "optional_notes": {
         "function_served": "PRODUCT level only. The job the product actually did for people, as distinct from its feature list. The distinction matters because a product's users valued the job and tolerated the features; replacing the features while missing the job reproduces the product's reputation without its value.",
         "measured_failure": "How it failed, with the evidence named. null when no failure is on record. A row claiming parity with no recorded failure of the thing being replaced is asserting an unexamined comparison.",
         "enhancement": "What we add BEYOND parity, and why that is worth doing. This is the column that turns a replacement list into a modernization plan. Absent means parity is the whole claim, which is a legitimate but weak position.",
         "requires_host": "none | game | ck | game+ck. What must be installed for OUR equivalent to work. This is the field that makes 'the program runs without Fallout 4 or the Creation Kit' a checkable claim rather than an aspiration, because a reader can group rows by it and see exactly which capabilities survive with neither host present.",
-        "depends_on": "ids of other rows in the same file, or blocker ids from blockers_to_environment.json, that must land first. A row with status PLANNED and no depends_on is asserting it could start today."
+        "depends_on": "ids of other rows in the same file, or blocker ids from blockers_to_environment.json, that must land first. A row with status PLANNED and no depends_on is asserting it could start today.",
+        "depends_on_note": "The reasoning `depends_on` cannot carry: why this row waits on that, and what becomes possible once it lands. The prose half of the pair. Split out rather than folded into `notes` because a row can have a note about its own coverage and a separate argument about its ordering, and merging them loses which is which.",
+        "the_five_rung_ladder": "SINGLE-ROW field, on the recompile-per-adjustment row only. Decomposes one validation claim into five separately checkable questions and says which of them need Layer A. A bespoke name for prose that `notes` could already hold: declared so the row is not undeclared, and a merge into `notes` is OWED rather than a fourth prose field invented per row.",
+        "the_honest_split": "SINGLE-ROW field, on the same row. Separates the level at which the claim is true from the level at which it is false, because conflating the two would make the row a lie. Same status as the_five_rung_ladder: a bespoke name, prose `notes` could hold, merge owed."
       }
     },
     "ladder": {
@@ -169,7 +293,19 @@
         "rung",
         "concept",
         "creation_engine"
-      ]
+      ],
+      "entry_optional": [
+        "native",
+        "python",
+        "ce_evidence",
+        "notes"
+      ],
+      "optional_notes": {
+        "native": "The rung as the native/C++ layer expresses it. One of the three paradigm columns this kind's `describes` promises. Present on all 7 rungs and NOT in record_required, which names only `creation_engine` -- so a ladder can currently pass with two of its three paradigms missing. Promoting `native` and `python` into record_required is owed; they are left optional here rather than made required mid-flight, because tightening a contract other agents are editing against is the worse failure.",
+        "python": "The rung as Python expresses it. The third paradigm column, and the same requiredness debt as `native`.",
+        "ce_evidence": "The Creation Engine spelling with a named record and an offset, so the CE column rests on a measurement rather than an assertion. Absent on rungs 5 and 6, which record a correction to the incoming mapping instead -- an absent ce_evidence there means 'we are not claiming a CE form', not 'nobody looked'.",
+        "notes": "A correction to the incoming mapping, or a caveat on the rung. This is where scaling_ladder.json records that an incoming rung was WRONG, which is the reason the file is a ladder and not a glossary: a rung that only ever agrees with its source is not carrying its weight."
+      }
     }
   },
   "compat_status_vocabulary": {

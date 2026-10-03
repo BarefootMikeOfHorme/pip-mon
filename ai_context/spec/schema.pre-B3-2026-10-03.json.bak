@@ -1,0 +1,197 @@
+{
+  "schema_id": "pipmon.spec.schema/1",
+  "purpose": "Shape every machine-readable spec in ai_context/spec/. A spec must serve two readers at once: a human scanning the prose field, and a program reading the entries. Both are mandatory; a spec with only prose is documentation pretending to be data, and one with only entries is a table nobody can interpret.",
+  "required_common": [
+    "spec_id",
+    "kind",
+    "title",
+    "authority",
+    "provenance",
+    "prose",
+    "entries"
+  ],
+  "authority_tiers": [
+    "compile-verified",
+    "measured",
+    "upstream-verbatim",
+    "derived",
+    "judgement",
+    "unproven",
+    "aspiration"
+  ],
+  "kinds": {
+    "record_format": {
+      "describes": "A binary or textual on-disk structure, field by field.",
+      "entry_required": [
+        "name",
+        "bytes",
+        "fields",
+        "provenance"
+      ],
+      "entry_optional": [
+        "notes",
+        "values",
+        "verified_against"
+      ]
+    },
+    "api_function": {
+      "describes": "A callable in a host scripting API, whether or not it exists.",
+      "entry_required": [
+        "name",
+        "exists",
+        "signature",
+        "container",
+        "provenance"
+      ],
+      "entry_optional": [
+        "returns",
+        "behaviour",
+        "verified_by",
+        "supersedes"
+      ]
+    },
+    "language_construct": {
+      "describes": "A Papyrus language construct and whether FO4 has it.",
+      "entry_required": [
+        "name",
+        "exists_in_fo4",
+        "evidence",
+        "provenance"
+      ],
+      "entry_optional": [
+        "replacement",
+        "consequence",
+        "error_text"
+      ]
+    },
+    "component": {
+      "describes": "A part of this program, its layer, and what proves it works.",
+      "entry_required": [
+        "name",
+        "layer",
+        "role",
+        "status",
+        "gate_covered",
+        "provenance"
+      ],
+      "entry_optional": [
+        "depends_on",
+        "replaces",
+        "notes"
+      ]
+    },
+    "term": {
+      "describes": "A nomenclature entry binding a word to a type and its aliases.",
+      "entry_required": [
+        "name",
+        "type",
+        "provenance"
+      ],
+      "entry_optional": [
+        "aliases",
+        "see_also",
+        "note",
+        "spec"
+      ]
+    },
+    "ownership": {
+      "describes": "Per-side buckets of paths: what to QUERY, what to READ, what is unreachable, and what has not been written. Verified by tools/ownership_gate.py, which is the dedicated check for this shape -- so this linter only confirms the shape and that each side is named.",
+      "collection_field": "REQUIRED: the array this kind keeps its sides in",
+      "record_required": [
+        "side"
+      ],
+      "bucket_required": [
+        "knowledge",
+        "source",
+        "captured",
+        "excluded",
+        "not_written"
+      ],
+      "note": "The buckets are required to be present, including the empty ones. A side that omits `excluded` reads as 'we checked and there are none' rather than 'nobody looked', and those are different facts."
+    },
+    "registry": {
+      "describes": "A catalogue of things that are not fields of anything: surfaces, per-side ownership, door inventories. Uses its own collection field instead of `entries`, and declares that field so a linter knows where to look.",
+      "collection_field": "REQUIRED: the array this kind keeps its records in",
+      "record_required": [
+        "id",
+        "status",
+        "provenance"
+      ],
+      "note": "A registry record is identified by `id` rather than `name`. Inventing an `entries` array to satisfy a linter would make the document lie about its own shape, so the shape is declared instead."
+    },
+    "invariant": {
+      "describes": "A precondition that must hold before a side of the work functions at all. Unlike a capability, an invariant is not something to build toward incrementally: it is true or it is not, and while it is false the whole side is unavailable.",
+      "entry_required": [
+        "name",
+        "side",
+        "status",
+        "evidence",
+        "provenance"
+      ],
+      "entry_optional": [
+        "blocks",
+        "notes",
+        "spec"
+      ]
+    },
+    "compat_mapping": {
+      "describes": "A capability another product exposes, mapped to what we expose and at what status. Exists because mods declare F4SE or AddressLib as a dependency and a reader needs to know whether we cover it, plan to, or never will. Two granularities use this kind and they are not interchangeable: compat_f4se_map.json is CAPABILITY level (one row per API call a mod makes), legacy_replacement.json is PRODUCT level (one row per product, describing the job it did). A product-level row cites the capability-level file for per-API detail rather than restating it.",
+      "entry_required": [
+        "name",
+        "source_product",
+        "our_equivalent",
+        "status",
+        "provenance"
+      ],
+      "entry_optional": [
+        "signature",
+        "mod_uses",
+        "notes",
+        "spec",
+        "function_served",
+        "measured_failure",
+        "enhancement",
+        "requires_host",
+        "depends_on"
+      ],
+      "optional_notes": {
+        "function_served": "PRODUCT level only. The job the product actually did for people, as distinct from its feature list. The distinction matters because a product's users valued the job and tolerated the features; replacing the features while missing the job reproduces the product's reputation without its value.",
+        "measured_failure": "How it failed, with the evidence named. null when no failure is on record. A row claiming parity with no recorded failure of the thing being replaced is asserting an unexamined comparison.",
+        "enhancement": "What we add BEYOND parity, and why that is worth doing. This is the column that turns a replacement list into a modernization plan. Absent means parity is the whole claim, which is a legitimate but weak position.",
+        "requires_host": "none | game | ck | game+ck. What must be installed for OUR equivalent to work. This is the field that makes 'the program runs without Fallout 4 or the Creation Kit' a checkable claim rather than an aspiration, because a reader can group rows by it and see exactly which capabilities survive with neither host present.",
+        "depends_on": "ids of other rows in the same file, or blocker ids from blockers_to_environment.json, that must land first. A row with status PLANNED and no depends_on is asserting it could start today."
+      }
+    },
+    "ladder": {
+      "describes": "A conceptual ladder of representation scales, mapped per paradigm. Not a list of named terms: a ladder has rungs, and each rung is expressed differently in each paradigm.",
+      "collection_field": "REQUIRED: the array this kind keeps its rungs in",
+      "record_required": [
+        "rung",
+        "concept",
+        "creation_engine"
+      ]
+    }
+  },
+  "compat_status_vocabulary": {
+    "_comment": "A closed vocabulary, so a program can branch on coverage rather than pattern-match prose. COVERED means it works now. DECLARED means the surface exists in PipMon.psc but no handler is proven. PLANNED means adopted in skyrim_capability_adoption.md with a named mechanism. NOT_PLANNED means we have declined it, and why is required. REJECTED means the approach was considered and refused on architectural grounds.",
+    "COVERED": "implemented and proven",
+    "DECLARED": "surface exists, handler unproven",
+    "PLANNED": "adopted with a named mechanism, not built",
+    "NOT_PLANNED": "declined; a reason is mandatory",
+    "REJECTED": "considered and refused on architectural grounds",
+    "DIFFERENT_MECHANISM": "we do the job differently; not a drop-in"
+  },
+  "compat_status_rules": [
+    "A mapping with status COVERED must name a spec entry that proves it, not just a plan.",
+    "A mapping with status NOT_PLANNED or REJECTED must carry a non-empty note saying why. An unexplained refusal is indistinguishable from an oversight.",
+    "The vocabulary is closed. A status outside it is a lint failure, because a status nobody can branch on is decoration."
+  ],
+  "validation_rules": [
+    "authority must be one of authority_tiers, so a spec cannot quietly claim more confidence than the ranking model recognises.",
+    "provenance must be non-empty on the spec and on every entry that declares it required. A fact with no provenance may not exist.",
+    "bytes must be an integer, not a string, so field offsets can be computed rather than eyeballed.",
+    "exists and exists_in_fo4 and gate_covered must be booleans, not the strings 'yes' or 'true', because the whole point is that a program can branch on them.",
+    "api_function signature, when present, must contain a parenthesised argument list.",
+    "A component whose status is 'absent' or 'unproven' must say so in gate_covered rather than claiming coverage."
+  ]
+}
