@@ -1,0 +1,124 @@
+{
+  "schema": "pipmon.scripting.board/1",
+  "generated": "2026-10-03",
+  "generatedBy": "commit e103b6e era; board authored after F2.1a/F2.6 landed",
+  "title": "PIP-MON scripting capability and task board - machine-readable twin of SCRIPTING-TASKBOARD.md",
+
+  "explanation": {
+    "what_this_is": "A machine-readable snapshot of scripting/SCRIPTING-TASKBOARD.md. The markdown is the working copy; this file is what a program should read.",
+    "what_it_is_not": "It is NOT a source of truth. The authoritative capability data is ai_context/spec/legacy_replacement.json, which is spec_lint-clean and carries per-row provenance. This file is a derived convenience view and may drift.",
+    "how_to_validate": "If this file and the markdown disagree, the markdown wins for prose and legacy_replacement.json wins for capability status. Regenerate rather than hand-edit when they diverge.",
+    "authority_tier": "derived",
+    "provenance_required": "Non-negotiable 2: a fact with no provenance may not exist. Every row here traces to a file:line or to a map row."
+  },
+
+  "status_vocabulary": {
+    "COVERED": "built and proven",
+    "DECLARED": "built and shipped, not yet proven by a gate that could fail",
+    "PLANNED": "a named mechanism exists, not built",
+    "DIFFERENT_MECHANISM": "same job done a different way, and we say so",
+    "NOT_PLANNED": "declined, with a mandatory written reason",
+    "REJECTED": "refused on measured evidence"
+  },
+  "host_vocabulary": ["none", "game", "ck", "game+ck"],
+  "host_note": "none = needs neither Fallout 4 nor the Creation Kit. This is the standalone surface the owner asked for, expressed as a countable property.",
+
+  "headline": {
+    "capability_rows": 31,
+    "by_status": { "COVERED": 1, "DECLARED": 2, "PLANNED": 14, "DIFFERENT_MECHANISM": 5, "NOT_PLANNED": 8, "REJECTED": 1 },
+    "by_host": { "none": 19, "game": 8, "ck": 4 },
+    "tasks": 35,
+    "task_groups": 6,
+    "honesty_defects_total": 13,
+    "honesty_defects_fixed": 4,
+    "reading": "1 of 31 is COVERED. That is the point of the board, not a criticism of it: before it existed the replacement claim lived in seven files and coverage could not be counted."
+  },
+
+  "scripting_layers": [
+    { "id": 1, "name": "the language surface", "replaces": ["F4SE native registration", "po3", "GoE Script Extender", "PAP"], "state": "NOT WORKING", "detail": "PipMon.psc declares 13 Native Globals and PipMon.pex compiles, but HookManager::install() installs ZERO hooks.", "blocker": "B5 - one header file" },
+    { "id": 2, "name": "the workflow", "replaces": ["Papyrus Compiler invocation", "plugins.txt handling"], "state": "WORKING", "detail": "All 6 .psc compile with the real CK compiler. linksync.ps1 owns plugins.txt with snapshot-before-write and restore.", "blocker": null },
+    { "id": 3, "name": "diagnostics", "replaces": ["papyrus log tailing", "Canary polling"], "state": "PARTIAL", "detail": "The V-Link wire is COVERED. Canary Redux needs layer 1.", "blocker": "B5" },
+    { "id": 4, "name": "the event model", "replaces": ["F4SE RegisterForEvent / QueueEvent"], "state": "NOT BUILT", "detail": "B-first poll model is the reachable version. Hard rule: NO A BEFORE B.", "blocker": "B5" },
+    { "id": 5, "name": "the negative space", "replaces": ["fifteen years of Skyrim and pre-2011 habits"], "state": "NOT BUILT", "detail": "The unique modernization contribution. Hand-written today; F3 makes it generated and compile-probed.", "blocker": null },
+    { "id": 6, "name": "the authoring environment", "replaces": ["CK (kept)", "xEdit read (ours)"], "state": "PARTIAL", "detail": "Read and reporting are ours. Patch generation declined on principle. Cartridges must be pre-authored .esp.", "blocker": "F4.3" }
+  ],
+
+  "reachability_ladder": {
+    "note": "This is the single most useful decomposition found in this session. 'Callable in its native even if not rendered or running' is five questions, not one, and only the last three need Layer A.",
+    "rungs": [
+      { "rung": "A", "name": "DECLARED", "question": "does the .psc declare the native?", "needs_layer_a": false, "checkable_today": true, "measured": "yes - 13 Native Globals in PipMon.psc" },
+      { "rung": "B", "name": "COMPILED", "question": "does the .pex carry it?", "needs_layer_a": false, "checkable_today": true, "measured": "PEX magic verified; per-function symbol count NOT yet counted" },
+      { "rung": "C", "name": "REGISTERED", "question": "does a native handler exist?", "needs_layer_a": true, "checkable_today": false, "measured": "0" },
+      { "rung": "D", "name": "REACHABLE", "question": "does a compiled .psc call it and get an answer?", "needs_layer_a": true, "checkable_today": false, "measured": "0" },
+      { "rung": "E", "name": "DISPATCHABLE", "question": "does a cartridge fire without being rendered?", "needs_layer_a": true, "checkable_today": false, "measured": "0", "note": "needs Layer B as well" }
+    ],
+    "why_it_matters": "Rungs A and B are the honest half of the goal-coverage gate that goal_alignment.md says is missing, and they are knowable BEFORE any hook exists. It turns S0 from a binary question into a coverage figure."
+  },
+
+  "tasks": [
+    { "id": "S1",  "group": "unblock-layer-a",   "task": "obtain a BSScript class declaration in method order", "blocks": ["S3","S4","S5","A2","A4","A5","A6","A8"], "checkable_today": false, "state": "open", "risk_if_ignored": "A guessed slot index is a detour into an unrelated function. The only symptom is a crash." },
+    { "id": "S2",  "group": "unblock-layer-a",   "task": "count rungs A and B - declared vs compiled", "checkable_today": true,  "state": "open", "verify": "parse PipMon.psc natives against PipMon.pex symbols" },
+    { "id": "S3",  "group": "unblock-layer-a",   "task": "declare rung C - first native handler", "state": "open", "verify": "PipMon.GetVersion() returns a correct int (PIP-MON_CONSOLIDATED.txt 24.7)" },
+    { "id": "S4",  "group": "unblock-layer-a",   "task": "declare rung D - reachable from a compiled .psc", "state": "open", "verify": "same, with no F4SE present" },
+    { "id": "S5",  "group": "unblock-layer-a",   "task": "rung E - poll model drains a real event", "state": "open", "depends_on": ["S2","S3"], "rule": "NO A BEFORE B" },
+    { "id": "S6",  "group": "unblock-layer-a",   "task": "surface reports which resolver tier resolved each probe", "state": "open" },
+
+    { "id": "S7",  "group": "honesty", "task": "validate maps PASS/FAIL/SKIP onto the surface vocabulary", "state": "open", "defect": "F2.12", "note": "F2.1a made it exit 2, loud. It should be RED/1 - the validation ran and the plugin was wrong." },
+    { "id": "S8",  "group": "honesty", "task": "status checks report freshness", "state": "open", "defect": "F2.3" },
+    { "id": "S9",  "group": "honesty", "task": "verify can return SKIP or BROKEN", "state": "open", "defect": "F2.4", "note": "agent_watchdog.ps1 has no exit statement, so it returns 0. Any exit above 3 is also unmapped." },
+    { "id": "S10", "group": "honesty", "task": "link tells a thrown precondition from a wrong result", "state": "open", "defect": "F2.5", "note": "linksync.ps1 signals both by exit 1 today, so this needs a change in that file." },
+    { "id": "S11", "group": "honesty", "task": "caps gains a per-verb requires", "state": "open", "defect": "F4.1" },
+    { "id": "S12", "group": "honesty", "task": "caps carries a provenance block", "state": "open", "defect": "F2.10", "note": "caps publishes 'every fact names its source' and then breaks it." },
+    { "id": "S13", "group": "honesty", "task": "write PIPMON_INTERFACE.md", "state": "open", "note": "the docs door map now declares this owed rather than pointing somewhere else" },
+    { "id": "S14", "group": "honesty", "task": "decide what ATTENTION means in the vocabulary", "state": "OWED TO OWNER", "defect": "F2.1b" },
+
+    { "id": "S15", "group": "the-index", "task": "generate a machine-readable signature per function from Data/Scripts/Source/Base", "checkable_today": true, "state": "open", "source_files": 7932 },
+    { "id": "S16", "group": "the-index", "task": "observed usage counts across the corpus", "checkable_today": true, "state": "open", "why": "turns 'which functions are dead' and 'which are legacy habits' into measurements" },
+    { "id": "S17", "group": "the-index", "task": "negative table by compile probe", "checkable_today": true, "state": "open", "why": "what does NOT exist becomes as trustworthy as what does" },
+    { "id": "S18", "group": "the-index", "task": "hard FO4-only assertion", "checkable_today": true, "state": "open", "why": "Skyrim contamination is a named live hazard; CK/GECK conflation has already caused repeated wasted work" },
+    { "id": "S19", "group": "the-index", "task": "add query words to ai_context/vocabulary.json, never to code", "checkable_today": true, "state": "open" },
+
+    { "id": "S20", "group": "environment", "task": "P4 gate: replace records_created > 0 with what the stage can prove", "state": "open", "note": "as written the gate cannot pass" },
+    { "id": "S21", "group": "environment", "task": "P4 poll budget 60s vs measured 102s", "state": "open", "note": "the budget is below the thing it is waiting for" },
+    { "id": "S22", "group": "environment", "task": "wbCopyElementToFile - documented, never executed", "state": "open", "why_it_matters": "this is the create primitive that retires the whole TwbVector -> grid-cell -> group-label chain" },
+    { "id": "S23", "group": "environment", "task": "FileWriteToStream takes 3 args; xedit_api.json declares 2", "state": "open" },
+    { "id": "S24", "group": "environment", "task": "esp_cells.py GRUP parser cannot read any FO4 plugin", "state": "open", "note": "not even Fallout4.esm, and not its own 66-byte esp" },
+    { "id": "S25", "group": "environment", "task": "remove F4SE-dependent plugins from dplugins.txt", "state": "open", "severity": "ACTIVE VIOLATION", "detail": "XDI.esm, FCOM.esp and Cheat Terminal are all F4SE-dependent, all on disk, none functional. No validator checks for it, so it reports green." },
+    { "id": "S26", "group": "environment", "task": "gate that detects an absent runtime", "state": "open" },
+
+    { "id": "S27", "group": "hygiene", "task": "linksync.ps1 ignores -GameDir for the plugin list", "state": "open", "severity": "HIGH", "detail": "builds the path from $env:LOCALAPPDATA alone, so it always writes the LIVE file and there is no way to point it at a test directory" },
+    { "id": "S28", "group": "hygiene", "task": "xEdit lives in %TEMP%", "state": "open", "detail": "a temp directory holding a tool the whole pipeline depends on; fails silently and with no code change" },
+    { "id": "S29", "group": "hygiene", "task": "build_papyrus.bat hardcodes the game dir and ignores -GameDir", "state": "open", "detail": "two notions of 'the game dir' inside one call chain" },
+    { "id": "S30", "group": "hygiene", "task": "plans/schema.json claims requires enforcement that orchestrate.py only prints", "state": "open" },
+    { "id": "S31", "group": "hygiene", "task": "lint: a compat_mapping entry using a field its kind does not declare", "state": "open", "detail": "found by the R4 revert test - a clean revert of the schema commit leaves the map using 4 undeclared fields with spec_lint still reporting 0 problems" },
+
+    { "id": "S32", "group": "experiments", "task": "read_rtti.py --exe CreationKit.exe", "cost": "~10 minutes", "state": "open", "answers": "does the Creation Kit run a Papyrus VM at all? envgate.py:594 says it compiles but does not RUN it, and that claim is unmeasured." },
+    { "id": "S33", "group": "experiments", "task": "measure_vtable.py --exe CreationKit.exe", "cost": "~10 minutes", "state": "open", "answers": "do CK BSScript slot counts match the game's? if not, a game-derived slot index is wrong in the CK." },
+    { "id": "S34", "group": "experiments", "task": "read_rtti.py --exe Fallout4.exe, compare to Signatures.hpp", "cost": "~5 minutes", "state": "open", "answers": "independent check of the 18 declared targets" },
+    { "id": "S35", "group": "experiments", "task": "inject plus pipe client on the modded install", "state": "open", "severity": "HIGHEST-VALUE MEASUREMENT", "answers": "the crash reproduced five times and never once diagnosed. Until it is, Watch mode on a real install is unproven." }
+  ],
+
+  "closed_lanes": [
+    { "lane": "Terminal holotape as an MCM replacement", "verdict": "REFUTED by source", "evidence": "Terminal.psc has zero properties; Holotape.psc is one line; 0 of 339 vanilla Base/Fragments/Terminals implement OnMenuItemRun; no AddMenuItem, OpenMenu or CloseMenu anywhere in 7,932 base scripts.", "consequence": "menu structure is CK/ESM data, pre-authored and shipped in an .esp. Papyrus cannot create it at runtime." },
+    { "lane": "MCM config translation", "verdict": "REFUTED and backwards", "evidence": "the live Data/MCM/Config/XDI/settings.ini states in its own header that it holds DEFAULTS and that Data/MCM/Settings/XDI.ini is the USER OVERRIDE layer. Page structure is config.json plus lib.swf - one real config ships a 98,909-byte lib.swf.", "consequence": "writing only the INI cannot make a page appear. Also docs/POSITIONING.md line 105 already carries a standing policy against reading third-party configs at all." },
+    { "lane": "one probe serving both Fallout4.exe and CreationKit.exe", "verdict": "NOT A DESIGN DIRECTION - an experiment", "evidence": "HookManager::install() installs zero hooks; vprobe/src/main.cpp self-start is gated on GetModuleHandleW(L\"Fallout4.exe\") so it goes inert in the CK with no error; envgate.py states the CK compiles Papyrus but does not run it; zero BSScript symbols in the entire CKPE capture; three specs already rule it out with a stated mechanism.", "still_true": "the launcher is already host-agnostic, and read_rtti/measure_vtable both take --exe.", "resolution": "S32 and S33, about ten minutes total." }
+  ],
+
+  "board_files": {
+    "live": "scripting/SCRIPTING-TASKBOARD.md",
+    "original": "scripting/SCRIPTING-TASKBOARD.original.txt",
+    "snapshots": "scripting/SCRIPTING-TASKBOARD.snapshot.txt",
+    "rule": "The original and the live board are meant to DIFFER. If they match, a board-wide rewrite happened without a snapshot and the reasoning is gone.",
+    "diff_command": "git diff --no-index scripting/SCRIPTING-TASKBOARD.original.txt scripting/SCRIPTING-TASKBOARD.md"
+  },
+
+  "provenance": [
+    "ai_context/spec/legacy_replacement.json - the 31 capability rows, spec_lint-clean",
+    "ai_context/spec/compat_f4se_map.json - API-level detail, 0 of 10 proven",
+    "ai_context/spec/blockers_to_environment.json - B1 through B8",
+    "ai_context/spec/papyrus_constructs.json, ai_context/papyrus_syntax_rules.md - compile-probed FO4 rules",
+    "ai_context/f4se_prohibition.md - ACTIVE, BINDING CONSTRAINT",
+    "tasks/roadmap/CHANGELOG.md - corrections C1 through C6, each verified against source",
+    "verified by reading this repo on 2026-10-03; no row exercised against a live host"
+  ]
+}

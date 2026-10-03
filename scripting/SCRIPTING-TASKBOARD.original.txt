@@ -1,0 +1,213 @@
+================================================================================
+  SCRIPTING TASK BOARD -- ORIGINAL SNAPSHOT
+================================================================================
+
+  ***  ORIGINAL STATE DOCUMENT -- DO NOT DELETE  ***
+  ***  ARCHIVE AND VALIDATION ONLY                 ***
+  ***  THIS FILE IS NEVER AMENDED                  ***
+
+  PURPOSE
+    This is the board exactly as it was first written, on 2026-10-03. The live,
+    amendable copy is scripting/SCRIPTING-TASKBOARD.md. This file exists so the
+    difference between "what was originally believed" and "what is believed now"
+    stays visible and diffable.
+
+  WHY IT MATTERS TO THIS PROJECT SPECIFICALLY
+    ai_context/goal_alignment.md records that a fully green gate is consistent
+    with S0 being unproven, the facility plugin holding zero records, and no
+    xEdit run ever producing a report. The same is true of this board: a board
+    that only ever accumulates successes is not a board, it is a brochure.
+
+    PIP-MON_CONSOLIDATED.txt guardrail G3 says exactly this:
+      "A FAILED IDEA IS RECORDED, NOT DELETED. A design document that only
+       accumulates successes is not a design document; it is a brochure."
+
+    So this file is the G3 artifact for the scripting board. Deleting it would
+    destroy the only record of what was assumed before the measurements landed.
+
+  VALIDATION USE
+    Diff the original against the live board:
+      git diff --no-index scripting/SCRIPTING-TASKBOARD.original.txt \
+                             scripting/SCRIPTING-TASKBOARD.md
+    These two SHOULD differ. If they ever match, a board-wide rewrite happened
+    without a snapshot and the reasoning has been lost.
+
+  AMENDMENT RULE FOR THE LIVE COPY
+    Amend SCRIPTING-TASKBOARD.md in place, and commit every amendment with a
+    changelog line. Do NOT amend this file. Do NOT number this file. Numbered
+    snapshots are written to scripting/SCRIPTING-TASKBOARD.snapshot.txt as
+    <date>-<n>.snapshot.txt, and only when a board-wide rewrite happens.
+
+  STATUS KEY AS OF THIS SNAPSHOT
+    COVERED   built and proven
+    DECLARED  built and shipped, not yet proven by a gate that could fail
+    PLANNED   a named mechanism exists, not built
+    DIFF      same job done a different way, and we say so
+    NOT       declined, with a mandatory written reason
+    REJECT    refused on measured evidence
+    host none = needs neither Fallout 4 nor the Creation Kit
+
+  HEADLINE NUMBERS AT ORIGINAL TIME
+    31 capability rows
+      1 COVERED   2 DECLARED   14 PLANNED
+      5 DIFF      8 NOT        1 REJECT
+    By host: 19 none, 8 game, 4 ck
+    Task board: 35 tasks across 6 groups
+
+================================================================================
+
+
+A. SCRIPTING -- REPLACE / ENHANCE
+--------------------------------------------------------------------------------
+ #  legacy                     function served            mechanism            st     host
+ A1 F4SE loader                get a native in reliably   own preflight exe    DIFF   game
+ A2 F4SE hook install          let a native answer        Layer A, one         PLAN   game
+                              a Papyrus call            sourced vtable slot
+ A3 AddressLib                 name+build -> address      build-time blob      DIFF   none
+ A4 po3 / Papyrus Utils        file I/O, math, arrays     Rust daemon, off     PLAN   none
+                                                       the game thread
+ A5 GoE Script Extender        bundled function library  covered by A4        PLAN   game
+ A6 PAP                        perk/stat Papyrus helpers covered by A4        PLAN   game
+ A7 Buffout 4 / NSF            crash report, too late     proactive rules      PLAN   none
+ A8 Canary                     warn a save is corrupt     Canary Redux hook    PLAN   game
+ A9 Papyrus Compiler           .psc -> .pex              Caprica              PLAN   ck
+ A10 MCM in-game settings      a settings page in-game    none, refused        REJECT game
+
+ CORE DEPENDENCY: A2 blocks A4, A5, A6, A8. A2 needs exactly one input file --
+ a BSScript class declaration in method order, so slot indices follow
+ mechanically. A guessed index is a detour into an unrelated function, whose
+ only symptom is a crash.
+
+
+B. TOOLING & RECORDS
+--------------------------------------------------------------------------------
+ #  legacy              function                     mechanism              st    host
+ B1 xEdit read/report   what conflicts               KaDag, library not GUI PLAN  none
+ B2 xEdit patch gen     emit a corrected .esp        none, declined         NOT   none
+ B3 Archive2 read       loose vs archive agreement   .ba2 validator         PLAN  none
+ B4 Archive2 write      repack archives              none                   NOT   none
+ B5 CKPE                editor stability             in-house Win32 shim    PLAN  ck
+ B6 Vortex              which mods are active        read-only, 3 questions DIFF  none
+ B7 MO2                 virtualised profiles         same three questions   DIFF  none
+ B8 FOMOD               what installer claimed       4th opinion            DIFF  none
+ B9 Engine Fixes        patch engine bugs            none                   NOT   none
+ B10 Wrye SSC           auto-fix records             none                   NOT   none
+ B11 Nexus / CurseForge find, download, install      none                   NOT   none
+ B12 Creation Kit       author content               none, permanently      NOT   ck
+ B13 G.E.C.K.           FO3/FNV worldspace editor    none, peer tool        NOT   none
+
+
+C. ADDITIONS -- REPLACE NOTHING
+--------------------------------------------------------------------------------
+ #  addition                      what it is                                    st      host
+ C1 V-Link wire                  packed frames, memcpy on producer,           COVERED game
+                                 no parse/format/alloc on a game thread
+ C2 One-envelope control plane   11 verbs, one JSON, one exit vocabulary       DECL    none
+ C3 Papyrus/CE function index    from 7,932 base .psc: signatures, usage       PLAN    none
+                                 counts, compile-probed negative table
+ C4 Capability + evidence        23 caps, requires/exercise/evidence.          DECL    none
+    registry                     Only ENFORCED requires in the repo
+ C5 In-game cartridge            Terminal .esp + Papyrus shim + live           PLAN    game
+                                 sync + light mode ~1 Hz
+ C6 Curated CK staging           add content CE-style after first compile      PLAN    ck
+ C7 Compiled-env toggle          compile once, snapshot, then toggle           PLAN    none
+ C8 5-rung reachability ladder   declared/compiled/registered/reachable/       PLAN    none
+                                 dispatchable. Rungs 1-2 checkable TODAY
+
+
+D. TASK BOARD
+--------------------------------------------------------------------------------
+ D1 UNBLOCK LAYER A
+   S1  obtain BSScript.h declaration order      <- blocks the most
+   S2  count rungs A/B, declared vs compiled    <- checkable now
+   S3  declare rung C, first native handler
+   S4  declare rung D, reachable from a .psc
+   S5  rung E, poll model drains a real event   <- B before A, no A before B
+   S6  surface reports which resolver tier resolved each probe
+
+ D2 HONESTY -- tools/pipmon.ps1
+   S7   validate maps PASS/FAIL/SKIP correctly           open, F2.12
+   S8   status checks report freshness                  open, F2.3
+   S9   verify can return SKIP or BROKEN                open, F2.4
+   S10  link tells a thrown precondition from a wrong one open, F2.5
+   S11  caps gains a per-verb requires                  open, F4.1
+   S12  caps carries a provenance block                 open, F2.10
+   S13  write PIPMON_INTERFACE.md                       open
+   S14  what does ATTENTION mean                        OWED TO OWNER, F2.1b
+   --  ALREADY FIXED: F2.1a exit table made total (e103b6e)
+   --  ALREADY FIXED: F2.6 -Enable/-Disable forwarded (e103b6e)
+   --  ALREADY FIXED: F2.2 snapshot cannot claim success (c27a0b4)
+   --  ALREADY FIXED: F2.7 door map stops lying (c27a0b4)
+
+ D3 THE INDEX
+   S15 generate a machine-readable signature per function
+   S16 observed usage counts across 7,932 scripts
+   S17 negative table by compile probe
+   S18 hard FO4-only assertion
+   S19 add query words to vocabulary.json, never to code
+
+ D4 ENVIRONMENT & RECORDS
+   S20 P4 gate cannot pass as written
+   S21 P4 poll budget 60s vs measured 102s
+   S22 wbCopyElementToFile documented, never executed
+   S23 FileWriteToStream takes 3 args, spec says 2
+   S24 esp_cells.py cannot read any FO4 plugin
+   S25 dplugins.txt enables 3 F4SE-dependent plugins -- ACTIVE VIOLATION
+   S26 gate that detects an absent runtime
+
+ D5 PATHS & HYGIENE
+   S27 linksync.ps1 ignores -GameDir for the plugin list
+   S28 xEdit lives in %TEMP%
+   S29 build_papyrus.bat hardcodes the game dir
+   S30 plans/schema.json claims enforcement that is only printed
+   S31 lint: undeclared field in a compat_mapping entry
+
+ D6 EXPERIMENTS -- cheap, and they kill plans
+   S32 read_rtti.py --exe CreationKit.exe     does the CK run a Papyrus VM?
+   S33 measure_vtable.py --exe CreationKit.exe  do CK slot counts match?
+   S34 read_rtti.py --exe Fallout4.exe         independent check of 18 targets
+   S35 inject + pipe on the modded install    the 5x crash, never diagnosed
+
+
+E. LOCATIONS
+--------------------------------------------------------------------------------
+ capability map      ai_context/spec/legacy_replacement.json
+ map schema          ai_context/spec/schema.json
+ API-level compat    ai_context/spec/compat_f4se_map.json        0 of 10 proven
+ blockers            ai_context/spec/blockers_to_environment.json  B5 is the pole
+ component state     ai_context/spec/program_components.json
+ capability IDs      tasks/capabilities.json                    no status/provenance
+ staged work         ai_context/plans/create_environment.pyr    P0-P5
+ roadmap             tasks/roadmap/README.md
+ honesty defects     tasks/roadmap/families/F2-truth-honesty/PLAN.md
+ status research     tasks/roadmap/families/F2-truth-honesty/VOCABULARY.md
+ replacement tiers   tasks/roadmap/families/F1-replacement-map/PLAN.md
+ changelog           tasks/roadmap/CHANGELOG.md
+ versioning rules    tasks/roadmap/VERSIONING.md
+ measured xEdit API  runs/xedit/fo4edit-4.1.5f-pascal-api.md
+ FO4 Papyrus rules   ai_context/papyrus_syntax_rules.md
+ Papyrus corpus      ai_context/engine/papyrus_surface/part01-06.md
+ binding prohibition ai_context/f4se_prohibition.md             S25 violates today
+ CKPE portability    ai_context/systems/ckpe/ckpe-insights.md   12/5/3
+ product shape       PIP-MON_CONSOLIDATED.txt                   S0 at 24.7
+
+
+F. THREE CLOSED LANES -- recorded so they are not re-proposed a third time
+--------------------------------------------------------------------------------
+ 1. Terminal holotape as an MCM replacement. Terminal.psc has zero properties;
+    Holotape.psc is one line; 0 of 339 vanilla fragments implement
+    OnMenuItemRun; no AddMenuItem/OpenMenu/CloseMenu in 7,932 scripts. Menu
+    structure is CK/ESM data, pre-authored, shipped in an .esp.
+
+ 2. MCM config translation. Backwards. Data/MCM/Config/<Mod>/settings.ini says
+    in its own header that it holds DEFAULTS and that Data/MCM/Settings/<Mod>.ini
+    is the USER OVERRIDE layer. Page structure is config.json plus lib.swf.
+
+ 3. One probe serving game and CK without measurement. HookManager::install()
+    installs ZERO hooks; main.cpp self-start is gated on Fallout4.exe so it goes
+    inert in the CK silently; envgate.py states the CK compiles Papyrus but does
+    not run it. S32 and S33 settle it in about ten minutes.
+
+================================================================================
+  END OF ORIGINAL SNAPSHOT -- 2026-10-03 -- DO NOT AMEND, DO NOT DELETE
+================================================================================
