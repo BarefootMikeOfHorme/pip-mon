@@ -359,13 +359,24 @@ switch ($Command) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
         $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
         $taken = @()
-        foreach ($f in @('Data\PipMonTestFacility.esp', 'Data\Scripts\PipMonTestFacility.pex', 'Data\Scripts\PipMon.pex')) {
+        # What a snapshot is FOR is a restore point. Zero captured files means
+        # there is no restore point, so this cannot report GREEN. The previous
+        # version emitted GREEN with files=[] and the reason "snapshot taken",
+        # which is a silent success on the one verb whose entire job is to be
+        # believed. Reproduced before the fix: exit 0, ok=true, 0 files.
+        $want = @('Data\PipMonTestFacility.esp', 'Data\Scripts\PipMonTestFacility.pex', 'Data\Scripts\PipMon.pex')
+        $missing = @()
+        $got = 0
+        foreach ($f in $want) {
             $src = Join-Path $GameDir $f
             if (Test-Path -LiteralPath $src) {
                 $leaf = [IO.Path]::GetFileName($src)
                 $dst = Join-Path $dir "$leaf.$what.$stamp.bak"
                 Copy-Item -LiteralPath $src -Destination $dst -Force
                 $taken += [ordered]@{ from = $src; to = $dst; bytes = (Get-Item $dst).Length }
+                $got++
+            } else {
+                $missing += $f
             }
         }
         # The editor's own backups are outside the project and can be swept.
@@ -378,7 +389,24 @@ switch ($Command) {
                     $taken += [ordered]@{ from = $_.FullName; to = $dst; bytes = $_.Length }
                 }
         }
-        Emit 'GREEN' "snapshot '$what' taken" ([ordered]@{ tag = $what; directory = $dir; files = $taken })
+        # GREEN requires a real restore point. The counts go in data rather than
+        # into a new status, because a PARTIAL verdict is a vocabulary decision
+        # (F2.1b) and data is branchable today while a new status is not agreed.
+        # Deployed artefacts and editor backups are counted SEPARATELY: they are
+        # different kinds of thing, and a single captured/expected pair across
+        # both implies a ratio that does not mean anything.
+        $backups = $taken.Count - $got
+        $status = if ($taken.Count -gt 0) { 'GREEN' } else { 'BROKEN' }
+        $reason = if ($taken.Count -gt 0) {
+            "snapshot '$what' taken: $got of $($want.Count) deployed artefact(s)$(if ($backups) { " plus $backups editor backup(s)" })"
+        } else {
+            "snapshot '$what' captured NOTHING, so there is no restore point. Searched '$GameDir' for $($want.Count) expected file(s): $($want -join ', ')"
+        }
+        Emit $status $reason ([ordered]@{
+            tag = $what; directory = $dir; files = $taken
+            deployedExpected = $want.Count; deployedCaptured = $got; missing = $missing
+            editorBackups = $backups
+        })
         exit $script:surfaceExit
     }
 
@@ -508,7 +536,7 @@ switch ($Command) {
             'what to do next / why'         = 'HANDOVER.md  (cold-start brief)'
             'what the project is'           = 'README.md'
             'the design record'             = 'PIP-MON_CONSOLIDATED.txt  (append-only)'
-            'this surface, in prose'        = 'PIPMON_INTERFACE.md'
+            'this surface, in prose'        = 'tools\pipmon.ps1 caps  (self-describing, generated from the same source so it cannot drift; a dedicated PIPMON_INTERFACE.md is OWED and does not exist)'
             'the test facility'             = 'testfacility\HANDOVER.md, FACILITY-SPEC.md, QUEST-SPEC.md, COVERAGE.md'
             'the CK session checklist'      = 'testfacility\ck\README.md'
             'the wire contract'             = 'docs\IPC_PROTOCOL.md  (partly fiction; see HANDOVER section 11)'
@@ -518,7 +546,14 @@ switch ($Command) {
             'what xEdit 4.1.5f can actually do' = 'runs\xedit\fo4edit-4.1.5f-pascal-api.md  (measured, not documented)'
             'anything, with provenance'     = 'tools\pipmon.ps1 rag query -Query "..."'
         }
-        Emit 'GREEN' $null ([ordered]@{ doors = $doors })
+        # A door map that points at a file which does not exist is worse than one
+        # with no entry, so the gaps are declared rather than left to be found.
+        # All 15 advertised paths were checked on 2026-10-03; this was the only
+        # one missing.
+        Emit 'GREEN' $null ([ordered]@{
+            doors = $doors
+            gaps  = @('PIPMON_INTERFACE.md: advertised by this map until 2026-10-03 and absent. The door now points at caps. Writing the document is owed.')
+        })
         exit $script:surfaceExit
     }
 
